@@ -122,4 +122,6 @@ write_log()
 	</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>120</x><y>250</y><w>140</w><h>60</h></coordinates><panel_attributes>stats.py
 --
 statistical evaluation
-methods</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>190</x><y>300</y><w>170</w><h>50</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>150;30;10;30;10;10</additional_attributes></element></diagram>
+methods</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>190</x><y>300</y><w>170</w><h>50</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>150;30;10;30;10;10</additional_attributes></element><element><id>UMLPackage</id><coordinates><x>80</x><y>330</y><w>140</w><h>60</h></coordinates><panel_attributes>logger.py
+--
+logging functionality</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>190</x><y>300</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;10;10;50</additional_attributes></element></diagram>
