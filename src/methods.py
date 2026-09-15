@@ -77,3 +77,11 @@ class AligmentMethod(ABC):
             True if the alignment was successful, False otherwise.
         """
         pass
+
+class PointSources(AligmentMethod):
+
+    def __init__(self, logger=None):
+        super().__init__("PointSources", "0.0.0", logger = logger)
+
+
+    
