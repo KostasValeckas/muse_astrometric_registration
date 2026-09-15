@@ -1,0 +1,125 @@
+<diagram program="umletino" version="15.1"><zoom_level>10</zoom_level><element><id>UMLClass</id><coordinates><x>830</x><y>280</y><w>280</w><h>310</h></coordinates><panel_attributes>AlignmentMethod
+--
+name: str
+version: str
+logger: logger
+--
+
+run(
+	reference_frame: np.2darray,
+	input_frame: np.2darray,
+	initial_guess_translation(optional): (float, float),
+	initial_guess_rotation(optional): float
+	**kwargs
+):
+	
+	offsets: (float, float) # in pixels
+	rotation: (float) # in degrees
+	sigma_translation: (float, float)
+	sigma_rotation: (float)
+	success: (bool)
+
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLClass</id><coordinates><x>1200</x><y>310</y><w>100</w><h>30</h></coordinates><panel_attributes>PointSources</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLClass</id><coordinates><x>1200</x><y>380</y><w>100</w><h>30</h></coordinates><panel_attributes>OpticalFlow</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLClass</id><coordinates><x>1200</x><y>440</y><w>130</w><h>30</h></coordinates><panel_attributes>PhaseCorrelation</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1100</x><y>320</y><w>120</w><h>110</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;90;60;90;60;10;100;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1150</x><y>380</y><w>70</w><h>30</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;10;50;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1150</x><y>390</y><w>70</w><h>90</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;10;10;70;50;70</additional_attributes></element><element><id>UMLPackage</id><coordinates><x>460</x><y>240</y><w>150</w><h>70</h></coordinates><panel_attributes>filters.py
+--
+
+frame filtering and 
+pre-processing methods
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>630</x><y>250</y><w>140</w><h>60</h></coordinates><panel_attributes>io.py
+--
+input/output</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>280</x><y>220</y><w>140</w><h>90</h></coordinates><panel_attributes>geometry.py
+--
+
+re-projection
+utilities + coordinate 
+conversions
+
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>790</x><y>240</y><w>590</w><h>430</h></coordinates><panel_attributes>methods.py
+--
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--
+Method implementations ONLY focus on aligning two frames.
+Frame pre-processing, QA, setting parameters etc. is handled by the pipeline instance.</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>410</x><y>380</y><w>280</w><h>430</h></coordinates><panel_attributes>pipeline.py
+--
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--
+Handles all logic of alignment including
+logical flow (dithers vs. reference), 
+iteration/recursion, I/O, filtering, QA etc.</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLNote</id><coordinates><x>70</x><y>630</y><w>280</w><h>120</h></coordinates><panel_attributes>A setup file containing:
+* file name list 
+* reference file list
+* what files are same obs. (different dithers)
+* path to output</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLInterface</id><coordinates><x>150</x><y>400</y><w>140</w><h>150</h></coordinates><panel_attributes>run.py
+--
+entry point
+
+spawns instance of 
+Pipeline class 
+and triggers execution</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>130</x><y>410</y><w>100</w><h>240</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>80;10;10;10;10;220</additional_attributes></element><element><id>Relation</id><coordinates><x>330</x><y>300</y><w>240</w><h>120</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>220;100;220;30;10;30;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>540</x><y>300</y><w>30</w><h>50</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;30;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>490</x><y>300</y><w>210</w><h>50</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;30;190;30;190;10</additional_attributes></element><element><id>Relation</id><coordinates><x>680</x><y>470</y><w>130</w><h>30</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;10;110;10</additional_attributes></element><element><id>Relation</id><coordinates><x>220</x><y>410</y><w>210</w><h>30</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;10;190;10</additional_attributes></element><element><id>UMLClass</id><coordinates><x>440</x><y>410</y><w>220</w><h>320</h></coordinates><panel_attributes>AlignmentPipeline
+--
+input_file_path_list: list(str) 
+reference_file_path: str
+output_path: str
+
+--
+
+run():
+	
+	offset_table: 
+		file(str), 
+		RA_offset(float) #deg,
+		DEC_offset(float) #deg,
+		ROT(float) #deg,
+		RA_sigma(float),
+		DEC_sigma(float)
+		ROT_sigma(float)
+
+write_table()
+
+write_log()
+ 
+
+
+	</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>120</x><y>250</y><w>140</w><h>60</h></coordinates><panel_attributes>stats.py
+--
+statistical evaluation
+methods</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>190</x><y>300</y><w>170</w><h>50</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>150;30;10;30;10;10</additional_attributes></element></diagram>
