@@ -1,5 +1,3 @@
-
-
 from logger import get_logger
 
 import argparse
@@ -12,9 +10,7 @@ Main method for now a stump for simple testing.
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(
-        description="Run the alignment pipeline."
-    )
+    parser = argparse.ArgumentParser(description="Run the alignment pipeline.")
 
     # TODO: these will later be exchanged with full litsts
     parser.add_argument(

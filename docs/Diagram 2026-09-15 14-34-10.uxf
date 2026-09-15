@@ -1,15 +1,19 @@
-<diagram program="umletino" version="15.1"><zoom_level>10</zoom_level><element><id>UMLClass</id><coordinates><x>830</x><y>280</y><w>280</w><h>310</h></coordinates><panel_attributes>AlignmentMethod
+<diagram program="umletino" version="15.1"><zoom_level>10</zoom_level><element><id>UMLClass</id><coordinates><x>830</x><y>280</y><w>280</w><h>360</h></coordinates><panel_attributes>AlignmentMethod
 --
 name: str
 version: str
-logger: logger
+QA_path: str
+logger(optional): logger
 --
 
 run(
 	reference_frame: np.2darray,
 	input_frame: np.2darray,
+	obs_name: str,
 	initial_guess_translation(optional): (float, float),
-	initial_guess_rotation(optional): float
+	initial_guess_rotation(optional): float,
+	save_QA(optional): bool,
+	show_QA(optional): bool
 	**kwargs
 ):
 	
@@ -33,7 +37,7 @@ re-projection
 utilities + coordinate 
 conversions
 
-</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>790</x><y>240</y><w>590</w><h>430</h></coordinates><panel_attributes>methods.py
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLPackage</id><coordinates><x>790</x><y>240</y><w>590</w><h>550</h></coordinates><panel_attributes>methods.py
 --
 
 

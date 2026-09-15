@@ -8,8 +8,8 @@ import logging
 from colorama import Fore, Style, init
 from datetime import datetime
 
-def get_logger(output_path, logger_name = "muse_astrometric_registration"):
 
+def get_logger(output_path, logger_name="muse_astrometric_registration"):
     """
     Create and configure a logger.
 
@@ -40,14 +40,15 @@ def get_logger(output_path, logger_name = "muse_astrometric_registration"):
 
     # Configure logging level
     logger.setLevel(logging.INFO)
-    
-    log_file_path = output_path / datetime.now().strftime("aligment_log_%Y-%m-%d_%H-%M-%S.log")
+
+    log_file_path = output_path / datetime.now().strftime(
+        "aligment_log_%Y-%m-%d_%H-%M-%S.log"
+    )
 
     # we add different information when we print to console and when we write to
     # file, so we need two handlers
     fh = logging.FileHandler(log_file_path)
     ch = logging.StreamHandler()
-
 
     # Create a custom formatter - this allows different colors for different log levels
     class CustomFormatter(logging.Formatter):
@@ -63,7 +64,6 @@ def get_logger(output_path, logger_name = "muse_astrometric_registration"):
                     f"{Fore.RED}{record.levelname}{Style.BRIGHT}{Style.RESET_ALL}"
                 )
             return super().format(record)
-
 
     # For filelogging we add the dates, for console logging we don't
     formatter = logging.Formatter(
