@@ -2,6 +2,7 @@
 # This block is used so we can access the src diretory for packages.
 from pathlib import Path
 import sys
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 ###
@@ -21,7 +22,9 @@ Main method for now a stump for simple testing.
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run the Point Sources alignment on two images.")
+    parser = argparse.ArgumentParser(
+        description="Run the Point Sources alignment on two images."
+    )
 
     # TODO: these will later be exchanged with full litsts
     parser.add_argument(
@@ -50,7 +53,6 @@ if __name__ == "__main__":
 
     logger.info(f"Output directory: {output_dir}")
 
-
     # Initialize the PointSources alignment method
     point_sources_aligner = PointSources(logger=logger)
 
@@ -62,10 +64,9 @@ if __name__ == "__main__":
     reference_frame = remove_nans(reference_frame, logger=logger)
     input_frame = remove_nans(input_frame, logger=logger)
 
-
     point_sources_aligner.run(
         reference_frame,
         input_frame,
-        "test_obs",
-        show_QA=True
+        "IMAGE_FOV_prealign_P01_WFI_BB_2018-01-10T02_49_23_0001",
+        show_QA=True,
     )

@@ -6,6 +6,24 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import ConnectionPatch
 import os
 from scipy.optimize import least_squares
+from scipy.ndimage import shift, rotate
+
+# plot styling
+plt.rcParams.update(
+    {
+        "figure.facecolor": "black",
+        "axes.facecolor": "black",
+        "axes.labelcolor": "white",
+        "axes.titlecolor": "white",
+        "text.color": "white",
+        "xtick.color": "white",
+        "ytick.color": "white",
+        "legend.facecolor": "black",
+        "legend.edgecolor": "white",
+        "savefig.facecolor": "black",
+        "savefig.edgecolor": "black",
+    }
+)
 
 
 class AligmentMethod(ABC):
@@ -15,7 +33,7 @@ class AligmentMethod(ABC):
     This class defines the interface that all alignment methods must implement.
     """
 
-    def __init__(self, name, version, QA_path= None , logger=None):
+    def __init__(self, name, version, QA_path=None, logger=None):
         """
         Initialize the alignment method.
 
@@ -93,6 +111,106 @@ class AligmentMethod(ABC):
 
         return True
 
+    def shift_image(self, image, dx, dy, dtheta):
+        """
+        Simple image shift and rotation for QA purposes.
+
+        Uses scipy.ndimage.shift and scipy.ndimage.rotate.
+
+        Parameters
+        ----------
+        image : np.2darray
+            The image to be shifted and rotated.
+
+        dx : float
+            Shift in the x-direction (pixels).
+
+        dy : float
+            Shift in the y-direction (pixels).
+
+        dtheta : float
+            Rotation angle (degrees).
+
+        Returns
+        -------
+        np.2darray
+            The shifted and rotated image.
+        """
+
+        # Shift the image
+        shifted_image = shift(image, shift=(dy, dx), mode="nearest")
+
+        # Rotate the image around its center
+        rotated_image = rotate(
+            shifted_image, angle=dtheta, reshape=False, mode="nearest"
+        )
+
+        return rotated_image
+
+    def plot_difference_image(
+        self, reference_frame, input_frame, dx, dy, dtheta, obs_name, show=False
+    ):
+        """
+        Plot the difference image before and after alignment.
+
+        Parameters
+        ----------
+        reference_frame : np.2darray
+            The reference image.
+
+        input_frame : np.2darray
+            The target image.
+
+        dx: float
+            Shift in the x-direction (pixels).
+
+        dy: float
+            Shift in the y-direction (pixels).
+
+        dtheta: float
+            Rotation angle (degrees).
+
+        obs_name: str
+            Name of the observation, used for saving QA plots and logging.
+        """
+
+        # normalize both images to unity
+
+        reference_frame = reference_frame / np.nanmax(reference_frame)
+        input_frame = input_frame / np.nanmax(input_frame)
+
+        aligned_frame = self.shift_image(input_frame, dx, dy, dtheta)
+
+        diff_prior = reference_frame - input_frame
+        diff_post = reference_frame - aligned_frame
+
+        _, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        axes[0].imshow(diff_prior, cmap="gray")
+        axes[0].set_title("Difference Before Alignment")
+        axes[0].set_xlabel("X Pixel")
+        axes[0].set_ylabel("Y Pixel")
+
+        axes[1].imshow(diff_post, cmap="gray")
+        axes[1].set_title("Difference After Alignment")
+        axes[1].set_xlabel("X Pixel")
+        axes[1].set_ylabel("Y Pixel")
+
+        plt.suptitle(
+            f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
+        )
+        plt.savefig(f"{self.QA_path}/difference_image_{obs_name}.png")
+
+        if self.logger:
+            self.logger.info(
+                f"Saved difference image to {self.QA_path}/difference_image_{obs_name}.png"
+            )
+
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
     @abstractmethod
     def run(
         self,
@@ -103,7 +221,7 @@ class AligmentMethod(ABC):
         initial_guess_rotation=None,
         save_QA=True,
         show_QA=False,
-        **kwargs
+        **kwargs,
     ):
         """
         Align the target image to the reference image.
@@ -160,12 +278,12 @@ class PointSources(AligmentMethod):
         super().__init__("PointSources", "0.0.0", logger=logger)
 
         if self.logger:
-            self.logger.info(f"Initialized {self.name} alignment method, version {self.version}.")
+            self.logger.info(
+                f"Initialized {self.name} alignment method, version {self.version}."
+            )
 
-        
-
-    def fit_euclidean_transform(self, source, target, centre, p0 = [0.0, 0.0, 0.0]):
-        #TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
+    def fit_euclidean_transform(self, source, target, centre, p0=[0.0, 0.0, 0.0]):
+        # TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
         """
         Fit rotation about `centre` + translation.
 
@@ -209,10 +327,12 @@ class PointSources(AligmentMethod):
             c = np.cos(theta)
             s = np.sin(theta)
 
-            rotated = np.column_stack([
-                c * a[:, 0] - s * a[:, 1],
-                s * a[:, 0] + c * a[:, 1],
-            ])
+            rotated = np.column_stack(
+                [
+                    c * a[:, 0] - s * a[:, 1],
+                    s * a[:, 0] + c * a[:, 1],
+                ]
+            )
 
             prediction = centre + rotated + np.array([tx, ty])
 
@@ -250,8 +370,6 @@ class PointSources(AligmentMethod):
             covariance,
         )
 
-
-
     def run(
         self,
         reference_frame,
@@ -261,7 +379,7 @@ class PointSources(AligmentMethod):
         show_QA=False,
         initial_guess_translation=(None, None),
         initial_guess_rotation=None,
-        **kwargs
+        **kwargs,
     ):
         """
         Align the target image to the reference image using point sources.
@@ -341,28 +459,20 @@ class PointSources(AligmentMethod):
             )
         except Exception as e:
             if self.logger:
-                self.logger.error(
-                    f"Failed to find matching sources: {e}"
-                )
+                self.logger.error(f"Failed to find matching sources: {e}")
             return self.FAILED_RETURN
 
         if self.logger:
             self.logger.info(
                 f"Found {len(source_list)} matching sources for alignment."
             )
-            self.logger.info(
-                f"Source coordinates:\n{source_list}"
-            )
-            self.logger.info(
-                f"Target coordinates:\n{target_list}"
-            )
+            self.logger.info(f"Source coordinates:\n{source_list}")
+            self.logger.info(f"Target coordinates:\n{target_list}")
 
         # Need at least 3 points for a reliable 2D Euclidean transform
         if len(source_list) < 3:
             if self.logger:
-                self.logger.error(
-                    "Not enough matched sources for reliable alignment."
-                )
+                self.logger.error("Not enough matched sources for reliable alignment.")
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
@@ -370,10 +480,9 @@ class PointSources(AligmentMethod):
         # ------------------------------------------------------------------
 
         if save_QA:
-            fig = plt.figure(figsize=(10, 5), facecolor="black")
+            fig = plt.figure(figsize=(10, 5))
 
             ax1 = plt.subplot(1, 2, 1)
-            ax1.set_facecolor("black")
             ax1.imshow(reference_frame, cmap="gray")
             ax1.scatter(
                 target_list[:, 0],
@@ -383,12 +492,9 @@ class PointSources(AligmentMethod):
             )
             ax1.set_title(
                 "Reference Frame with Matched Sources",
-                color="white",
             )
-            ax1.tick_params(colors="white")
 
             ax2 = plt.subplot(1, 2, 2)
-            ax2.set_facecolor("black")
             ax2.imshow(input_frame, cmap="gray")
             ax2.scatter(
                 source_list[:, 0],
@@ -398,16 +504,11 @@ class PointSources(AligmentMethod):
             )
             ax2.set_title(
                 "Input Frame with Matched Sources",
-                color="white",
             )
-            ax2.tick_params(colors="white")
 
             fig.suptitle(
-                f"Matched Sources for Observation: {obs_name}",
-                color="white",
+                f"Matched Sources for {obs_name}",
             )
-
-            plt.tight_layout()
 
             for (xt, yt), (xs, ys) in zip(
                 target_list,
@@ -429,7 +530,6 @@ class PointSources(AligmentMethod):
 
             plt.savefig(
                 f"{self.QA_path}/matched_sources_{obs_name}.png",
-                facecolor="black",
             )
 
             if self.logger:
@@ -449,20 +549,36 @@ class PointSources(AligmentMethod):
 
         ny, nx = input_frame.shape[:2]
 
-        centre = np.array([
-            (nx - 1) / 2,
-            (ny - 1) / 2,
-        ])
+        centre = np.array(
+            [
+                (nx - 1) / 2,
+                (ny - 1) / 2,
+            ]
+        )
 
         # ------------------------------------------------------------------
         # Initial guess for the transformation parameters
         # ------------------------------------------------------------------
 
-        p0 = np.array([
-            np.radians(initial_guess_rotation) if initial_guess_rotation is not None else 0.,
-            initial_guess_translation[0] if initial_guess_translation[0] is not None else 0.,
-            initial_guess_translation[1] if initial_guess_translation[1] is not None else 0.,
-        ])
+        p0 = np.array(
+            [
+                (
+                    np.radians(initial_guess_rotation)
+                    if initial_guess_rotation is not None
+                    else 0.0
+                ),
+                (
+                    initial_guess_translation[0]
+                    if initial_guess_translation[0] is not None
+                    else 0.0
+                ),
+                (
+                    initial_guess_translation[1]
+                    if initial_guess_translation[1] is not None
+                    else 0.0
+                ),
+            ]
+        )
 
         # ------------------------------------------------------------------
         # Iterative fit and outlier rejection
@@ -491,8 +607,7 @@ class PointSources(AligmentMethod):
             if len(source_fit) < 3:
                 if self.logger:
                     self.logger.error(
-                        "Too few matched sources remain after "
-                        "outlier rejection."
+                        "Too few matched sources remain after " "outlier rejection."
                     )
                 return self.FAILED_RETURN
 
@@ -507,24 +622,12 @@ class PointSources(AligmentMethod):
             # --------------------------------------------------------------
 
             try:
-                (
-                    theta,
-                    offset,
-                    theta_err,
-                    offset_err,
-                    _
-
-                ) = self.fit_euclidean_transform(
-                    source_fit,
-                    target_fit,
-                    centre,
-                    p0 = p0
+                (theta, offset, theta_err, offset_err, _) = (
+                    self.fit_euclidean_transform(source_fit, target_fit, centre, p0=p0)
                 )
             except Exception as e:
                 if self.logger:
-                    self.logger.error(
-                        f"Failed to fit transformation: {e}"
-                    )
+                    self.logger.error(f"Failed to fit transformation: {e}")
                 return self.FAILED_RETURN
 
             tx, ty = offset
@@ -533,22 +636,20 @@ class PointSources(AligmentMethod):
             # Calculate predicted target positions
             # --------------------------------------------------------------
 
-            predicted_fit = centre + np.column_stack([
-                (
-                    np.cos(theta)
-                    * (source_fit[:, 0] - centre[0])
-                    - np.sin(theta)
-                    * (source_fit[:, 1] - centre[1])
-                    + tx
-                ),
-                (
-                    np.sin(theta)
-                    * (source_fit[:, 0] - centre[0])
-                    + np.cos(theta)
-                    * (source_fit[:, 1] - centre[1])
-                    + ty
-                ),
-            ])
+            predicted_fit = centre + np.column_stack(
+                [
+                    (
+                        np.cos(theta) * (source_fit[:, 0] - centre[0])
+                        - np.sin(theta) * (source_fit[:, 1] - centre[1])
+                        + tx
+                    ),
+                    (
+                        np.sin(theta) * (source_fit[:, 0] - centre[0])
+                        + np.cos(theta) * (source_fit[:, 1] - centre[1])
+                        + ty
+                    ),
+                ]
+            )
 
             # --------------------------------------------------------------
             # Calculate residuals
@@ -568,10 +669,8 @@ class PointSources(AligmentMethod):
             #     |dy| > self.outlier_threshold pixels
             # --------------------------------------------------------------
 
-            outlier_mask = (
-                (np.abs(residuals_fit[:, 0]) > rejection_threshold)
-                |
-                (np.abs(residuals_fit[:, 1]) > rejection_threshold)
+            outlier_mask = (np.abs(residuals_fit[:, 0]) > rejection_threshold) | (
+                np.abs(residuals_fit[:, 1]) > rejection_threshold
             )
 
             n_outliers = np.sum(outlier_mask)
@@ -591,9 +690,7 @@ class PointSources(AligmentMethod):
                 converged = True
 
                 if self.logger:
-                    self.logger.info(
-                        "No outliers found. Iterative fitting converged."
-                    )
+                    self.logger.info("No outliers found. Iterative fitting converged.")
 
                 break
 
@@ -612,8 +709,7 @@ class PointSources(AligmentMethod):
 
             if self.logger:
                 self.logger.info(
-                    f"Rejected original source indices: "
-                    f"{rejected_indices.tolist()}"
+                    f"Rejected original source indices: " f"{rejected_indices.tolist()}"
                 )
 
         # ------------------------------------------------------------------
@@ -643,35 +739,23 @@ class PointSources(AligmentMethod):
 
         if self.logger:
             self.logger.info(
-                f"Performing final fit using "
-                f"{len(source_fit)} accepted sources."
+                f"Performing final fit using " f"{len(source_fit)} accepted sources."
             )
 
         try:
-            (
-                theta,
-                offset,
-                theta_err,
-                offset_err,
-                _
-            ) = self.fit_euclidean_transform(
-                source_fit,
-                target_fit,
-                centre,
-                p0 = p0
+            (theta, offset, theta_err, offset_err, _) = self.fit_euclidean_transform(
+                source_fit, target_fit, centre, p0=p0
             )
         except Exception as e:
             if self.logger:
-                self.logger.error(
-                    f"Failed final transformation fit: {e}"
-                )
+                self.logger.error(f"Failed final transformation fit: {e}")
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
         # Convert results to degrees
         # ------------------------------------------------------------------
 
-        rot = np.degrees(theta)
+        rot = -np.degrees(theta)
         rot_err = np.degrees(theta_err)
 
         tx, ty = offset
@@ -681,28 +765,25 @@ class PointSources(AligmentMethod):
         # Calculate final residuals for ALL original sources
         # ------------------------------------------------------------------
 
-        predicted_all = centre + np.column_stack([
-            (
-                np.cos(theta)
-                * (source_list[:, 0] - centre[0])
-                - np.sin(theta)
-                * (source_list[:, 1] - centre[1])
-                + tx
-            ),
-            (
-                np.sin(theta)
-                * (source_list[:, 0] - centre[0])
-                + np.cos(theta)
-                * (source_list[:, 1] - centre[1])
-                + ty
-            ),
-        ])
+        predicted_all = centre + np.column_stack(
+            [
+                (
+                    np.cos(theta) * (source_list[:, 0] - centre[0])
+                    - np.sin(theta) * (source_list[:, 1] - centre[1])
+                    + tx
+                ),
+                (
+                    np.sin(theta) * (source_list[:, 0] - centre[0])
+                    + np.cos(theta) * (source_list[:, 1] - centre[1])
+                    + ty
+                ),
+            ]
+        )
 
         residuals = target_list - predicted_all
 
         # Points that were rejected during the iterative fitting.
         final_outlier_mask = ~good_mask
-
 
         # ------------------------------------------------------------------
         # Residual QA plot
@@ -712,11 +793,9 @@ class PointSources(AligmentMethod):
 
             fig_residuals = plt.figure(
                 figsize=(6, 6),
-                facecolor="black",
             )
 
             ax_residuals = fig_residuals.add_subplot(1, 1, 1)
-            ax_residuals.set_facecolor("black")
 
             # --------------------------------------------------------------
             # Accepted points
@@ -798,22 +877,15 @@ class PointSources(AligmentMethod):
             )
 
             ax_residuals.set_title(
-                f"Point source fitting residuals for {obs_name}",
-                color="white",
+                f"Point source fitting residuals for\n {obs_name}",
             )
 
             ax_residuals.set_xlabel(
                 "Residual X (pixels)",
-                color="white",
             )
 
             ax_residuals.set_ylabel(
                 "Residual Y (pixels)",
-                color="white",
-            )
-
-            ax_residuals.tick_params(
-                colors="white"
             )
 
             ax_residuals.legend()
@@ -821,9 +893,7 @@ class PointSources(AligmentMethod):
             # Make the QA plot symmetric around zero
             all_residuals = residuals.ravel()
 
-            finite_residuals = all_residuals[
-                np.isfinite(all_residuals)
-            ]
+            finite_residuals = all_residuals[np.isfinite(all_residuals)]
 
             if len(finite_residuals) > 0:
 
@@ -842,11 +912,8 @@ class PointSources(AligmentMethod):
                     max_residual,
                 )
 
-            plt.tight_layout()
-
             plt.savefig(
                 f"{self.QA_path}/residuals_{obs_name}.png",
-                facecolor="black",
             )
 
             if self.logger:
@@ -860,43 +927,34 @@ class PointSources(AligmentMethod):
             else:
                 plt.close()
 
+            # ------------------------------------------------------------------
+            # Difference image QA plot
+            # ------------------------------------------------------------------
+
+            self.plot_difference_image(
+                reference_frame, input_frame, tx, ty, rot, obs_name, show=show_QA
+            )
+
         # ------------------------------------------------------------------
         # Logging
         # ------------------------------------------------------------------
 
         if self.logger:
-            self.logger.info(
-                f"Alignment results for observation {obs_name}:"
-            )
-    
-            self.logger.info(
-                f"Accepted sources: "
-                f"{np.sum(good_mask)}/{len(good_mask)}"
-            )
+            self.logger.info(f"Alignment results for {obs_name}:")
 
             self.logger.info(
-                f"Rejected sources: "
-                f"{np.sum(final_outlier_mask)}"
+                f"Accepted sources: " f"{np.sum(good_mask)}/{len(good_mask)}"
             )
 
-            self.logger.info(
-                f"Residuals after alignment (in pixels):\n"
-                f"{residuals}"
-            )
+            self.logger.info(f"Rejected sources: " f"{np.sum(final_outlier_mask)}")
 
-            self.logger.info(
-                f"Rotation:    {rot:.4f} ± {rot_err:.4f} deg"
-            )
+            self.logger.info(f"Residuals after alignment (in pixels):\n" f"{residuals}")
 
-            self.logger.info(
-                f"X offset:     {tx:.3f} ± {tx_err:.3f} pix"
-            )
+            self.logger.info(f"Rotation:    {rot:.4f} ± {rot_err:.4f} deg")
 
-            self.logger.info(
-                f"Y offset:     {ty:.3f} ± {ty_err:.3f} pix"
-            )
+            self.logger.info(f"X offset:     {tx:.3f} ± {tx_err:.3f} pix")
 
-
+            self.logger.info(f"Y offset:     {ty:.3f} ± {ty_err:.3f} pix")
 
         # ------------------------------------------------------------------
         # Return final alignment

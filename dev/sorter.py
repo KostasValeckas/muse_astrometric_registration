@@ -1,5 +1,5 @@
 import json
-import sys 
+import sys
 import os
 from astropy.io import fits
 import argparse
@@ -29,9 +29,8 @@ if __name__ == "__main__":
     # all ".fits" files in the input directory
     fits_files = [f for f in os.listdir(input_dir) if f.endswith(".fits")]
 
-    # sort the files by name 
+    # sort the files by name
     fits_files.sort()
-
 
     sorted_files = {}
 
@@ -43,10 +42,11 @@ if __name__ == "__main__":
             POINTING_OBS = header.get("HIERARCH MUSEPIPE_POINTING", None)
             DATE_OBS = header.get("DATE-OBS", None)
 
-            print(f"File: {file}, IEXPO_OBS: {IEXPO_OBS}, POINTING_OBS: {POINTING_OBS}, DATE_OBS: {DATE_OBS}")
+            print(
+                f"File: {file}, IEXPO_OBS: {IEXPO_OBS}, POINTING_OBS: {POINTING_OBS}, DATE_OBS: {DATE_OBS}"
+            )
 
             if POINTING_OBS not in sorted_files:
                 sorted_files[POINTING_OBS] = []
 
             sorted_files[POINTING_OBS].append((IEXPO_OBS, DATE_OBS, file))
-
