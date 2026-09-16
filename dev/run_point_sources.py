@@ -66,5 +66,6 @@ if __name__ == "__main__":
     point_sources_aligner.run(
         reference_frame,
         input_frame,
-        "test_obs"
+        "test_obs",
+        show_QA=True
     )
