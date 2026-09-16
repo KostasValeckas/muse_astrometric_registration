@@ -25,7 +25,6 @@ plt.rcParams.update(
     }
 )
 
-
 class AligmentMethod(ABC):
     """
     Abstract base class for all alignment methods.
