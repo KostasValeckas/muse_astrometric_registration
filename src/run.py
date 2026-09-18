@@ -48,14 +48,13 @@ if __name__ == "__main__":
     with open(args.config_file, "r") as f:
         config = json.load(f)
 
-    for pointing, exposures in config.items():
-        for exposure in exposures:
-            filenames.append(exposure[2])
 
     # create the pipeline
     pipeline = AlignmentPipeline(
-        input_files=[f"{args.input_dir}/{filename}" for filename in filenames],
+        config_dict=config,
+        input_dir=args.input_dir,
         reference_file=args.ref_file_path,
         output_dir=args.output_dir
     )
-    pipeline.run(args.config_file, args.ref_file_path, args.output_dir)
+
+    pipeline.run()

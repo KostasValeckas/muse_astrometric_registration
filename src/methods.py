@@ -183,17 +183,45 @@ class AligmentMethod(ABC):
         diff_prior = reference_frame - input_frame
         diff_post = reference_frame - aligned_frame
 
-        _, axes = plt.subplots(1, 2, figsize=(12, 6))
+        _, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-        axes[0].imshow(diff_prior, cmap="gray")
-        axes[0].set_title("Difference Before Alignment")
-        axes[0].set_xlabel("X Pixel")
-        axes[0].set_ylabel("Y Pixel")
+        ref_vmin, ref_vmax = np.percentile(reference_frame, 5), np.percentile(reference_frame, 95)
+        in_vmin, in_vmax = np.percentile(input_frame, 5), np.percentile(input_frame, 95)
 
-        axes[1].imshow(diff_post, cmap="gray")
-        axes[1].set_title("Difference After Alignment")
-        axes[1].set_xlabel("X Pixel")
-        axes[1].set_ylabel("Y Pixel")
+        axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5)
+        axes[0, 0].imshow(input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5)
+        axes[0, 0].set_title("Before Alignment")
+        axes[0, 0].set_xlabel("X Pixel")
+        axes[0, 0].set_ylabel("Y Pixel")
+
+        axes[0, 1].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5)
+        axes[0, 1].imshow(aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5)
+        axes[0, 1].set_title("After Alignment")
+        axes[0, 1].set_xlabel("X Pixel")
+        axes[0, 1].set_ylabel("Y Pixel")
+
+        axes[1, 0].imshow(
+            diff_prior,
+            cmap="gray",
+            vmin=np.percentile(diff_prior, 5),
+            vmax=np.percentile(diff_prior, 95),
+        )
+        axes[1, 0].set_title("Difference Before Alignment")
+        axes[1, 0].set_xlabel("X Pixel")
+        axes[1, 0].set_ylabel("Y Pixel")
+
+        axes[1, 1].imshow(
+            diff_post,
+            cmap="gray",
+            vmin=np.percentile(diff_post, 5),
+            vmax=np.percentile(diff_post, 95),
+        )
+        axes[1, 1].set_title("Difference After Alignment")
+        axes[1, 1].set_xlabel("X Pixel")
+        axes[1, 1].set_ylabel("Y Pixel")
+
+        for ax in axes.ravel():
+            ax.set_aspect("equal")
 
         plt.suptitle(
             f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
@@ -280,12 +308,12 @@ class AligmentMethod(ABC):
 
 class PointSources(AligmentMethod):
 
-    def __init__(self, logger=None, outlier_threshold=0.5, max_iterations=5):
+    def __init__(self, logger=None, outlier_threshold=0.5, max_iterations=5, QA_path=None):
 
         self.outlier_threshold = outlier_threshold
         self.max_iterations = max_iterations
 
-        super().__init__("PointSources", "0.0.0", logger=logger)
+        super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
 
         if self.logger:
             self.logger.info(
@@ -475,11 +503,11 @@ class PointSources(AligmentMethod):
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(reference_frame, cmap="gray")
+                ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
                 ax1.set_title("Reference Frame")
 
                 ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(input_frame, cmap="gray")
+                ax2.imshow(input_frame, cmap="gray", vmin =np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
                 ax2.set_title("Input Frame")
 
                 fig.suptitle(
@@ -521,11 +549,11 @@ class PointSources(AligmentMethod):
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(reference_frame, cmap="gray")
+                ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
                 ax1.set_title("Reference Frame")
 
                 ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(input_frame, cmap="gray")
+                ax2.imshow(input_frame, cmap="gray", vmin=np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
                 ax2.set_title("Input Frame")
 
                 fig.suptitle(
@@ -557,7 +585,7 @@ class PointSources(AligmentMethod):
             fig = plt.figure(figsize=(10, 5))
 
             ax1 = plt.subplot(1, 2, 1)
-            ax1.imshow(reference_frame, cmap="gray")
+            ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
             ax1.scatter(
                 target_list[:, 0],
                 target_list[:, 1],
@@ -569,7 +597,7 @@ class PointSources(AligmentMethod):
             )
 
             ax2 = plt.subplot(1, 2, 2)
-            ax2.imshow(input_frame, cmap="gray")
+            ax2.imshow(input_frame, cmap="gray", vmin=np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
             ax2.scatter(
                 source_list[:, 0],
                 source_list[:, 1],
