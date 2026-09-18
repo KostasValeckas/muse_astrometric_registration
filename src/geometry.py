@@ -35,7 +35,11 @@ def reproject_image_to_target_wcs(source_image, source_wcs, target_wcs, shape_ou
     """
 
     if shape_out is None:
-        shape_out = (target_wcs.array_shape[1], target_wcs.array_shape[0])
+        shape_out = (target_wcs.array_shape[0], target_wcs.array_shape[1])
+
+
+    if logger:
+        logger.info(f"Reprojecting image to target WCS with shape {shape_out} using method '{method}'...")
 
     if method == 'interpolation':
         reprojected_image, footprint = reproject_interp((source_image, source_wcs), target_wcs, shape_out=shape_out)
@@ -48,5 +52,8 @@ def reproject_image_to_target_wcs(source_image, source_wcs, target_wcs, shape_ou
             logger.error(f"Invalid reprojection method: {method}. Choose from 'interpolation', 'exact', or 'adaptive'.")
             logger.error("Returning the source image without reprojection...")
             return source_image, np.zeros(shape_out)
+
+    if logger:
+        logger.info("Reprojection completed successfully.")
 
     return reprojected_image, footprint

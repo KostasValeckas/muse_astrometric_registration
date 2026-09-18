@@ -1,5 +1,6 @@
 import argparse
 import json
+from pipeline import AlignmentPipeline
 
 
 
@@ -25,6 +26,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--input_dir",
+        type=str,
+        default=".",
+        help="Path to the input directory. Default is current working directory."
+    )
+
+    parser.add_argument(
         "--output_dir",
         type=str,
         default=".",
@@ -32,3 +40,22 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    # for now, just load all the filenames
+
+    filenames = []
+
+    with open(args.config_file, "r") as f:
+        config = json.load(f)
+
+    for pointing, exposures in config.items():
+        for exposure in exposures:
+            filenames.append(exposure[2])
+
+    # create the pipeline
+    pipeline = AlignmentPipeline(
+        input_files=[f"{args.input_dir}/{filename}" for filename in filenames],
+        reference_file=args.ref_file_path,
+        output_dir=args.output_dir
+    )
+    pipeline.run(args.config_file, args.ref_file_path, args.output_dir)

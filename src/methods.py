@@ -264,7 +264,18 @@ class AligmentMethod(ABC):
         success: bool
             True if the alignment was successful, False otherwise.
         """
-        pass
+
+        # Expected return values for the aligment methods
+
+        (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
+
+        return (
+            (tx, ty),
+            rot,
+            (tx_err, ty_err),
+            rot_err,
+            success,
+        )
 
 
 class PointSources(AligmentMethod):
@@ -459,6 +470,37 @@ class PointSources(AligmentMethod):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed to find matching sources: {e}")
+
+            if save_QA:
+                fig = plt.figure(figsize=(10, 5))
+
+                ax1 = plt.subplot(1, 2, 1)
+                ax1.imshow(reference_frame, cmap="gray")
+                ax1.set_title("Reference Frame")
+
+                ax2 = plt.subplot(1, 2, 2)
+                ax2.imshow(input_frame, cmap="gray")
+                ax2.set_title("Input Frame")
+
+                fig.suptitle(
+                    f"Failed Alignment for {obs_name}: Could not find matching sources",
+                )
+
+                plt.savefig(
+                    f"{self.QA_path}/failed_alignment_{obs_name}.png",
+                )
+
+                if self.logger:
+                    self.logger.info(
+                        f"Saved QA plot of failed alignment to "
+                        f"{self.QA_path}/failed_alignment_{obs_name}.png"
+                    )
+
+                if show_QA:
+                    plt.show()
+                else:
+                    plt.close()
+
             return self.FAILED_RETURN
 
         if self.logger:
@@ -472,6 +514,39 @@ class PointSources(AligmentMethod):
         if len(source_list) < 3:
             if self.logger:
                 self.logger.error("Not enough matched sources for reliable alignment.")
+
+    
+            # plot the images that failed for QA
+            if save_QA:
+                fig = plt.figure(figsize=(10, 5))
+
+                ax1 = plt.subplot(1, 2, 1)
+                ax1.imshow(reference_frame, cmap="gray")
+                ax1.set_title("Reference Frame")
+
+                ax2 = plt.subplot(1, 2, 2)
+                ax2.imshow(input_frame, cmap="gray")
+                ax2.set_title("Input Frame")
+
+                fig.suptitle(
+                    f"Failed Alignment for {obs_name}: Not enough matched sources",
+                )
+
+                plt.savefig(
+                    f"{self.QA_path}/failed_alignment_{obs_name}.png",
+                )
+
+                if self.logger:
+                    self.logger.info(
+                        f"Saved QA plot of failed alignment to "
+                        f"{self.QA_path}/failed_alignment_{obs_name}.png"
+                    )
+
+                if show_QA:
+                    plt.show()
+                else:
+                    plt.close()
+                
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
