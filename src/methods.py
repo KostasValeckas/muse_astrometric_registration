@@ -66,7 +66,7 @@ class AligmentMethod(ABC):
         # this is the return value when the alignment fails
         self.FAILED_RETURN = (None, None), None, (None, None), None, False
 
-    def check_input(self, reference_frame, input_frame):
+    def check_input(self, reference_frame, input_frame, skip_shape_check=False, skip_type_check=False, skip_nan_check=False):
         """
         Check if the reference and input frames are compatible for alignment.
 
@@ -87,19 +87,19 @@ class AligmentMethod(ABC):
             True if input is valid, False otherwise.
         """
 
-        if reference_frame.shape != input_frame.shape:
+        if not skip_shape_check and reference_frame.shape != input_frame.shape:
             if self.logger:
                 self.logger.error("Shape mismatch between reference and input frames.")
 
             return False
 
-        if not isinstance(reference_frame, type(input_frame)):
+        if not isinstance(reference_frame, type(input_frame)) and not skip_type_check:
             if self.logger:
                 self.logger.error("Type mismatch between reference and input frames.")
 
             return False
 
-        if np.isnan(reference_frame).any() or np.isnan(input_frame).any():
+        if not skip_nan_check and (np.isnan(reference_frame).any() or np.isnan(input_frame).any()):
             if self.logger:
                 self.logger.error("NaN values found in reference or input frames.")
 

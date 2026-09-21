@@ -57,3 +57,110 @@ def reproject_image_to_target_wcs(source_image, source_wcs, target_wcs, shape_ou
         logger.info("Reprojection completed successfully.")
 
     return reprojected_image, footprint
+
+
+# some helper methods for euclidean transforms
+
+import numpy as np
+
+
+def transformation_matrix(tx, ty, rotation_deg, centre):
+    """
+    Convert the alignment result returned by AlignmentMethod.run()
+    into a 3x3 homogeneous transformation matrix.
+
+    The transformation is:
+
+        p_target =
+            centre + R(theta) @ (p_input - centre) + [tx, ty]
+
+    where rotation_deg is the rotation returned by run().
+    """
+
+    # Your AlignmentMethod returns:
+    #
+    #     rot = -degrees(theta)
+    #
+    # so convert back to theta here.
+    theta = np.radians(-rotation_deg)
+
+    cos_theta = np.cos(theta)
+    sin_theta = np.sin(theta)
+
+    R = np.array([
+        [cos_theta, -sin_theta],
+        [sin_theta,  cos_theta],
+    ])
+
+    centre = np.asarray(centre, dtype=float)
+    translation = np.array([tx, ty], dtype=float)
+
+    # Convert the centre-based transformation into:
+    #
+    # p_target = R @ p_input + b
+    #
+    b = centre + translation - R @ centre
+
+    T = np.eye(3)
+
+    T[:2, :2] = R
+    T[:2, 2] = b
+
+    return T
+
+
+def compose_transformations(T1, T2):
+    """
+    Compose two transformations.
+
+    T1 maps:
+        frame A -> frame B
+
+    T2 maps:
+        frame B -> frame C
+
+    Returns:
+        frame A -> frame C
+    """
+
+    return T2 @ T1
+
+
+def inverse_transformation(T):
+    """
+    Return the inverse transformation.
+    """
+
+    return np.linalg.inv(T)
+
+
+def matrix_to_parameters(T, centre):
+    """
+    Convert a 3x3 homogeneous transformation back to the
+    (tx, ty, rotation_deg) convention used by AlignmentMethod.
+    """
+
+    R = T[:2, :2]
+    b = T[:2, 2]
+
+    # Recover theta from R.
+    theta = np.arctan2(R[1, 0], R[0, 0])
+
+    # Your AlignmentMethod reports:
+    #
+    #     rot = -degrees(theta)
+    #
+    rotation_deg = -np.degrees(theta)
+
+    centre = np.asarray(centre, dtype=float)
+
+    # b = centre + t - R @ centre
+    #
+    # therefore:
+    #
+    # t = b - centre + R @ centre
+    translation = b - centre + R @ centre
+
+    tx, ty = translation
+
+    return tx, ty, rotation_deg
