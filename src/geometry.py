@@ -7,7 +7,15 @@ Module for reprojections and WCS conversions.
 """
 
 
-def reproject_image_to_target_wcs(source_image, source_wcs, target_wcs, shape_out=None, oversample_factor = 1, method='interpolation', logger=None):
+def reproject_image_to_target_wcs(
+    source_image,
+    source_wcs,
+    target_wcs,
+    shape_out=None,
+    oversample_factor=1,
+    method="interpolation",
+    logger=None,
+):
     """
     Reprojects a source image to the WCS of a target image.
 
@@ -37,19 +45,28 @@ def reproject_image_to_target_wcs(source_image, source_wcs, target_wcs, shape_ou
     if shape_out is None:
         shape_out = (target_wcs.array_shape[0], target_wcs.array_shape[1])
 
-
     if logger:
-        logger.info(f"Reprojecting image to target WCS with shape {shape_out} using method '{method}'...")
+        logger.info(
+            f"Reprojecting image to target WCS with shape {shape_out} using method '{method}'..."
+        )
 
-    if method == 'interpolation':
-        reprojected_image, footprint = reproject_interp((source_image, source_wcs), target_wcs, shape_out=shape_out)
-    elif method == 'exact':
-        reprojected_image, footprint = reproject_exact((source_image, source_wcs), target_wcs, shape_out=shape_out)
-    elif method == 'adaptive':
-        reprojected_image, footprint = reproject_adaptive((source_image, source_wcs), target_wcs, shape_out=shape_out)
+    if method == "interpolation":
+        reprojected_image, footprint = reproject_interp(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
+    elif method == "exact":
+        reprojected_image, footprint = reproject_exact(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
+    elif method == "adaptive":
+        reprojected_image, footprint = reproject_adaptive(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
     else:
         if logger:
-            logger.error(f"Invalid reprojection method: {method}. Choose from 'interpolation', 'exact', or 'adaptive'.")
+            logger.error(
+                f"Invalid reprojection method: {method}. Choose from 'interpolation', 'exact', or 'adaptive'."
+            )
             logger.error("Returning the source image without reprojection...")
             return source_image, np.zeros(shape_out)
 
@@ -87,10 +104,12 @@ def transformation_matrix(tx, ty, rotation_deg, centre):
     cos_theta = np.cos(theta)
     sin_theta = np.sin(theta)
 
-    R = np.array([
-        [cos_theta, -sin_theta],
-        [sin_theta,  cos_theta],
-    ])
+    R = np.array(
+        [
+            [cos_theta, -sin_theta],
+            [sin_theta, cos_theta],
+        ]
+    )
 
     centre = np.asarray(centre, dtype=float)
     translation = np.array([tx, ty], dtype=float)

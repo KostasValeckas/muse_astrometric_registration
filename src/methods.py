@@ -25,6 +25,7 @@ plt.rcParams.update(
     }
 )
 
+
 class AligmentMethod(ABC):
     """
     Abstract base class for all alignment methods.
@@ -66,7 +67,14 @@ class AligmentMethod(ABC):
         # this is the return value when the alignment fails
         self.FAILED_RETURN = (None, None), None, (None, None), None, False
 
-    def check_input(self, reference_frame, input_frame, skip_shape_check=False, skip_type_check=False, skip_nan_check=False):
+    def check_input(
+        self,
+        reference_frame,
+        input_frame,
+        skip_shape_check=False,
+        skip_type_check=False,
+        skip_nan_check=False,
+    ):
         """
         Check if the reference and input frames are compatible for alignment.
 
@@ -99,7 +107,9 @@ class AligmentMethod(ABC):
 
             return False
 
-        if not skip_nan_check and (np.isnan(reference_frame).any() or np.isnan(input_frame).any()):
+        if not skip_nan_check and (
+            np.isnan(reference_frame).any() or np.isnan(input_frame).any()
+        ):
             if self.logger:
                 self.logger.error("NaN values found in reference or input frames.")
 
@@ -147,7 +157,15 @@ class AligmentMethod(ABC):
         return rotated_image
 
     def plot_difference_image(
-        self, reference_frame, input_frame, dx, dy, dtheta, obs_name, show=False
+        self,
+        reference_frame,
+        input_frame,
+        dx,
+        dy,
+        dtheta,
+        obs_name,
+        show=False,
+        custom_title=None,
     ):
         """
         Plot the difference image before and after alignment.
@@ -171,6 +189,12 @@ class AligmentMethod(ABC):
 
         obs_name: str
             Name of the observation, used for saving QA plots and logging.
+
+        show: bool, optional
+            If True, display the plot interactively. Default is False.
+
+        custom_title: str, optional
+            Custom title for the plot. If None, a default title will be used.
         """
 
         # normalize both images to unity
@@ -185,17 +209,27 @@ class AligmentMethod(ABC):
 
         _, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-        ref_vmin, ref_vmax = np.percentile(reference_frame, 5), np.percentile(reference_frame, 95)
+        ref_vmin, ref_vmax = np.percentile(reference_frame, 5), np.percentile(
+            reference_frame, 95
+        )
         in_vmin, in_vmax = np.percentile(input_frame, 5), np.percentile(input_frame, 95)
 
-        axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5)
-        axes[0, 0].imshow(input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5)
+        axes[0, 0].imshow(
+            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5
+        )
+        axes[0, 0].imshow(
+            input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
+        )
         axes[0, 0].set_title("Before Alignment")
         axes[0, 0].set_xlabel("X Pixel")
         axes[0, 0].set_ylabel("Y Pixel")
 
-        axes[0, 1].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5)
-        axes[0, 1].imshow(aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5)
+        axes[0, 1].imshow(
+            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5
+        )
+        axes[0, 1].imshow(
+            aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
+        )
         axes[0, 1].set_title("After Alignment")
         axes[0, 1].set_xlabel("X Pixel")
         axes[0, 1].set_ylabel("Y Pixel")
@@ -223,9 +257,12 @@ class AligmentMethod(ABC):
         for ax in axes.ravel():
             ax.set_aspect("equal")
 
-        plt.suptitle(
-            f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
-        )
+        if custom_title is not None:
+            plt.suptitle(custom_title)
+        else:
+            plt.suptitle(
+                f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
+            )
         plt.savefig(f"{self.QA_path}/difference_image_{obs_name}.png")
 
         if self.logger:
@@ -308,7 +345,9 @@ class AligmentMethod(ABC):
 
 class PointSources(AligmentMethod):
 
-    def __init__(self, logger=None, outlier_threshold=0.5, max_iterations=5, QA_path=None):
+    def __init__(
+        self, logger=None, outlier_threshold=0.5, max_iterations=5, QA_path=None
+    ):
 
         self.outlier_threshold = outlier_threshold
         self.max_iterations = max_iterations
@@ -503,11 +542,21 @@ class PointSources(AligmentMethod):
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
+                ax1.imshow(
+                    reference_frame,
+                    cmap="gray",
+                    vmin=np.percentile(reference_frame, 5),
+                    vmax=np.percentile(reference_frame, 95),
+                )
                 ax1.set_title("Reference Frame")
 
                 ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(input_frame, cmap="gray", vmin =np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
+                ax2.imshow(
+                    input_frame,
+                    cmap="gray",
+                    vmin=np.percentile(input_frame, 5),
+                    vmax=np.percentile(input_frame, 95),
+                )
                 ax2.set_title("Input Frame")
 
                 fig.suptitle(
@@ -543,17 +592,26 @@ class PointSources(AligmentMethod):
             if self.logger:
                 self.logger.error("Not enough matched sources for reliable alignment.")
 
-    
             # plot the images that failed for QA
             if save_QA:
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
+                ax1.imshow(
+                    reference_frame,
+                    cmap="gray",
+                    vmin=np.percentile(reference_frame, 5),
+                    vmax=np.percentile(reference_frame, 95),
+                )
                 ax1.set_title("Reference Frame")
 
                 ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(input_frame, cmap="gray", vmin=np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
+                ax2.imshow(
+                    input_frame,
+                    cmap="gray",
+                    vmin=np.percentile(input_frame, 5),
+                    vmax=np.percentile(input_frame, 95),
+                )
                 ax2.set_title("Input Frame")
 
                 fig.suptitle(
@@ -574,7 +632,7 @@ class PointSources(AligmentMethod):
                     plt.show()
                 else:
                     plt.close()
-                
+
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
@@ -585,7 +643,12 @@ class PointSources(AligmentMethod):
             fig = plt.figure(figsize=(10, 5))
 
             ax1 = plt.subplot(1, 2, 1)
-            ax1.imshow(reference_frame, cmap="gray", vmin=np.percentile(reference_frame, 5), vmax=np.percentile(reference_frame, 95))
+            ax1.imshow(
+                reference_frame,
+                cmap="gray",
+                vmin=np.percentile(reference_frame, 5),
+                vmax=np.percentile(reference_frame, 95),
+            )
             ax1.scatter(
                 target_list[:, 0],
                 target_list[:, 1],
@@ -597,7 +660,12 @@ class PointSources(AligmentMethod):
             )
 
             ax2 = plt.subplot(1, 2, 2)
-            ax2.imshow(input_frame, cmap="gray", vmin=np.percentile(input_frame, 5), vmax=np.percentile(input_frame, 95))
+            ax2.imshow(
+                input_frame,
+                cmap="gray",
+                vmin=np.percentile(input_frame, 5),
+                vmax=np.percentile(input_frame, 95),
+            )
             ax2.scatter(
                 source_list[:, 0],
                 source_list[:, 1],

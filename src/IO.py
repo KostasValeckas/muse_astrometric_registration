@@ -47,6 +47,7 @@ def read_fits_image(file_path, logger=None, data_extension=0):
 
     return image_data
 
+
 def extract_image_wcs(file_path, logger=None, wcs_extension=0):
     """
     Extracts the WCS information from a FITS file.
@@ -66,7 +67,9 @@ def extract_image_wcs(file_path, logger=None, wcs_extension=0):
     """
 
     if logger:
-        logger.info(f"Extracting WCS from FITS image at {file_path} (extension {wcs_extension})")
+        logger.info(
+            f"Extracting WCS from FITS image at {file_path} (extension {wcs_extension})"
+        )
 
     try:
         with fits.open(file_path) as hdul:

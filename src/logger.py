@@ -42,7 +42,6 @@ def get_logger(output_path, logger_name="muse_astrometric_registration"):
     # Configure logging level
     logger.setLevel(logging.INFO)
 
-    
     output_path = Path(output_path) if isinstance(output_path, str) else output_path
     log_file_path = output_path / datetime.now().strftime(
         "aligment_log_%Y-%m-%d_%H-%M-%S.log"
