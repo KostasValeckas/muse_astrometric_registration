@@ -18,18 +18,24 @@ import matplotlib.pyplot as plt
 
 from enum import Enum
 
+# TODO: for now, hardcoded to 4 dithers pr. pointing
+
 
 # for plotting
 STATUS_COLORS = {
-    0: "red", # failed
-    1: "green", # success
-    0.5: "yellow" # composed
-}
+    0: "red",
+    1: "green",
+    0.5: "yellow",
+    0.7: "orange",
+}  # failed  # success  # composed # inconsistent
 
 # create custom color bar for the status plot
 from matplotlib.colors import ListedColormap, BoundaryNorm
-cmap = ListedColormap([STATUS_COLORS[0], STATUS_COLORS[0.5], STATUS_COLORS[1]])
-norm = BoundaryNorm([0, 0.5, 1, 1.5], cmap.N)
+
+cmap = ListedColormap(
+    [STATUS_COLORS[0], STATUS_COLORS[0.5], STATUS_COLORS[0.7], STATUS_COLORS[1]]
+)
+norm = BoundaryNorm([0, 0.5, 0.7, 1, 1.5], cmap.N)
 
 
 class AlignmentPipeline:
@@ -45,6 +51,236 @@ class AlignmentPipeline:
         self.input_dir = input_dir
         self.reference_file = reference_file
         self.output_dir = output_dir
+
+    def _cross_ref_dither_table(self, sucess_table, table, threshold_frac=0.1, minimum_value = 0.1):
+        """
+        Helper method to `align_dithers`. Opposite values
+        (for example x_offset 1 -> 4 and x_offset 4 -> 1) should be the same up
+        to threshold. If now, replace with nans and and adjust sucess table.
+
+        Assumes 4 dithers.
+        """
+
+        # generic handling for all unique dither pairs (assumes square table)
+        n = table.shape[0]
+        pairs = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                pairs.append((i, j))
+
+        for a, b in pairs:
+            val_ab = np.abs(table[a, b])
+            val_ba = np.abs(table[b, a])
+
+            if val_ab < minimum_value and val_ba < minimum_value:
+                self.logger.info(f"Values too small to check consistency between dither {a+1} and dither {b+1} ({val_ab} vs. {val_ba}). Skipping consistency check for this pair...")
+                continue
+
+
+
+
+            if (abs(val_ab - val_ba) / max(abs(val_ab), abs(val_ba))) > threshold_frac and val_ab != np.nan and val_ba != np.nan:
+
+                self.logger.warning(
+                    f"Alignment between dither {a+1} and dither {b+1} is inconsistent ({val_ab} vs. {val_ba}). Replacing with NaN values."
+                )
+                sucess_table[a, b] = 0.7
+                sucess_table[b, a] = 0.7
+
+        return sucess_table, table
+
+    def _plot_dither_alignment(
+        self,
+        dither_set,
+        n_dithers,
+        succes_table,
+        x_return_table,
+        y_return_table,
+        rotation_return_table,
+        obs_title,
+        save_path=None,
+        title=None,
+        save=True,
+        show=False,
+    ):
+        """
+        Helper plotting medthod to `align_dithers`.
+        """
+
+        _, axes = plt.subplots(2, 4, figsize=(22, 12))
+
+        # ---------------------------------------------------------
+        # Dither images
+        # ---------------------------------------------------------
+        for i in range(min(n_dithers, 4)):
+            ax = axes[0, i]
+            _ = ax.imshow(
+                dither_set[i],
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=np.percentile(dither_set[i], 5),
+                vmax=np.percentile(dither_set[i], 95),
+            )
+            ax.set_title(f"Dither {i + 1}")
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+
+        # ---------------------------------------------------------
+        # 1. Alignment Status
+        # ---------------------------------------------------------
+        ax = axes[1, 0]
+
+        _ = ax.imshow(
+            succes_table,
+            cmap=cmap,
+            norm=norm,
+            interpolation="nearest",
+        )
+
+        ax.set_title("Alignment Status Between Dithers")
+        ax.set_xlabel("Dither Index")
+        ax.set_ylabel("Dither Index")
+
+        ax.set_xticks(range(n_dithers))
+        ax.set_yticks(range(n_dithers))
+        ax.set_xticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+        ax.set_yticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+
+        for i in range(n_dithers):
+            for j in range(n_dithers):
+                ax.text(
+                    j,
+                    i,
+                    (
+                        "FAILED"
+                        if succes_table[i, j] == 0
+                        else (
+                            "INCONSISTENT"
+                            if succes_table[i, j] == 0.7
+                            else "COMPOSED" if succes_table[i, j] == 0.5 else "OK"
+                        )
+                    ),
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=12,
+                )
+
+        # ---------------------------------------------------------
+        # 2. X Offsets
+        # ---------------------------------------------------------
+        ax = axes[1, 1]
+
+        _ = ax.imshow(
+            x_return_table,
+            cmap="Set1",
+            interpolation="nearest",
+        )
+
+        ax.set_title("X Offsets Between Dithers")
+        ax.set_xlabel("Dither Index")
+        ax.set_ylabel("Dither Index")
+
+        ax.set_xticks(range(n_dithers))
+        ax.set_yticks(range(n_dithers))
+        ax.set_xticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+        ax.set_yticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+
+        for i in range(n_dithers):
+            for j in range(n_dithers):
+                ax.text(
+                    j,
+                    i,
+                    f"{x_return_table[i, j]:.3f}",
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=12,
+                )
+
+        # ---------------------------------------------------------
+        # 3. Y Offsets
+        # ---------------------------------------------------------
+        ax = axes[1, 2]
+
+        _ = ax.imshow(
+            y_return_table,
+            cmap="Set1",
+            interpolation="nearest",
+        )
+
+        ax.set_title("Y Offsets Between Dithers")
+        ax.set_xlabel("Dither Index")
+        ax.set_ylabel("Dither Index")
+
+        ax.set_xticks(range(n_dithers))
+        ax.set_yticks(range(n_dithers))
+        ax.set_xticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+        ax.set_yticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+
+        for i in range(n_dithers):
+            for j in range(n_dithers):
+                ax.text(
+                    j,
+                    i,
+                    f"{y_return_table[i, j]:.3f}",
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=12,
+                )
+
+        # ---------------------------------------------------------
+        # 4. Rotation Angles
+        # ---------------------------------------------------------
+        ax = axes[1, 3]
+
+        _ = ax.imshow(
+            rotation_return_table,
+            cmap="Set1",
+            interpolation="nearest",
+        )
+
+        ax.set_title("Rotation Angles Between Dithers")
+        ax.set_xlabel("Dither Index")
+        ax.set_ylabel("Dither Index")
+
+        ax.set_xticks(range(n_dithers))
+        ax.set_yticks(range(n_dithers))
+        ax.set_xticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+        ax.set_yticklabels([f"Dither {i+1}" for i in range(n_dithers)])
+
+        for i in range(n_dithers):
+            for j in range(n_dithers):
+                ax.text(
+                    j,
+                    i,
+                    f"{rotation_return_table[i, j]:.3f}",
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=12,
+                )
+
+        # ---------------------------------------------------------
+        # Layout
+        # ---------------------------------------------------------
+        if title:
+            plt.suptitle(title, fontsize=16)
+        else:
+            plt.suptitle(f"Dither Alignment QA for {obs_title}", fontsize=16)
+
+        plt.tight_layout()
+        if save:
+            if save_path is None:
+                save_path = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
+                save_path.mkdir(parents=True, exist_ok=True)
+            plt.savefig(save_path / f"{obs_title}_dither_alignment.png")
+        if show:
+            plt.show()
+        else:
+            plt.close()
 
     def align_dithers(self, dither_set, wcs_set, method, obs_name=None):
         """
@@ -110,14 +346,12 @@ class AlignmentPipeline:
 
         """
 
-    
-
         n_dithers = len(dither_set)
 
         x_return_table = np.full((n_dithers, n_dithers), np.nan)
         y_return_table = np.full((n_dithers, n_dithers), np.nan)
         rotation_return_table = np.full((n_dithers, n_dithers), np.nan)
-        succes_tabe = np.full((n_dithers, n_dithers), 0, dtype=float)
+        succes_table = np.full((n_dithers, n_dithers), 0, dtype=float)
 
         min_height = min([dither.shape[0] for dither in dither_set])
         min_width = min([dither.shape[1] for dither in dither_set])
@@ -125,13 +359,12 @@ class AlignmentPipeline:
         # use reprojection to crop all dithers to the same size and WCS
         target_wcs = wcs_set[0]
 
-
         for i, dither in enumerate(dither_set):
             reprojected_dither, _ = reproject_image_to_target_wcs(
                 dither, wcs_set[i], target_wcs, shape_out=(min_height, min_width)
             )
 
-            #remove the NaN values from the reprojected dither:
+            # remove the NaN values from the reprojected dither:
             reprojected_dither = remove_nans(
                 reprojected_dither, fill_value=0, logger=self.logger
             )
@@ -141,7 +374,6 @@ class AlignmentPipeline:
         for i, dither_1 in enumerate(dither_set):
 
             for j, dither_2 in enumerate(dither_set):
-
 
                 (
                     (tx, ty),
@@ -159,137 +391,40 @@ class AlignmentPipeline:
                 y_return_table[i, j] = ty
                 rotation_return_table[i, j] = rotation_angle
 
-                succes_tabe[i, j] = success
-        if False:
-            plt.figure(figsize=(10, 8))
-            plt.imshow(succes_tabe, cmap=cmap, norm=norm, interpolation="nearest")
-            plt.title("Alignment Status Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"FAILED" if succes_tabe[i, j] == 0 else "COMPOSED" if succes_tabe[i, j] == 0.5 else "OK",
-                        ha="center",
-                        va="center",
-                        color="black",
-                        fontsize=8,
-                    )
-            plt.show()
+                succes_table[i, j] = success
 
+        # check for consistency
 
-            plt.figure(figsize=(10, 8))
-            plt.imshow(x_return_table, cmap="viridis", interpolation="nearest")
-            plt.colorbar(label="X Offset")
-            plt.title("X Offsets Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{x_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
+        self.logger.info("Checking for consistency in x alignment ...")
 
-            plt.figure(figsize=(10, 8))
-            plt.imshow(y_return_table, cmap="plasma", interpolation="nearest")
-            plt.colorbar(label="Y Offset")
-            plt.title("Y Offsets Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{y_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
+        succes_table, x_return_table = self._cross_ref_dither_table(
+            succes_table, x_return_table, threshold_frac=0.1
+        )
 
-            plt.figure(figsize=(10, 8))
-            plt.imshow(rotation_return_table, cmap="cividis", interpolation="nearest")
-            plt.colorbar(label="Rotation Angle")
-            plt.title("Rotation Angles Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{rotation_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
+        self.logger.info("Checking for consistency in y alignment ...")
 
+        succes_table, y_return_table = self._cross_ref_dither_table(
+            succes_table, y_return_table, threshold_frac=0.1
+        )
 
-        # For not just testing: construct the path from image 1 to 4 using 1 - 2, 2 - 3, 3 - 4 and check if the total offset is consistent with the direct 1 - 4 offset.
-        if False:
-            center = (min_height // 2, min_width // 2)
+        self.logger.info("Checking for consistency in rotation alignment ...")
 
-            T_1_4 = transformation_matrix(
-                x_return_table[0, 3],
-                y_return_table[0, 3],
-                rotation_return_table[0, 3],
-                center,
-            )
-            T_1_2 = transformation_matrix(
-                x_return_table[0, 1],
-                y_return_table[0, 1],
-                rotation_return_table[0, 1],
-                center,
-            )
-            T_2_3 = transformation_matrix(
-                x_return_table[1, 2],
-                y_return_table[1, 2],
-                rotation_return_table[1, 2],
-                center,
-            )
-            T_3_4 = transformation_matrix(
-                x_return_table[2, 3],
-                y_return_table[2, 3],
-                rotation_return_table[2, 3],
-                center,
-            )
+        succes_table, rotation_return_table = self._cross_ref_dither_table(
+            succes_table, rotation_return_table, threshold_frac=0.1
+        )
 
-            T_1_3_composed = compose_transformations(T_1_2, T_2_3)
+        self.logger.info("Consistency check complete.")
 
-            T_1_4_composed = compose_transformations(T_1_3_composed, T_3_4)
-
-            tx_composed, ty_composed, rotation_angle_composed = matrix_to_parameters(
-                T_1_4_composed, center
-            )
-
-            tx_direct, ty_direct, rotation_angle_direct = matrix_to_parameters(
-                T_1_4, center
-            )
-
-            print("Direct 1-4: ", tx_direct, ty_direct, rotation_angle_direct)
-            print("Composed 1-4: ", tx_composed, ty_composed, rotation_angle_composed)
-
+        self._plot_dither_alignment(
+            dither_set,
+            n_dithers,
+            succes_table,
+            x_return_table,
+            y_return_table,
+            rotation_return_table,
+            obs_title=obs_name + "_prior_compositions_",
+            save_path=method.QA_path,
+        )
 
         # Now we try to map out any missed paths
         # Algorithm:
@@ -304,15 +439,37 @@ class AlignmentPipeline:
                     continue
 
                 success = False
-                if not succes_tabe[i, j]:
+                if not succes_table[i, j] == 1:
                     # direct path does not exist, look for intermediate frames
+
+                    # first check if opposite pair exists - if so, replace with negative of that:
+
+                    if succes_table[j, i] == 1:
+                        x_return_table[i, j] = -x_return_table[j, i]
+                        y_return_table[i, j] = -y_return_table[j, i]
+                        rotation_return_table[i, j] = -rotation_return_table[j, i]
+                        succes_table[i, j] = 0.5
+
+                        # plot QA plot:
+
+                        # the QA plot:
+                        method.plot_difference_image(
+                            dither_set[i],
+                            dither_set[j],
+                            x_return_table[i, j],
+                            y_return_table[i, j],
+                            rotation_return_table[i, j],
+                            f"{obs_name}_dither_{i+1}_to_dither_{j+1}_mirrored",
+                            show=False,
+                            custom_title=f"Mirrored Alignment from Dither {i+1} to Dither {j+1}",
+                        )
 
                     for k in range(n_dithers):
                         if k == i or k == j:
                             continue
 
                         # one intermediate frame search
-                        if succes_tabe[i, k] and succes_tabe[k, j]:
+                        if succes_table[i, k] == 1 and succes_table[k, j] == 1:
                             # found a path through k
                             self.logger.info(
                                 f"Found a path from dither {i+1} to dither {j+1} through dither {k+1}."
@@ -339,11 +496,7 @@ class AlignmentPipeline:
                             x_return_table[i, j] = tx_composed
                             y_return_table[i, j] = ty_composed
                             rotation_return_table[i, j] = rotation_angle_composed
-                            succes_tabe[i, j] = 0.5
-
-
-                            plt.imshow(succes_tabe)
-                            plt.show()
+                            succes_table[i, j] = 0.5
 
                             success = True
 
@@ -370,9 +523,9 @@ class AlignmentPipeline:
                                     continue
 
                                 if (
-                                    succes_tabe[i, k]
-                                    and succes_tabe[k, l]
-                                    and succes_tabe[l, j]
+                                    succes_table[i, k] == 1
+                                    and succes_table[k, l] == 1
+                                    and succes_table[l, j] == 1
                                 ):
                                     # found a path through k and l
                                     self.logger.info(
@@ -413,11 +566,11 @@ class AlignmentPipeline:
                                     rotation_return_table[i, j] = (
                                         rotation_angle_composed
                                     )
-                                    succes_tabe[i, j] = 0.5
+                                    succes_table[i, j] = 0.5
 
-                                    plt.imshow(succes_tabe)
+                                    plt.imshow(succes_table)
                                     plt.show()
-                                    
+
                                     success = True
 
                                     # the QA plot:
@@ -440,90 +593,43 @@ class AlignmentPipeline:
                         self.logger.warning(
                             f"No path found from dither {i+1} to dither {j+1}."
                         )
-        if False:
-            plt.figure(figsize=(10, 8))
-            plt.imshow(succes_tabe, cmap=cmap, norm=norm, interpolation="nearest")
-            plt.title("Alignment Status Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"FAILED" if succes_tabe[i, j] == 0 else "COMPOSED" if succes_tabe[i, j] == 0.5 else "OK",
-                        ha="center",
-                        va="center",
-                        color="black",
-                        fontsize=8,
-                    )
-            plt.show()
-            
-    
-            plt.figure(figsize=(10, 8))
-            plt.imshow(x_return_table, cmap="viridis", interpolation="nearest")
-            plt.colorbar(label="X Offset")
-            plt.title("X Offsets Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{x_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
-    
-            plt.figure(figsize=(10, 8))
-            plt.imshow(y_return_table, cmap="plasma", interpolation="nearest")
-            plt.colorbar(label="Y Offset")
-            plt.title("Y Offsets Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{y_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
-    
-            plt.figure(figsize=(10, 8))
-            plt.imshow(rotation_return_table, cmap="cividis", interpolation="nearest")
-            plt.colorbar(label="Rotation Angle")
-            plt.title("Rotation Angles Between Dithers")
-            plt.xlabel("Dither Index")
-            plt.ylabel("Dither Index")
-            plt.xticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            plt.yticks(range(n_dithers), [f"Dither {i+1}" for i in range(n_dithers)])
-            for i in range(n_dithers):
-                for j in range(n_dithers):
-                    plt.text(
-                        j,
-                        i,
-                        f"{rotation_return_table[i, j]:.3f}",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=8,
-                    )
-            plt.show()
+
+        # check for consistency
+
+        self.logger.info(
+            "Checking for consistency after extrapolating missing paths ..."
+        )
+
+        self.logger.info("Checking for consistency in x alignment ...")
+
+        succes_table, x_return_table = self._cross_ref_dither_table(
+            succes_table, x_return_table, threshold_frac=0.1
+        )
+
+        self.logger.info("Checking for consistency in y alignment ...")
+
+        succes_table, y_return_table = self._cross_ref_dither_table(
+            succes_table, y_return_table, threshold_frac=0.1
+        )
+
+        self.logger.info("Checking for consistency in rotation alignment ...")
+
+        succes_table, rotation_return_table = self._cross_ref_dither_table(
+            succes_table, rotation_return_table, threshold_frac=0.1
+        )
+
+        self.logger.info("Consistency check complete.")
+
+        self._plot_dither_alignment(
+            dither_set,
+            n_dithers,
+            succes_table,
+            x_return_table,
+            y_return_table,
+            rotation_return_table,
+            obs_title=obs_name + "_after_compositions_",
+            save_path=method.QA_path,
+        )
 
         return x_return_table, y_return_table, rotation_return_table
 
