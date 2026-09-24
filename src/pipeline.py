@@ -16,8 +16,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-
-
 # TODO: for now, hardcoded to 4 dithers pr. pointing
 
 
@@ -94,6 +92,20 @@ class AlignmentPipeline:
 
         return sucess_table, table
 
+    # -----------------------------------------------------------------
+    # CHANGED: added `axes` param, in two flavours:
+    #   - a 2x4 array-like of Axes -> full panel: dither image thumbnails
+    #     (row 0) + the 4-panel numeric summary (row 1).
+    #   - a 1D array-like of 4 Axes -> SUMMARY ROW ONLY (status / x / y /
+    #     rotation). Use this when the dither images are already shown
+    #     elsewhere (e.g. in the science-alignment panel), so we don't
+    #     render the same thumbnails twice.
+    #   - None (default) -> creates its own new 2x4 figure, unchanged
+    #     standalone behaviour.
+    # Figure-level calls (suptitle / tight_layout / savefig / show) only
+    # happen when this method owns the figure -- never when it's just
+    # drawing onto axes handed to it by a caller.
+    # -----------------------------------------------------------------
     def _plot_dither_alignment(
         self,
         dither_set,
@@ -107,34 +119,76 @@ class AlignmentPipeline:
         title=None,
         save=True,
         show=False,
+        axes=None,
+        summary_only=False,
     ):
         """
         Helper plotting medthod to `align_dithers`.
+
+        Parameters
+        ----------
+        axes : None, 2x4 array-like of Axes, or 1D array-like of 4 Axes
+            None (default): create a standalone 2x4 figure (original
+            behaviour) -- image thumbnails on row 0, numeric summary on
+            row 1.
+            2x4 array-like: draw the full panel onto those axes instead
+            of creating a new figure.
+            1D array-like of length 4: draw ONLY the numeric summary row
+            (status / x offsets / y offsets / rotation) -- no image
+            thumbnails. Useful when the dither images are already shown
+            elsewhere in a combined report.
+        summary_only : bool
+            When `axes=None` and this is True, the standalone figure is
+            created as 1x4 (summary row only) instead of 2x4.
+
+        When `axes` is provided, `save`/`show`/`title` are ignored -- the
+        caller owns the figure and is responsible for saving/showing it.
         """
 
-        _, axes = plt.subplots(2, 4, figsize=(22, 12))
+        owns_figure = axes is None
+
+        if owns_figure:
+            if summary_only:
+                fig, axes = plt.subplots(1, 4, figsize=(22, 6))
+                image_axes = None
+                summary_axes = axes
+            else:
+                fig, axes = plt.subplots(2, 4, figsize=(22, 12))
+                image_axes = axes[0]
+                summary_axes = axes[1]
+        else:
+            axes = np.asarray(axes, dtype=object)
+            if axes.ndim == 2:
+                fig = axes[0, 0].figure
+                image_axes = axes[0]
+                summary_axes = axes[1]
+            else:
+                fig = axes[0].figure
+                image_axes = None
+                summary_axes = axes
 
         # ---------------------------------------------------------
-        # Dither images
+        # Dither images (skipped entirely in summary-only mode)
         # ---------------------------------------------------------
-        for i in range(min(n_dithers, 4)):
-            ax = axes[0, i]
-            _ = ax.imshow(
-                dither_set[i],
-                cmap="gray",
-                origin="lower",
-                interpolation="nearest",
-                vmin=np.percentile(dither_set[i], 5),
-                vmax=np.percentile(dither_set[i], 95),
-            )
-            ax.set_title(f"Dither {i + 1}")
-            ax.set_xlabel("x")
-            ax.set_ylabel("y")
+        if image_axes is not None:
+            for i in range(min(n_dithers, 4)):
+                ax = image_axes[i]
+                _ = ax.imshow(
+                    dither_set[i],
+                    cmap="gray",
+                    origin="lower",
+                    interpolation="nearest",
+                    vmin=np.percentile(dither_set[i], 5),
+                    vmax=np.percentile(dither_set[i], 95),
+                )
+                ax.set_title(f"Dither {i + 1}")
+                ax.set_xlabel("x")
+                ax.set_ylabel("y")
 
         # ---------------------------------------------------------
         # 1. Alignment Status
         # ---------------------------------------------------------
-        ax = axes[1, 0]
+        ax = summary_axes[0]
 
         _ = ax.imshow(
             succes_table,
@@ -175,7 +229,7 @@ class AlignmentPipeline:
         # ---------------------------------------------------------
         # 2. X Offsets
         # ---------------------------------------------------------
-        ax = axes[1, 1]
+        ax = summary_axes[1]
 
         _ = ax.imshow(
             x_return_table,
@@ -207,7 +261,7 @@ class AlignmentPipeline:
         # ---------------------------------------------------------
         # 3. Y Offsets
         # ---------------------------------------------------------
-        ax = axes[1, 2]
+        ax = summary_axes[2]
 
         _ = ax.imshow(
             y_return_table,
@@ -239,7 +293,7 @@ class AlignmentPipeline:
         # ---------------------------------------------------------
         # 4. Rotation Angles
         # ---------------------------------------------------------
-        ax = axes[1, 3]
+        ax = summary_axes[3]
 
         _ = ax.imshow(
             rotation_return_table,
@@ -269,93 +323,44 @@ class AlignmentPipeline:
                 )
 
         # ---------------------------------------------------------
-        # Layout
+        # Layout / save / show -- only when we own the figure.
+        # A sub-panel embedded in someone else's combined figure
+        # should never call tight_layout/savefig/show on it.
         # ---------------------------------------------------------
-        if title:
-            plt.suptitle(title, fontsize=16)
-        else:
-            plt.suptitle(f"Dither Alignment QA for {obs_title}", fontsize=16)
+        if owns_figure:
+            if title:
+                plt.suptitle(title, fontsize=16)
+            else:
+                plt.suptitle(f"Dither Alignment QA for {obs_title}", fontsize=16)
 
-        plt.tight_layout()
-        if save:
-            if save_path is None:
-                save_path = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
-                save_path.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path / f"{obs_title}_dither_alignment.png")
-        if show:
-            plt.show()
-        else:
-            plt.close()
+            plt.tight_layout()
+            if save:
+                if save_path is None:
+                    save_path = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
+                    save_path.mkdir(parents=True, exist_ok=True)
+                plt.savefig(save_path / f"{obs_title}_dither_alignment.png")
+            if show:
+                plt.show()
+            else:
+                plt.close()
+
+        return fig, axes
 
     def align_dithers(self, dither_set, wcs_set, method, obs_name=None):
         """
         Aligning all dithers relative to each other (all combinations).
 
         This gives more precise measurements and detects any corrupt frames.
-
-        Parameters
-        ----------
-
-        dither_set : list
-            List of dither frames to align.
-
-        wcs_set : list
-            List of WCS objects corresponding to the dither frames.
-
-        method: AlignmentMethod object
-
-        Returns
-        -------
-
-        x_table : np.ndarray
-            Table of x offsets for each dither frame.
-
-            ```
-            +--------+-------+-------+-------+-------+
-            | dither | dit_1 | dit_2 | dit_3 | dit_4 |
-            +--------+-------+-------+-------+-------+
-            | dit_1  | x_1_1 | x_1_2 | x_1_3 | x_1_4 |
-            | dit_2  | x_2_1 | x_2_2 | x_2_3 | x_2_4 |
-            | dit_3  | x_3_1 | x_3_2 | x_3_3 | x_3_4 |
-            | dit_4  | x_4_1 | x_4_2 | x_4_3 | x_4_4 |
-            +--------+-------+-------+-------+-------+
-            ```
-
-        y_table : np.ndarray
-            Table of y offsets for each dither frame.
-
-            ```
-            +--------+-------+-------+-------+-------+
-            | dither | dit_1 | dit_2 | dit_3 | dit_4 |
-            +--------+-------+-------+-------+-------+
-            | dit_1  | y_1_1 | y_1_2 | y_1_3 | y_1_4 |
-            | dit_2  | y_2_1 | y_2_2 | y_2_3 | y_2_4 |
-            | dit_3  | y_3_1 | y_3_2 | y_3_3 | y_3_4 |
-            | dit_4  | y_4_1 | y_4_2 | y_4_3 | y_4_4 |
-            +--------+-------+-------+-------+-------+
-            ```
-
-        rotation_table : np.ndarray
-            Table of rotation angles for each dither frame.
-
-            ```
-            +--------+-------+-------+-------+-------+
-            | dither | dit_1 | dit_2 | dit_3 | dit_4 |
-            +--------+-------+-------+-------+-------+
-            | dit_1  | r_1_1 | r_1_2 | r_1_3 | r_1_4 |
-            | dit_2  | r_2_1 | r_2_2 | r_2_3 | r_2_4 |
-            | dit_3  | r_3_1 | r_3_2 | r_3_3 | r_3_4 |
-            | dit_4  | r_4_1 | r_4_2 | r_4_3 | r_4_4 |
-            +--------+-------+-------+-------+-------+
-            ```
-
         """
 
         n_dithers = len(dither_set)
 
         x_return_table = np.full((n_dithers, n_dithers), np.nan)
+        x_error_table = np.full((n_dithers, n_dithers), np.nan)
         y_return_table = np.full((n_dithers, n_dithers), np.nan)
+        y_error_table = np.full((n_dithers, n_dithers), np.nan)
         rotation_return_table = np.full((n_dithers, n_dithers), np.nan)
+        rotation_error_table = np.full((n_dithers, n_dithers), np.nan)
         succes_table = np.full((n_dithers, n_dithers), 0, dtype=float)
 
         min_height = min([dither.shape[0] for dither in dither_set])
@@ -398,6 +403,10 @@ class AlignmentPipeline:
                 y_return_table[i, j] = ty
                 rotation_return_table[i, j] = rotation_angle
 
+                x_error_table[i, j] = tx_error
+                y_error_table[i, j] = ty_error
+                rotation_error_table[i, j] = rotation_error
+
                 succes_table[i, j] = success
 
         # check for consistency
@@ -422,24 +431,7 @@ class AlignmentPipeline:
 
         self.logger.info("Consistency check complete.")
 
-        self._plot_dither_alignment(
-            dither_set,
-            n_dithers,
-            succes_table,
-            x_return_table,
-            y_return_table,
-            rotation_return_table,
-            obs_title=obs_name + "_prior_compositions_",
-            save_path=method.QA_path,
-        )
-
         # Now we try to map out any missed paths
-        # Algorithm:
-        # Loop through every frame:
-        # First, see if direct path exists. If yes, continue to next frame.
-        # If not, loop through all other frames and see if a path exists through them.
-        # Start by looking through the shortest paths first (i.e. 1 intermediate frame, then 2, etc.)
-
         for i in range(n_dithers):
             for j in range(n_dithers):
                 if i == j:
@@ -456,8 +448,6 @@ class AlignmentPipeline:
                         y_return_table[i, j] = -y_return_table[j, i]
                         rotation_return_table[i, j] = -rotation_return_table[j, i]
                         succes_table[i, j] = 0.5
-
-                        # plot QA plot:
 
                         # the QA plot:
                         method.plot_difference_image(
@@ -477,11 +467,9 @@ class AlignmentPipeline:
 
                         # one intermediate frame search
                         if succes_table[i, k] == 1 and succes_table[k, j] == 1:
-                            # found a path through k
                             self.logger.info(
                                 f"Found a path from dither {i+1} to dither {j+1} through dither {k+1}."
                             )
-                            # compose the transformations
                             T_i_k = transformation_matrix(
                                 x_return_table[i, k],
                                 y_return_table[i, k],
@@ -503,11 +491,28 @@ class AlignmentPipeline:
                             x_return_table[i, j] = tx_composed
                             y_return_table[i, j] = ty_composed
                             rotation_return_table[i, j] = rotation_angle_composed
+
+                            # TODO: refine
+
+                            tx_error = np.sqrt(
+                                x_error_table[i, k] ** 2 + x_error_table[k, j] ** 2
+                            )
+                            ty_error = np.sqrt(
+                                y_error_table[i, k] ** 2 + y_error_table[k, j] ** 2
+                            )
+                            rotation_error = np.sqrt(
+                                rotation_error_table[i, k] ** 2
+                                + rotation_error_table[k, j] ** 2
+                            )
+
+                            x_error_table[i, j] = tx_error
+                            y_error_table[i, j] = ty_error
+                            rotation_error_table[i, j] = rotation_error
+
                             succes_table[i, j] = 0.5
 
                             success = True
 
-                            # the QA plot:
                             method.plot_difference_image(
                                 dither_set[i],
                                 dither_set[j],
@@ -534,11 +539,9 @@ class AlignmentPipeline:
                                     and succes_table[k, l] == 1
                                     and succes_table[l, j] == 1
                                 ):
-                                    # found a path through k and l
                                     self.logger.info(
                                         f"Found a path from dither {i+1} to dither {j+1} through dithers {k+1} and {l+1}."
                                     )
-                                    # compose the transformations
                                     T_i_k = transformation_matrix(
                                         x_return_table[i, k],
                                         y_return_table[i, k],
@@ -573,11 +576,32 @@ class AlignmentPipeline:
                                     rotation_return_table[i, j] = (
                                         rotation_angle_composed
                                     )
+
+                                    tx_error = np.sqrt(
+                                        x_error_table[i, k] ** 2
+                                        + x_error_table[k, l] ** 2
+                                        + x_error_table[l, j] ** 2
+                                    )
+
+                                    ty_error = np.sqrt(
+                                        y_error_table[i, k] ** 2
+                                        + y_error_table[k, l] ** 2
+                                        + y_error_table[l, j] ** 2
+                                    )
+
+                                    rotation_error = np.sqrt(
+                                        rotation_error_table[i, k] ** 2
+                                        + rotation_error_table[k, l] ** 2
+                                        + rotation_error_table[l, j] ** 2
+                                    )
+
+                                    x_error_table[i, j] = tx_error
+                                    y_error_table[i, j] = ty_error
+                                    rotation_error_table[i, j] = rotation_error
                                     succes_table[i, j] = 0.5
 
                                     success = True
 
-                                    # the QA plot:
                                     method.plot_difference_image(
                                         dither_set[i],
                                         dither_set[j],
@@ -624,19 +648,23 @@ class AlignmentPipeline:
 
         self.logger.info("Consistency check complete.")
 
-        self._plot_dither_alignment(
-            dither_set,
-            n_dithers,
-            succes_table,
+        return (
             x_return_table,
+            x_error_table,
             y_return_table,
+            y_error_table,
             rotation_return_table,
-            obs_title=obs_name + "_after_compositions_",
-            save_path=method.QA_path,
+            rotation_error_table,
+            succes_table,
+            dither_set,
+            wcs_set,
         )
 
-        return x_return_table, y_return_table, rotation_return_table, succes_table, dither_set, wcs_set
-
+    # -----------------------------------------------------------------
+    # CHANGED: added `axes` param, same pattern as above. Expects a
+    # 2x5 array-like of Axes when provided (dither+reference row, and
+    # the text-summary row underneath).
+    # -----------------------------------------------------------------
     def _plot_science_alignment(
         self,
         pointing,
@@ -645,18 +673,30 @@ class AlignmentPipeline:
         reprojected_reference_frames,
         science_tables,
         QA_dir_science,
+        axes=None,
+        save=True,
+        show=False,
     ):
         """
         Helper method to plot the alignment of the science frames against the reference frame.
 
+        If `axes` is provided (a 2x5 array-like of Axes), draws directly onto
+        those axes instead of creating a new figure; in that case `save` is
+        ignored since the caller owns the figure.
+
         #TODO a hard copy and carries too much info in the parameters, needs refactor
         """
 
-        # 2x5 plot showing all dither, the reference, and for every one the recovered parameters and success/failure
-        fig, axes = plt.subplots(2, 5, figsize=(22, 10))
-        fig.suptitle(
-            f"Pointing {pointing} alignment against reference frame", fontsize=16
-        )
+        owns_figure = axes is None
+
+        if owns_figure:
+            fig, axes = plt.subplots(2, 5, figsize=(22, 10))
+            fig.suptitle(
+                f"Pointing {pointing} alignment against reference frame", fontsize=16
+            )
+        else:
+            fig = axes[0, 0].figure
+
         # top row: dither image panels + reference image panel
         for i in range(len(dither_frames)):
             ax = axes[0, i]
@@ -675,6 +715,7 @@ class AlignmentPipeline:
             ax.set_xlabel("x")
             ax.set_ylabel("y")
             ax.tick_params(labelbottom=False, labelleft=False)
+
         # take first reprojected reference frame for display (they should all be the same more or less)
         reference_frame_pointing = reprojected_reference_frames[(pointing, 0)]
         v_min_ref = np.nanmedian(reference_frame_pointing) - 3 * np.nanstd(
@@ -696,21 +737,12 @@ class AlignmentPipeline:
         ref_ax.set_xlabel("x")
         ref_ax.set_ylabel("y")
         ref_ax.tick_params(labelbottom=False, labelleft=False)
+
         # bottom row: summary of the measured offsets and success state for each dither
         for i in range(len(dither_frames)):
             ax = axes[1, i]
             ax.axis("off")
-            if i not in science_tables[pointing]:
-                ax.text(
-                    0.05,
-                    0.5,
-                    f"Dither {i + 1}\nNo result",
-                    ha="left",
-                    va="center",
-                    fontsize=11,
-                    color="white",
-                )
-                continue
+
             (
                 tx,
                 ty,
@@ -719,12 +751,26 @@ class AlignmentPipeline:
                 ty_error,
                 rotation_error,
                 success,
+                composed,
+                composed_from,
             ) = science_tables[pointing][i]
-            # any of the above values can be none:
-            if any(
-                v is None
-                for v in [tx, ty, rotation_angle, tx_error, ty_error, rotation_error]
-            ):
+
+            status_text = (
+                "SUCCESS"
+                if (bool(success) and not bool(composed))
+                else (
+                    f"COMPOSED from dither {composed_from}"
+                    if bool(composed)
+                    else "FAILURE"
+                )
+            )
+            status_color = (
+                "green"
+                if (bool(success) and not bool(composed))
+                else "orange" if bool(composed) else "red"
+            )
+
+            if success is None or tx is None or ty is None or rotation_angle is None:
                 ax.text(
                     0.05,
                     0.5,
@@ -734,10 +780,20 @@ class AlignmentPipeline:
                     fontsize=11,
                     color="white",
                 )
+
+                ax.text(
+                    0.05,
+                    0.18,
+                    f"Status: {status_text}",
+                    ha="left",
+                    va="center",
+                    fontsize=10,
+                    color=status_color,
+                    fontweight="bold",
+                )
+
                 continue
-            status_text = "SUCCESS" if bool(success) else "FAILURE"
-            status_color = "green" if bool(success) else "red"
-            # main info (black)
+
             main_text = (
                 f"Dither {i + 1}\n"
                 f"tx = {tx:.3f} px\n"
@@ -757,7 +813,6 @@ class AlignmentPipeline:
                 color="white",
                 linespacing=1.4,
             )
-            # status line in color
             ax.text(
                 0.05,
                 0.18,
@@ -772,6 +827,7 @@ class AlignmentPipeline:
             ax.set_facecolor("white")
             for spine in ax.spines.values():
                 spine.set_visible(False)
+
         summary_ax = axes[1, -1]
         summary_ax.axis("off")
         summary_ax.text(
@@ -790,7 +846,7 @@ class AlignmentPipeline:
             0.45,
             "Status summary:\n"
             + "\n".join(
-                f"D{i + 1}: {'OK' if bool(science_tables.get((pointing, i), (None, None, None, None, None, None, False))[6]) else 'FAIL'}"
+                f"D{i + 1}: {'OK' if bool(science_tables[pointing][i][6]) else 'FAIL'}"
                 for i in range(len(dither_frames))
             ),
             ha="left",
@@ -798,12 +854,20 @@ class AlignmentPipeline:
             fontsize=9,
             linespacing=1.4,
         )
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
-        fig.savefig(
-            QA_dir_science / f"{pointing}_dither_to_reference_QA.png",
-            dpi=200,
-        )
-        plt.close(fig)
+
+        if owns_figure:
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            if save:
+                fig.savefig(
+                    QA_dir_science / f"{pointing}_dither_to_reference_QA.png",
+                    dpi=200,
+                )
+            if show:
+                plt.show()
+            else:
+                plt.close(fig)
+
+        return fig, axes
 
     def run(self):
         """
@@ -811,12 +875,6 @@ class AlignmentPipeline:
 
         For now simple.
         """
-
-
-        # TODO: for now simple to start testing
-
-        # algorithm: align first the dither groups to the first image, and then
-        # to external referrence
 
         self.logger.info("Starting alignment pipeline...")
 
@@ -826,37 +884,30 @@ class AlignmentPipeline:
 
         # Create the QA directory for the dithers
         QA_dir_dithers = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
-        # Create the QA directory for the dithers
         QA_dir_dithers.mkdir(parents=True, exist_ok=True)
 
         # and create the QA directory for the science frames
         QA_dir_science = pathlib.Path(self.output_dir) / "aligment_QA" / "science"
         QA_dir_science.mkdir(parents=True, exist_ok=True)
 
-        # Create the QA directory for the dithers
+        # Create the QA directory for combined reports
+        QA_dir_combined = pathlib.Path(self.output_dir) / "aligment_QA" / "combined"
+        QA_dir_combined.mkdir(parents=True, exist_ok=True)
+
         self.point_sources_aligner = PointSources(
             QA_path=QA_dir_dithers, logger=self.logger
         )
 
-        # result container for the dither tables
         dither_tables = {}
-        # result container for the science tables
         science_tables = {}
 
-        # get the reference image WCS and data
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
-
         reference_frame = read_fits_image(self.reference_file, logger=self.logger)
-
-        # remove the NaN values from the reference frame:
         reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
 
-        # for plotting and QA
         reprojected_reference_frames = {}
 
         for pointing, exposures in self.config_dict.items():
-
-            # TODO: ONLY ASSUMING 4 DITHERS FOR NOW, NEED TO GENERALIZE LATER
 
             if len(exposures) != 4:
                 self.logger.warning(
@@ -864,10 +915,6 @@ class AlignmentPipeline:
                 )
                 continue
 
-            # TODO just testing:
-
-            if pointing != "5": continue
-            
             science_tables[pointing] = {}
 
             self.logger.info(f"Processing pointing: {pointing}")
@@ -875,7 +922,6 @@ class AlignmentPipeline:
             dither_frame_arrays = []
             dither_frame_wcs = []
 
-            # read in the dither frames for this pointing
             dither_frames = [
                 pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
             ]
@@ -883,7 +929,6 @@ class AlignmentPipeline:
             for dither_frame in dither_frames:
                 self.logger.info(f"Reading dither frame: {dither_frame}")
 
-                # get the input image WCS and data
                 input_WCS = extract_image_wcs(
                     dither_frame, logger=self.logger, wcs_extension=1
                 )
@@ -892,16 +937,24 @@ class AlignmentPipeline:
                     dither_frame, logger=self.logger, data_extension=1
                 )
 
-                # remove the NaN values from the input frame:
                 input_frame = remove_nans(input_frame, fill_value=0, logger=self.logger)
 
                 dither_frame_arrays.append(input_frame)
                 dither_frame_wcs.append(input_WCS)
 
-            # set aligner output QA to dithers
             self.point_sources_aligner.QA_path = QA_dir_dithers
 
-            x_table, y_table, rotation_table, success_table, dither_set, wcs_set = self.align_dithers(
+            (
+                x_table,
+                x_error_table,
+                y_table,
+                y_error_table,
+                rotation_table,
+                rotation_error_table,
+                success_table,
+                dither_set,
+                wcs_set,
+            ) = self.align_dithers(
                 dither_frame_arrays,
                 dither_frame_wcs,
                 self.point_sources_aligner,
@@ -910,25 +963,17 @@ class AlignmentPipeline:
 
             dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
 
-            # ditheres have had their wcs and sizes adjusted in the align_dithers function, 
-            # so we need to update the dither_frame_arrays and dither_frame_wcs 
-            # with the returned values
             dither_frame_arrays = dither_set
             dither_frame_wcs = wcs_set
 
-            # set QA path to science frames for the next step
             self.point_sources_aligner.QA_path = QA_dir_science
 
-
-            # now do the alignment to the reference frame for each dither frame
             for i, dither_frame in enumerate(dither_frame_arrays):
-
 
                 self.logger.info(
                     f"Aligning dither frame {dither_frame} to reference frame {self.reference_file}"
                 )
 
-                # reproject the reference frame to the dither frame WCS
                 reprojected_reference_frame, _ = reproject_image_to_target_wcs(
                     reference_frame,
                     reference_WCS,
@@ -936,7 +981,6 @@ class AlignmentPipeline:
                     shape_out=dither_frame_arrays[i].shape,
                 )
 
-                # remove the NaN values from the reprojected reference frame:
                 reprojected_reference_frame = remove_nans(
                     reprojected_reference_frame, fill_value=0, logger=self.logger
                 )
@@ -965,70 +1009,111 @@ class AlignmentPipeline:
                     ty_error,
                     rotation_error,
                     success,
+                    False,
+                    i,
                 )
 
-            # plot QA of success for this pointing for dithers vs. reference frame
-
-
-            self._plot_science_alignment(
-                pointing,
-                dither_frames,
-                dither_frame_arrays,
-                reprojected_reference_frames,
-                science_tables,
-                QA_dir_science,
-            )
-
-
-            # now find any failed values and try to recover them by composing the transformations from the other dithers
-
             for i in range(len(dither_frames)):
-                tx, ty, rotation_angle, tx_error, ty_error, rotation_error, success = science_tables[pointing][i]
-                if not success:
-                    # Try to recover the failed alignment by composing transformations from other dithers
-                    self.logger.warning(f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover...")
+                (
+                    tx,
+                    ty,
+                    rotation_angle,
+                    tx_error,
+                    ty_error,
+                    rotation_error,
+                    success,
+                    _,
+                    _,
+                ) = science_tables[pointing][i]
 
-                    # look for no composed direct paths first:
+                if not success:
+                    self.logger.warning(
+                        f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover..."
+                    )
 
                     for j in range(len(dither_frames)):
 
                         if j == i:
                             continue
 
-                        # check sucess table to see if dither j has a successful alignment to the i dither
-                        success_i_j = success_table[i, j]  # success table is the 4th element in the tuple
+                        success_i_j = success_table[i, j]
 
-                        if success_i_j == 1:  # if success for dither j to i
+                        if success_i_j == 1:
 
-
-                            if science_tables[pointing][j][6]:  # if success for dither j
-                                # compose the transformations from dither j to reference and from dither i to dither j
-                                tx_j, ty_j, rotation_angle_j, _, _, _, _ = science_tables[pointing][j]
+                            if science_tables[pointing][j][6]:
+                                (
+                                    tx_j,
+                                    ty_j,
+                                    rotation_angle_j,
+                                    tx_error_science,
+                                    ty_error_science,
+                                    rotation_error_science,
+                                    _,
+                                    _,
+                                    _,
+                                ) = science_tables[pointing][j]
                                 tx_i_j = x_table[i, j]
                                 ty_i_j = y_table[i, j]
                                 rotation_angle_i_j = rotation_table[i, j]
 
-                                # compose the transformations
-                                T_i_j = transformation_matrix(tx_i_j, ty_i_j, rotation_angle_i_j, (dither_frame_arrays[i].shape[0] // 2, dither_frame_arrays[i].shape[1] // 2))
-                                T_j_ref = transformation_matrix(tx_j, ty_j, rotation_angle_j, (dither_frame_arrays[j].shape[0] // 2, dither_frame_arrays[j].shape[1] // 2))
-                                T_i_ref_composed = compose_transformations(T_i_j, T_j_ref)
-                                tx_composed, ty_composed, rotation_angle_composed = matrix_to_parameters(T_i_ref_composed, (dither_frame_arrays[i].shape[0] // 2, dither_frame_arrays[i].shape[1] // 2))
+                                T_i_j = transformation_matrix(
+                                    tx_i_j,
+                                    ty_i_j,
+                                    rotation_angle_i_j,
+                                    (
+                                        dither_frame_arrays[i].shape[0] // 2,
+                                        dither_frame_arrays[i].shape[1] // 2,
+                                    ),
+                                )
+                                T_j_ref = transformation_matrix(
+                                    tx_j,
+                                    ty_j,
+                                    rotation_angle_j,
+                                    (
+                                        dither_frame_arrays[j].shape[0] // 2,
+                                        dither_frame_arrays[j].shape[1] // 2,
+                                    ),
+                                )
+                                T_i_ref_composed = compose_transformations(
+                                    T_i_j, T_j_ref
+                                )
+                                tx_composed, ty_composed, rotation_angle_composed = (
+                                    matrix_to_parameters(
+                                        T_i_ref_composed,
+                                        (
+                                            dither_frame_arrays[i].shape[0] // 2,
+                                            dither_frame_arrays[i].shape[1] // 2,
+                                        ),
+                                    )
+                                )
 
-                                # update the science table with the composed values
+                                tx_error = np.sqrt(
+                                    x_error_table[i, j] ** 2 + x_error_table[j, i] ** 2
+                                )
+                                ty_error = np.sqrt(
+                                    y_error_table[i, j] ** 2 + y_error_table[j, i] ** 2
+                                )
+                                rotation_error = np.sqrt(
+                                    rotation_error_table[i, j] ** 2
+                                    + rotation_error_table[j, i] ** 2
+                                )
+
                                 science_tables[pointing][i] = (
                                     tx_composed,
                                     ty_composed,
                                     rotation_angle_composed,
-                                    None,
-                                    None,
-                                    None,
+                                    tx_error,
+                                    ty_error,
+                                    rotation_error,
                                     True,
+                                    True,
+                                    j + 1,
                                 )
 
-                                self.logger.info(f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {j+1}.")
+                                self.logger.info(
+                                    f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {j+1}."
+                                )
 
-
-                                # the QA plot:
                                 self.point_sources_aligner.plot_difference_image(
                                     dither_frame_arrays[i],
                                     reprojected_reference_frames[(pointing, i)],
@@ -1036,19 +1121,74 @@ class AlignmentPipeline:
                                     ty_composed,
                                     rotation_angle_composed,
                                     f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}",
-                                    show=True,
+                                    show=False,
                                     custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1}",
                                 )
 
-                                
-                    if not science_tables[pointing][i][6]:  # if still not successful
-                        self.logger.warning(f"After attempting recovery, the alignment for pointing {pointing}, dither {i+1} is still failed.")
+                                break
+
+                    if not science_tables[pointing][i][6]:
+                        self.logger.warning(
+                            f"After attempting recovery, the alignment for pointing {pointing}, dither {i+1} is still failed."
+                        )
                     else:
-                        self.logger.info(f"Successfully recovered alignment for pointing {pointing}, dither {i+1}.")
-      
+                        self.logger.info(
+                            f"Successfully recovered alignment for pointing {pointing}, dither {i+1}."
+                        )
 
+            # -----------------------------------------------------------------
+            # CHANGED: build ONE figure up front and hand each helper the
+            # slice of axes it should draw on, instead of building three
+            # separate figures and trying to transplant their axes
+            # afterwards (which silently produced an empty figure, since
+            # Axes objects can't be moved to another Figure just by
+            # reassigning array elements, and the source figures were
+            # already closed via plt.close() inside the helpers anyway).
+            # -----------------------------------------------------------------
+            # The dither images from `align_dithers` are the same frames
+            # shown in the science-alignment panel above (they've already
+            # been reprojected onto a common WCS), so we don't repeat the
+            # thumbnails -- only the numeric summary row (status / x / y /
+            # rotation) from `_plot_dither_alignment` is needed. That means
+            # the combined figure only needs 3 rows of 5:
+            #   rows 0-1 -> science-vs-reference report (2x5)
+            #   row 2     -> dither-to-dither numeric summary (4 panels,
+            #                last column spare)
+            fig_combined, axes_combined = plt.subplots(3, 5, figsize=(22, 16))
+            fig_combined.suptitle(
+                f"Pointing {pointing} alignment QA report", fontsize=16
+            )
 
+            # rows 0-1: science-vs-reference summary (dithers + reference,
+            # then the per-dither text summary)
+            self._plot_science_alignment(
+                pointing,
+                dither_frames,
+                dither_frame_arrays,
+                reprojected_reference_frames,
+                science_tables,
+                QA_dir_science,
+                axes=axes_combined[0:2, :],
+            )
 
+            # row 2, cols 0-3: dither-to-dither numeric summary ONLY
+            # (a 1D array of 4 Axes triggers summary-only mode -- no
+            # duplicate dither image thumbnails)
+            self._plot_dither_alignment(
+                dither_set,
+                len(dither_set),
+                success_table,
+                x_table,
+                y_table,
+                rotation_table,
+                obs_title=pointing + "_after_compositions_",
+                axes=axes_combined[2, 0:4],
+            )
 
+            # spare cell in the last column of the summary row
+            axes_combined[2, -1].axis("off")
 
-    
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            fig_combined.savefig(
+                QA_dir_combined / f"{pointing}_combined_QA.png", dpi=200
+            )
