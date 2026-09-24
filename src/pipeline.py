@@ -1,6 +1,5 @@
 from logger import get_logger
 
-import argparse
 import pathlib
 
 from methods import PointSources
@@ -16,7 +15,8 @@ from filters import remove_nans
 import numpy as np
 import matplotlib.pyplot as plt
 
-from enum import Enum
+
+
 
 # TODO: for now, hardcoded to 4 dithers pr. pointing
 
@@ -52,7 +52,9 @@ class AlignmentPipeline:
         self.reference_file = reference_file
         self.output_dir = output_dir
 
-    def _cross_ref_dither_table(self, sucess_table, table, threshold_frac=0.1, minimum_value = 0.1):
+    def _cross_ref_dither_table(
+        self, sucess_table, table, threshold_frac=0.1, minimum_value=0.1
+    ):
         """
         Helper method to `align_dithers`. Opposite values
         (for example x_offset 1 -> 4 and x_offset 4 -> 1) should be the same up
@@ -73,13 +75,16 @@ class AlignmentPipeline:
             val_ba = np.abs(table[b, a])
 
             if val_ab < minimum_value and val_ba < minimum_value:
-                self.logger.info(f"Values too small to check consistency between dither {a+1} and dither {b+1} ({val_ab} vs. {val_ba}). Skipping consistency check for this pair...")
+                self.logger.info(
+                    f"Values too small to check consistency between dither {a+1} and dither {b+1} ({val_ab} vs. {val_ba}). Skipping consistency check for this pair..."
+                )
                 continue
 
-
-
-
-            if (abs(val_ab - val_ba) / max(abs(val_ab), abs(val_ba))) > threshold_frac and val_ab != np.nan and val_ba != np.nan:
+            if (
+                (abs(val_ab - val_ba) / max(abs(val_ab), abs(val_ba))) > threshold_frac
+                and val_ab != np.nan
+                and val_ba != np.nan
+            ):
 
                 self.logger.warning(
                     f"Alignment between dither {a+1} and dither {b+1} is inconsistent ({val_ab} vs. {val_ba}). Replacing with NaN values."
@@ -371,6 +376,8 @@ class AlignmentPipeline:
 
             dither_set[i] = reprojected_dither
 
+            wcs_set[i] = target_wcs
+
         for i, dither_1 in enumerate(dither_set):
 
             for j, dither_2 in enumerate(dither_set):
@@ -567,7 +574,7 @@ class AlignmentPipeline:
                                         rotation_angle_composed
                                     )
                                     succes_table[i, j] = 0.5
-                                    
+
                                     success = True
 
                                     # the QA plot:
@@ -628,7 +635,175 @@ class AlignmentPipeline:
             save_path=method.QA_path,
         )
 
-        return x_return_table, y_return_table, rotation_return_table, succes_table
+        return x_return_table, y_return_table, rotation_return_table, succes_table, dither_set, wcs_set
+
+    def _plot_science_alignment(
+        self,
+        pointing,
+        dither_frames,
+        dither_frame_arrays,
+        reprojected_reference_frames,
+        science_tables,
+        QA_dir_science,
+    ):
+        """
+        Helper method to plot the alignment of the science frames against the reference frame.
+
+        #TODO a hard copy and carries too much info in the parameters, needs refactor
+        """
+
+        # 2x5 plot showing all dither, the reference, and for every one the recovered parameters and success/failure
+        fig, axes = plt.subplots(2, 5, figsize=(22, 10))
+        fig.suptitle(
+            f"Pointing {pointing} alignment against reference frame", fontsize=16
+        )
+        # top row: dither image panels + reference image panel
+        for i in range(len(dither_frames)):
+            ax = axes[0, i]
+            image = dither_frame_arrays[i]
+            vmin = np.percentile(image, 5)
+            vmax = np.percentile(image, 95)
+            ax.imshow(
+                image,
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=vmin,
+                vmax=vmax,
+            )
+            ax.set_title(f"Dither {i + 1}")
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.tick_params(labelbottom=False, labelleft=False)
+        # take first reprojected reference frame for display (they should all be the same more or less)
+        reference_frame_pointing = reprojected_reference_frames[(pointing, 0)]
+        v_min_ref = np.nanmedian(reference_frame_pointing) - 3 * np.nanstd(
+            reference_frame_pointing
+        )
+        v_max_ref = np.nanmedian(reference_frame_pointing) + 3 * np.nanstd(
+            reference_frame_pointing
+        )
+        ref_ax = axes[0, -1]
+        ref_ax.imshow(
+            reference_frame_pointing,
+            cmap="gray",
+            origin="lower",
+            interpolation="nearest",
+            vmin=v_min_ref,
+            vmax=v_max_ref,
+        )
+        ref_ax.set_title("Reference")
+        ref_ax.set_xlabel("x")
+        ref_ax.set_ylabel("y")
+        ref_ax.tick_params(labelbottom=False, labelleft=False)
+        # bottom row: summary of the measured offsets and success state for each dither
+        for i in range(len(dither_frames)):
+            ax = axes[1, i]
+            ax.axis("off")
+            if i not in science_tables[pointing]:
+                ax.text(
+                    0.05,
+                    0.5,
+                    f"Dither {i + 1}\nNo result",
+                    ha="left",
+                    va="center",
+                    fontsize=11,
+                    color="white",
+                )
+                continue
+            (
+                tx,
+                ty,
+                rotation_angle,
+                tx_error,
+                ty_error,
+                rotation_error,
+                success,
+            ) = science_tables[pointing][i]
+            # any of the above values can be none:
+            if any(
+                v is None
+                for v in [tx, ty, rotation_angle, tx_error, ty_error, rotation_error]
+            ):
+                ax.text(
+                    0.05,
+                    0.5,
+                    f"Dither {i + 1}\nNo result",
+                    ha="left",
+                    va="center",
+                    fontsize=11,
+                    color="white",
+                )
+                continue
+            status_text = "SUCCESS" if bool(success) else "FAILURE"
+            status_color = "green" if bool(success) else "red"
+            # main info (black)
+            main_text = (
+                f"Dither {i + 1}\n"
+                f"tx = {tx:.3f} px\n"
+                f"ty = {ty:.3f} px\n"
+                f"rot = {rotation_angle:.3f} deg\n"
+                f"tx_err = {tx_error:.3f}\n"
+                f"ty_err = {ty_error:.3f}\n"
+                f"rot_err = {rotation_error:.3f}"
+            )
+            ax.text(
+                0.05,
+                0.95,
+                main_text,
+                ha="left",
+                va="top",
+                fontsize=9,
+                color="white",
+                linespacing=1.4,
+            )
+            # status line in color
+            ax.text(
+                0.05,
+                0.18,
+                f"Status: {status_text}",
+                ha="left",
+                va="center",
+                fontsize=10,
+                color=status_color,
+                fontweight="bold",
+            )
+            ax.axvspan(0.0, 1.0, ymin=0.0, ymax=1.0, facecolor="white", alpha=0.0)
+            ax.set_facecolor("white")
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        summary_ax = axes[1, -1]
+        summary_ax.axis("off")
+        summary_ax.text(
+            0.05,
+            0.9,
+            f"Reference alignment\nPointing {pointing}\n"
+            f"{len(dither_frames)} dithers\n"
+            f"Reference file:\n{self.reference_file}",
+            ha="left",
+            va="top",
+            fontsize=10,
+            linespacing=1.5,
+        )
+        summary_ax.text(
+            0.05,
+            0.45,
+            "Status summary:\n"
+            + "\n".join(
+                f"D{i + 1}: {'OK' if bool(science_tables.get((pointing, i), (None, None, None, None, None, None, False))[6]) else 'FAIL'}"
+                for i in range(len(dither_frames))
+            ),
+            ha="left",
+            va="top",
+            fontsize=9,
+            linespacing=1.4,
+        )
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        fig.savefig(
+            QA_dir_science / f"{pointing}_dither_to_reference_QA.png",
+            dpi=200,
+        )
+        plt.close(fig)
 
     def run(self):
         """
@@ -637,10 +812,6 @@ class AlignmentPipeline:
         For now simple.
         """
 
-        # output_table_format:
-        # file, ra_offset, dec_offset, rotation_angle, ra_error, dec_error, rotation_error
-
-        output_table = []
 
         # TODO: for now simple to start testing
 
@@ -653,13 +824,10 @@ class AlignmentPipeline:
 
         self.logger.info(f"Aligning dithers...")
 
-
         # Create the QA directory for the dithers
         QA_dir_dithers = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
         # Create the QA directory for the dithers
-        QA_dir_dithers.mkdir(
-            parents=True, exist_ok=True
-        )  
+        QA_dir_dithers.mkdir(parents=True, exist_ok=True)
 
         # and create the QA directory for the science frames
         QA_dir_science = pathlib.Path(self.output_dir) / "aligment_QA" / "science"
@@ -683,13 +851,25 @@ class AlignmentPipeline:
         # remove the NaN values from the reference frame:
         reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
 
-
         # for plotting and QA
         reprojected_reference_frames = {}
 
         for pointing, exposures in self.config_dict.items():
 
+            # TODO: ONLY ASSUMING 4 DITHERS FOR NOW, NEED TO GENERALIZE LATER
+
+            if len(exposures) != 4:
+                self.logger.warning(
+                    f"Pointing {pointing} has {len(exposures)} exposures, expected 4. Skipping this pointing."
+                )
+                continue
+
+            # TODO just testing:
+
+            if pointing != "5": continue
             
+            science_tables[pointing] = {}
+
             self.logger.info(f"Processing pointing: {pointing}")
 
             dither_frame_arrays = []
@@ -719,9 +899,9 @@ class AlignmentPipeline:
                 dither_frame_wcs.append(input_WCS)
 
             # set aligner output QA to dithers
-            self.point_sources_aligner.QA_path = QA_dir_dithers 
+            self.point_sources_aligner.QA_path = QA_dir_dithers
 
-            x_table, y_table, rotation_table, success_table = self.align_dithers(
+            x_table, y_table, rotation_table, success_table, dither_set, wcs_set = self.align_dithers(
                 dither_frame_arrays,
                 dither_frame_wcs,
                 self.point_sources_aligner,
@@ -730,11 +910,20 @@ class AlignmentPipeline:
 
             dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
 
+            # ditheres have had their wcs and sizes adjusted in the align_dithers function, 
+            # so we need to update the dither_frame_arrays and dither_frame_wcs 
+            # with the returned values
+            dither_frame_arrays = dither_set
+            dither_frame_wcs = wcs_set
+
             # set QA path to science frames for the next step
             self.point_sources_aligner.QA_path = QA_dir_science
 
+
             # now do the alignment to the reference frame for each dither frame
-            for i, dither_frame in enumerate(dither_frames):
+            for i, dither_frame in enumerate(dither_frame_arrays):
+
+
                 self.logger.info(
                     f"Aligning dither frame {dither_frame} to reference frame {self.reference_file}"
                 )
@@ -752,7 +941,9 @@ class AlignmentPipeline:
                     reprojected_reference_frame, fill_value=0, logger=self.logger
                 )
 
-                reprojected_reference_frames[(pointing, i)] = reprojected_reference_frame
+                reprojected_reference_frames[(pointing, i)] = (
+                    reprojected_reference_frame
+                )
 
                 (
                     (tx, ty),
@@ -766,7 +957,7 @@ class AlignmentPipeline:
                     f"{pointing}_dither_{i+1}_to_reference",
                 )
 
-                science_tables[(pointing, i)] = (
+                science_tables[pointing][i] = (
                     tx,
                     ty,
                     rotation_angle,
@@ -777,156 +968,87 @@ class AlignmentPipeline:
                 )
 
             # plot QA of success for this pointing for dithers vs. reference frame
-            # 2x5 plot showing all dither, the reference, and for every one the recovered parameters and success/failure
-            fig, axes = plt.subplots(2, 5, figsize=(22, 10))
-            fig.suptitle(f"Pointing {pointing} alignment against reference frame", fontsize=16)
 
-            # top row: dither image panels + reference image panel
+
+            self._plot_science_alignment(
+                pointing,
+                dither_frames,
+                dither_frame_arrays,
+                reprojected_reference_frames,
+                science_tables,
+                QA_dir_science,
+            )
+
+
+            # now find any failed values and try to recover them by composing the transformations from the other dithers
+
             for i in range(len(dither_frames)):
-                ax = axes[0, i]
-                image = dither_frame_arrays[i]
-                vmin = np.percentile(image, 5)
-                vmax = np.percentile(image, 95)
-                ax.imshow(image, cmap="gray", origin="lower", interpolation="nearest", vmin=vmin, vmax=vmax)
-                ax.set_title(f"Dither {i + 1}")
-                ax.set_xlabel("x")
-                ax.set_ylabel("y")
-                ax.tick_params(labelbottom=False, labelleft=False)
+                tx, ty, rotation_angle, tx_error, ty_error, rotation_error, success = science_tables[pointing][i]
+                if not success:
+                    # Try to recover the failed alignment by composing transformations from other dithers
+                    self.logger.warning(f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover...")
+
+                    # look for no composed direct paths first:
+
+                    for j in range(len(dither_frames)):
+
+                        if j == i:
+                            continue
+
+                        # check sucess table to see if dither j has a successful alignment to the i dither
+                        success_i_j = success_table[i, j]  # success table is the 4th element in the tuple
+
+                        if success_i_j == 1:  # if success for dither j to i
 
 
-            # take first reprojected reference frame for display (they should all be the same more or less)
-            reference_frame_pointing = reprojected_reference_frames[(pointing, 0)]
+                            if science_tables[pointing][j][6]:  # if success for dither j
+                                # compose the transformations from dither j to reference and from dither i to dither j
+                                tx_j, ty_j, rotation_angle_j, _, _, _, _ = science_tables[pointing][j]
+                                tx_i_j = x_table[i, j]
+                                ty_i_j = y_table[i, j]
+                                rotation_angle_i_j = rotation_table[i, j]
+
+                                # compose the transformations
+                                T_i_j = transformation_matrix(tx_i_j, ty_i_j, rotation_angle_i_j, (dither_frame_arrays[i].shape[0] // 2, dither_frame_arrays[i].shape[1] // 2))
+                                T_j_ref = transformation_matrix(tx_j, ty_j, rotation_angle_j, (dither_frame_arrays[j].shape[0] // 2, dither_frame_arrays[j].shape[1] // 2))
+                                T_i_ref_composed = compose_transformations(T_i_j, T_j_ref)
+                                tx_composed, ty_composed, rotation_angle_composed = matrix_to_parameters(T_i_ref_composed, (dither_frame_arrays[i].shape[0] // 2, dither_frame_arrays[i].shape[1] // 2))
+
+                                # update the science table with the composed values
+                                science_tables[pointing][i] = (
+                                    tx_composed,
+                                    ty_composed,
+                                    rotation_angle_composed,
+                                    None,
+                                    None,
+                                    None,
+                                    True,
+                                )
+
+                                self.logger.info(f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {j+1}.")
+
+
+                                # the QA plot:
+                                self.point_sources_aligner.plot_difference_image(
+                                    dither_frame_arrays[i],
+                                    reprojected_reference_frames[(pointing, i)],
+                                    tx_composed,
+                                    ty_composed,
+                                    rotation_angle_composed,
+                                    f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}",
+                                    show=True,
+                                    custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1}",
+                                )
+
+                                
+                    if not science_tables[pointing][i][6]:  # if still not successful
+                        self.logger.warning(f"After attempting recovery, the alignment for pointing {pointing}, dither {i+1} is still failed.")
+                    else:
+                        self.logger.info(f"Successfully recovered alignment for pointing {pointing}, dither {i+1}.")
+      
 
 
 
-            v_min_ref = np.nanmedian(reference_frame_pointing) - 3 * np.nanstd(reference_frame_pointing)
-            v_max_ref = np.nanmedian(reference_frame_pointing) + 3 * np.nanstd(reference_frame_pointing)
-
-            ref_ax = axes[0, -1]
-            ref_ax.imshow(
-                reference_frame_pointing,
-                cmap="gray",
-                origin="lower",
-                interpolation="nearest",
-                vmin=v_min_ref,
-                vmax=v_max_ref
-            )
-            ref_ax.set_title("Reference")
-            ref_ax.set_xlabel("x")
-            ref_ax.set_ylabel("y")
-            ref_ax.tick_params(labelbottom=False, labelleft=False)
-
-            # bottom row: summary of the measured offsets and success state for each dither
-            for i in range(len(dither_frames)):
-                ax = axes[1, i]
-                ax.axis("off")
-                if (pointing, i) not in science_tables:
-                    ax.text(
-                        0.05,
-                        0.5,
-                        f"Dither {i + 1}\nNo result",
-                        ha="left",
-                        va="center",
-                        fontsize=11,
-                        color="white",
-                    )
-                    continue
-
-                (
-                    tx,
-                    ty,
-                    rotation_angle,
-                    tx_error,
-                    ty_error,
-                    rotation_error,
-                    success,
-                ) = science_tables[(pointing, i)]
-
-                # any of the above values can be none:
-
-                if any(v is None for v in [tx, ty, rotation_angle, tx_error, ty_error, rotation_error]):
-                    ax.text(
-                        0.05,
-                        0.5,
-                        f"Dither {i + 1}\nNo result",
-                        ha="left",
-                        va="center",
-                        fontsize=11,
-                        color="white",
-                    )
-                    continue
-
-                status_text = "SUCCESS" if bool(success) else "FAILURE"
-                status_color = "green" if bool(success) else "red"
-                # main info (black)
-                main_text = (
-                    f"Dither {i + 1}\n"
-                    f"tx = {tx:.3f} px\n"
-                    f"ty = {ty:.3f} px\n"
-                    f"rot = {rotation_angle:.3f} deg\n"
-                    f"tx_err = {tx_error:.3f}\n"
-                    f"ty_err = {ty_error:.3f}\n"
-                    f"rot_err = {rotation_error:.3f}"
-                )
-                ax.text(
-                    0.05,
-                    0.95,
-                    main_text,
-                    ha="left",
-                    va="top",
-                    fontsize=9,
-                    color="white",
-                    linespacing=1.4,
-                )
-                # status line in color
-                ax.text(
-                    0.05,
-                    0.18,
-                    f"Status: {status_text}",
-                    ha="left",
-                    va="center",
-                    fontsize=10,
-                    color=status_color,
-                    fontweight="bold",
-                )
-                ax.axvspan(0.0, 1.0, ymin=0.0, ymax=1.0, facecolor="white", alpha=0.0)
-                ax.set_facecolor("white")
-                for spine in ax.spines.values():
-                    spine.set_visible(False)
-
-            summary_ax = axes[1, -1]
-            summary_ax.axis("off")
-            summary_ax.text(
-                0.05,
-                0.9,
-                f"Reference alignment\nPointing {pointing}\n"
-                f"{len(dither_frames)} dithers\n"
-                f"Reference file:\n{self.reference_file}",
-                ha="left",
-                va="top",
-                fontsize=10,
-                linespacing=1.5,
-            )
-            summary_ax.text(
-                0.05,
-                0.45,
-                "Status summary:\n"
-                + "\n".join(
-                    f"D{i + 1}: {'OK' if bool(science_tables.get((pointing, i), (None, None, None, None, None, None, False))[6]) else 'FAIL'}"
-                    for i in range(len(dither_frames))
-                ),
-                ha="left",
-                va="top",
-                fontsize=9,
-                linespacing=1.4,
-            )
-
-            plt.tight_layout(rect=[0, 0, 1, 0.96])
-            fig.savefig(
-                QA_dir_science / f"{pointing}_dither_to_reference_QA.png",
-                dpi=200,
-            )
-
-            plt.close(fig)
 
 
+    

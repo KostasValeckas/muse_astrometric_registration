@@ -258,7 +258,7 @@ class AligmentMethod(ABC):
             ax.set_aspect("equal")
 
         if custom_title is not None:
-            plt.suptitle(custom_title)
+            plt.suptitle(custom_title + "\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg")
         else:
             plt.suptitle(
                 f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
@@ -445,7 +445,13 @@ class PointSources(AligmentMethod):
             theta_err,
             translation_err,
             covariance,
-        )
+        )   
+
+    # quickfix to non-deterministic behavior of astroalign, which uses np.random.default_rng() internally
+    _original_default_rng = np.random.default_rng  # class-level, captured once at import time
+
+    def _seeded_default_rng(self, *args, **kwargs):
+        return PointSources._original_default_rng(42)
 
     def run(
         self,
@@ -527,8 +533,14 @@ class PointSources(AligmentMethod):
 
         # ------------------------------------------------------------------
         # Find matching sources using astroalign
-        # ------------------------------------------------------------------
+        # ------------------------------------------------------------------\
 
+        original = aa._np.random.default_rng
+        aa._np.random.default_rng = self._seeded_default_rng
+        
+
+
+        
         try:
             _, (source_list, target_list) = aa.find_transform(
                 input_frame,
@@ -537,6 +549,8 @@ class PointSources(AligmentMethod):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed to find matching sources: {e}")
+
+        
 
             if save_QA:
                 fig = plt.figure(figsize=(10, 5))
@@ -578,7 +592,14 @@ class PointSources(AligmentMethod):
                 else:
                     plt.close()
 
+            aa._np.random.default_rng = original
+
             return self.FAILED_RETURN
+
+        finally:
+            aa._np.random.default_rng = original
+
+    
 
         if self.logger:
             self.logger.info(
