@@ -543,6 +543,7 @@ class PointSources(AligmentMethod):
         original = aa._np.random.default_rng
         aa._np.random.default_rng = self._seeded_default_rng
 
+
         try:
             _, (source_list, target_list) = aa.find_transform(
                 input_frame,
@@ -552,7 +553,68 @@ class PointSources(AligmentMethod):
             if self.logger:
                 self.logger.error(f"Failed to find matching sources: {e}")
 
-            if save_QA:
+
+            recovered = False
+
+
+            # some recovery options
+
+            if "List of matching triangles exhausted before an acceptable transformation was found" in str(e):
+                if self.logger:
+                    self.logger.warning(
+                        "astroalign failed to find matching sources, trying to lower MIN_MATCHES_FRACTION..."
+
+                    )
+
+                    for MIN_MATCHES_FRACTION in [0.5, 0.4, 0.3, 0.2]:
+                        try:
+
+                            aa.MIN_MATCHES_FRACTION = 0.5
+                            _, (source_list, target_list) = aa.find_transform(
+                                input_frame,
+                                reference_frame
+                            )
+                            recovered = True
+                            if self.logger:
+                                self.logger.info(
+                                    f"Successfully found matching sources with MIN_MATCHES_FRACTION={MIN_MATCHES_FRACTION}"
+                                )
+                            break
+                        except Exception as e_inner:
+                            if self.logger:
+                                self.logger.warning(
+                                    f"Failed to find matching sources with MIN_MATCHES_FRACTION={MIN_MATCHES_FRACTION}: {e_inner}"
+                                )
+
+                    # reset MIN_MATCHES_FRACTION to default
+
+                    aa.MIN_MATCHES_FRACTION = 0.8
+
+            # try lowering detection limit detection_sigma=5 in find_transform
+            if not recovered:
+
+                for detection_sigma in [5, 4, 3, 2]:
+                    try:
+                        _, (source_list, target_list) = aa.find_transform(
+                            input_frame,
+                            reference_frame,
+                            detection_sigma=detection_sigma
+                        )
+                        recovered = True
+                        if self.logger:
+                            self.logger.info(
+                                f"Successfully found matching sources with detection_sigma={detection_sigma}"
+                            )
+                        break
+                    except Exception as e_inner:
+                        if self.logger:
+                            self.logger.warning(
+                                f"Failed to find matching sources with detection_sigma={detection_sigma}: {e_inner}"
+                            )
+
+                
+
+            if save_QA and not recovered:
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
@@ -592,9 +654,9 @@ class PointSources(AligmentMethod):
                 else:
                     plt.close()
 
-            aa._np.random.default_rng = original
+                aa._np.random.default_rng = original
 
-            return self.FAILED_RETURN
+                return self.FAILED_RETURN
 
         finally:
             aa._np.random.default_rng = original

@@ -27,7 +27,7 @@ rot_offset_reference = reference_table["ROTANGLE"]
 date_obs_pipeline = pipeline_table["DATE_OBS"]
 ra_offset_pipeline = pipeline_table["RA_OFFSET"]
 dec_offset_pipeline = pipeline_table["DEC_OFFSET"]
-rot_offset_pipeline = pipeline_table["ROTATION"]
+rot_offset_pipeline = pipeline_table["ROTANGLE"]
 
 
 
