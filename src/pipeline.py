@@ -4,16 +4,20 @@ import pathlib
 
 from methods import PointSources
 
-from IO import read_fits_image, extract_image_wcs
+from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
 from geometry import (
     reproject_image_to_target_wcs,
     transformation_matrix,
     compose_transformations,
     matrix_to_parameters,
+    detector_translation_to_sky_translation
 )
 from filters import remove_nans
 import numpy as np
 import matplotlib.pyplot as plt
+
+
+
 
 
 # TODO: for now, hardcoded to 4 dithers pr. pointing
@@ -880,6 +884,8 @@ class AlignmentPipeline:
 
         self.logger.info(f"Reference file: {self.reference_file}")
 
+        output_table = []
+
         self.logger.info(f"Aligning dithers...")
 
         # Create the QA directory for the dithers
@@ -902,7 +908,7 @@ class AlignmentPipeline:
         science_tables = {}
 
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
-        reference_frame = read_fits_image(self.reference_file, logger=self.logger)
+        reference_frame, _ = read_fits_image(self.reference_file, logger=self.logger)
         reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
 
         reprojected_reference_frames = {}
@@ -921,6 +927,7 @@ class AlignmentPipeline:
 
             dither_frame_arrays = []
             dither_frame_wcs = []
+            dither_hduls = []
 
             dither_frames = [
                 pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
@@ -933,13 +940,14 @@ class AlignmentPipeline:
                     dither_frame, logger=self.logger, wcs_extension=1
                 )
 
-                input_frame = read_fits_image(
+                input_frame, hdul = read_fits_image(
                     dither_frame, logger=self.logger, data_extension=1
                 )
 
                 input_frame = remove_nans(input_frame, fill_value=0, logger=self.logger)
 
                 dither_frame_arrays.append(input_frame)
+                dither_hduls.append(hdul)
                 dither_frame_wcs.append(input_WCS)
 
             self.point_sources_aligner.QA_path = QA_dir_dithers
@@ -1192,3 +1200,58 @@ class AlignmentPipeline:
             fig_combined.savefig(
                 QA_dir_combined / f"{pointing}_combined_QA.png", dpi=200
             )
+
+            # now make the output tuples and add to the table
+
+            for i in range(len(dither_frames)):
+                (
+                    tx,
+                    ty,
+                    rotation_angle,
+                    tx_error,
+                    ty_error,
+                    rotation_error,
+                    success,
+                    composed,
+                    composed_from,
+                ) = science_tables[pointing][i]
+
+
+                if not success:
+                    self.logger.warning(
+                        f"Alignment for pointing {pointing}, dither {i+1} failed. Writing None values."
+                    )
+
+                    dRA = dRA_sigma = dDEC = dDEC_sigma = dROT = dROT_sigma = None
+                
+                else:
+
+                    # convert offsets and offset errors from detector pixels to sky coordinates (degrees)
+
+                    dRA, dDEC = detector_translation_to_sky_translation(
+                        dither_frame_wcs[i], tx, ty, logger=self.logger
+                    )
+
+                    dRA_sigma, dDEC_sigma = detector_translation_to_sky_translation(
+                        dither_frame_wcs[i], tx_error, ty_error
+                    )
+
+                table_entry = make_table_entry(
+                    dither_hduls[i],
+                    dRA,
+                    dRA_sigma,
+                    dDEC,
+                    dDEC_sigma,
+                    rotation_angle,
+                    rotation_error,
+                    logger=self.logger
+                )
+
+                # unpack the values and append
+                output_table.append(tuple(value for _, value in table_entry.items()))
+
+        # write the final results to a FITS table
+        write_final_results(output_table, self.output_dir, logger=self.logger)
+
+
+    

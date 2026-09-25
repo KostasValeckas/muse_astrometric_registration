@@ -183,3 +183,48 @@ def matrix_to_parameters(T, centre):
     tx, ty = translation
 
     return tx, ty, rotation_deg
+
+
+def detector_translation_to_sky_translation(wcs, dx, dy, logger=None):
+    """
+    Convert a detector/pixel translation (dx, dy) into
+    RA/Dec coordinate offsets using the image WCS.
+
+    Parameters
+    ----------
+    wcs : astropy.wcs.WCS
+        WCS of the image.
+    dx, dy : float
+        Translation in pixels.
+
+    Returns
+    -------
+    dRA : float
+        RA offset in degrees.
+    dDec : float
+        Dec offset in degrees.
+    """
+
+    # WCS reference pixel, converted from FITS 1-based
+    # coordinates to Astropy 0-based pixel coordinates.
+    x0 = wcs.wcs.crpix[0] - 1
+    y0 = wcs.wcs.crpix[1] - 1
+
+    # Sky coordinate at reference position
+    sky0 = wcs.pixel_to_world(x0, y0)
+
+    # Sky coordinate after applying the detector translation
+    sky1 = wcs.pixel_to_world(x0 + dx, y0 + dy)
+
+    # RA difference, wrapped to [-180, +180] degrees
+    dRA = (sky1.ra.deg - sky0.ra.deg + 180.0) % 360.0 - 180.0
+
+    # Dec difference
+    dDec = sky1.dec.deg - sky0.dec.deg
+
+    if logger:
+        logger.info(
+            f"Converted detector translation (dx={dx}, dy={dy}) to sky offsets (dRA={dRA}, dDec={dDec})"
+        )
+
+    return dRA, dDec
