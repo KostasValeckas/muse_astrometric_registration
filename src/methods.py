@@ -209,36 +209,36 @@ class AligmentMethod(ABC):
 
         _, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-        ref_vmin, ref_vmax = np.percentile(reference_frame, 5), np.percentile(
-            reference_frame, 95
+        ref_vmin, ref_vmax = np.percentile(reference_frame.compressed(), 5), np.percentile(
+            reference_frame.compressed(), 95
         )
-        in_vmin, in_vmax = np.percentile(input_frame, 5), np.percentile(input_frame, 95)
+        in_vmin, in_vmax = np.percentile(input_frame.compressed(), 5), np.percentile(input_frame.compressed(), 95)
 
         axes[0, 0].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5
+            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
         )
         axes[0, 0].imshow(
             input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
-        axes[0, 0].set_title("Before Alignment")
+        axes[0, 0].set_title("Before Alignment (Red = Reference, Blue = Input)")
         axes[0, 0].set_xlabel("X Pixel")
         axes[0, 0].set_ylabel("Y Pixel")
 
         axes[0, 1].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax, alpha=0.5
+            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
         )
         axes[0, 1].imshow(
             aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
-        axes[0, 1].set_title("After Alignment")
+        axes[0, 1].set_title("After Alignment (Red = Reference, Blue = Aligned)")
         axes[0, 1].set_xlabel("X Pixel")
         axes[0, 1].set_ylabel("Y Pixel")
 
         axes[1, 0].imshow(
             diff_prior,
             cmap="gray",
-            vmin=np.percentile(diff_prior, 5),
-            vmax=np.percentile(diff_prior, 95),
+            vmin=np.percentile(diff_prior.compressed(), 5),
+            vmax=np.percentile(diff_prior.compressed(), 95),
         )
         axes[1, 0].set_title("Difference Before Alignment")
         axes[1, 0].set_xlabel("X Pixel")
@@ -247,8 +247,8 @@ class AligmentMethod(ABC):
         axes[1, 1].imshow(
             diff_post,
             cmap="gray",
-            vmin=np.percentile(diff_post, 5),
-            vmax=np.percentile(diff_post, 95),
+            vmin=np.percentile(diff_post.compressed(), 5),
+            vmax=np.percentile(diff_post.compressed(), 95),
         )
         axes[1, 1].set_title("Difference After Alignment")
         axes[1, 1].set_xlabel("X Pixel")
@@ -349,11 +349,41 @@ class AligmentMethod(ABC):
 class PointSources(AligmentMethod):
 
     def __init__(
-        self, logger=None, outlier_threshold=0.5, max_iterations=5, QA_path=None
+        self, logger=None,
+    
+    
+        # this set of params work for NGC1365
+        #MIN_MATCHES_FRACTION = 0.4,
+        #detection_sigma = 5,
+        #NUM_NEAREST_NEIGHBOURS = 3,
+        #PIXEL_TOL = 5,
+        #min_area = 3, 
+
+        # testing this for NGC3211
+        MIN_MATCHES_FRACTION = 0.4,
+        detection_sigma = 2,
+        NUM_NEAREST_NEIGHBOURS = 3,
+        PIXEL_TOL = 5,
+        min_area = 5, 
+
+
+
+         
+        outlier_threshold=0.5, 
+        max_iterations=5, QA_path=None
     ):
+
+        self.MIN_MATCHES_FRACTION = MIN_MATCHES_FRACTION
+        self.detection_sigma = detection_sigma
+        self.NUM_NEAREST_NEIGHBOURS = NUM_NEAREST_NEIGHBOURS
+        self.PIXEL_TOL = PIXEL_TOL
+        self.min_area = min_area
+
 
         self.outlier_threshold = outlier_threshold
         self.max_iterations = max_iterations
+
+
 
         super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -543,11 +573,19 @@ class PointSources(AligmentMethod):
         original = aa._np.random.default_rng
         aa._np.random.default_rng = self._seeded_default_rng
 
+        # set default parameters for astroalign defined in the class constructor
+
+        aa.MIN_MATCHES_FRACTION = self.MIN_MATCHES_FRACTION
+        aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
+        aa.PIXEL_TOL = self.PIXEL_TOL
+
 
         try:
             _, (source_list, target_list) = aa.find_transform(
                 input_frame,
                 reference_frame,
+                detection_sigma = self.detection_sigma,
+                min_area = self.min_area
             )
         except Exception as e:
             if self.logger:
@@ -566,13 +604,15 @@ class PointSources(AligmentMethod):
 
                     )
 
-                    for MIN_MATCHES_FRACTION in [0.5, 0.4, 0.3, 0.2]:
+                    for MIN_MATCHES_FRACTION in [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
                         try:
 
                             aa.MIN_MATCHES_FRACTION = 0.5
                             _, (source_list, target_list) = aa.find_transform(
                                 input_frame,
-                                reference_frame
+                                reference_frame,
+                                detection_sigma = self.detection_sigma,
+                                min_area = self.min_area
                             )
                             recovered = True
                             if self.logger:
@@ -588,17 +628,23 @@ class PointSources(AligmentMethod):
 
                     # reset MIN_MATCHES_FRACTION to default
 
-                    aa.MIN_MATCHES_FRACTION = 0.8
+                    aa.MIN_MATCHES_FRACTION = self.MIN_MATCHES_FRACTION
 
             # try lowering detection limit detection_sigma=5 in find_transform
             if not recovered:
 
-                for detection_sigma in [5, 4, 3, 2]:
+                if self.logger:
+                    self.logger.warning(
+                        "astroalign failed to find matching sources, trying to lower detection_sigma..."
+                    )
+
+                for detection_sigma in [5, 4, 3, 2, 1]:
                     try:
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            detection_sigma=detection_sigma
+                            detection_sigma=detection_sigma,
+                            min_area = self.min_area
                         )
                         recovered = True
                         if self.logger:
@@ -611,18 +657,121 @@ class PointSources(AligmentMethod):
                             self.logger.warning(
                                 f"Failed to find matching sources with detection_sigma={detection_sigma}: {e_inner}"
                             )
+            # try increasing NUM_NEAREST_NEIGHBOUR
 
+            if not recovered:
+
+                if self.logger:
+                    self.logger.warning(
+                        "astroalign failed to find matching sources, trying to change NUM_NEAREST_NEIGHBOURS..."
+                    )
+
+                for NUM_NEAREST_NEIGHBOURS in [2, 3, 4, 5, 6, 7, 8]:
+                    try:
+                        aa.NUM_NEAREST_NEIGHBOURS = NUM_NEAREST_NEIGHBOURS
+                        _, (source_list, target_list) = aa.find_transform(
+                            input_frame,
+                            reference_frame,
+                            min_area = self.min_area,
+                            detection_sigma = self.detection_sigma
+                        )
+                        recovered = True
+                        if self.logger:
+                            self.logger.info(
+                                f"Successfully found matching sources with NUM_NEAREST_NEIGHBOURS={NUM_NEAREST_NEIGHBOURS}"
+                            )
+                        break
+                    except Exception as e_inner:
+                        if self.logger:
+                            self.logger.warning(
+                                f"Failed to find matching sources with NUM_NEAREST_NEIGHBOURS={NUM_NEAREST_NEIGHBOURS}: {e_inner}"
+                            )
+
+                # reset to default
+
+                aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
+                            
+
+            # try increasing pixel_tolerance in find_transform
+
+            if not recovered:
+
+                if self.logger:
+                    self.logger.warning(
+                        "astroalign failed to find matching sources, trying to increase pixel_tolerance..."
+                    )
                 
+                for pixel_tolerance in [2, 3, 4, 5, 6, 7]:
 
+                    aa.PIXEL_TOL = pixel_tolerance
+
+                    try:
+                        _, (source_list, target_list) = aa.find_transform(
+                            input_frame,
+                            reference_frame,
+                            min_area = self.min_area,
+                            detection_sigma = self.detection_sigma
+                        )
+                        recovered = True
+                        if self.logger:
+                            self.logger.info(
+                                f"Successfully found matching sources with pixel_tolerance={pixel_tolerance}"
+                            )
+                        break
+                    except Exception as e_inner:
+                        if self.logger:
+                            self.logger.warning(
+                                f"Failed to find matching sources with pixel_tolerance={pixel_tolerance}: {e_inner}"
+                            )
+
+                    # reset to default
+
+                aa.PIXEL_TOL = self.PIXEL_TOL
+
+            # last call, try change min area
+            if not recovered:
+
+                if self.logger:
+                    self.logger.error(
+                        "astroalign failed to find matching sources, trying to change min_area..."
+                    )
+
+                for min_area in [2, 3, 4, 5, 6, 7, 8 ,9 ,10, 15, 20]:
+                    try:
+                        _, (source_list, target_list) = aa.find_transform(
+                            input_frame,
+                            reference_frame,
+                            detection_sigma = self.detection_sigma,
+                            min_area=min_area
+                        )
+                        recovered = True
+                        if self.logger:
+                            self.logger.info(
+                                f"Successfully found matching sources with min_area={min_area}"
+                            )
+                        break
+                    except Exception as e_inner:
+                        if self.logger:
+                            self.logger.warning(
+                                f"Failed to find matching sources with min_area={min_area}: {e_inner}"
+                            )
+
+            # give up 
             if save_QA and not recovered:
+
+                if self.logger:
+                    self.logger.error(
+                        "astroalign failed."
+                    )
+
                 fig = plt.figure(figsize=(10, 5))
 
                 ax1 = plt.subplot(1, 2, 1)
                 ax1.imshow(
                     reference_frame,
                     cmap="gray",
-                    vmin=np.percentile(reference_frame, 5),
-                    vmax=np.percentile(reference_frame, 95),
+                    vmin=np.percentile(reference_frame.compressed(), 5),
+                    vmax=np.percentile(reference_frame.compressed(), 95),
                 )
                 ax1.set_title("Reference Frame")
 
@@ -630,8 +779,8 @@ class PointSources(AligmentMethod):
                 ax2.imshow(
                     input_frame,
                     cmap="gray",
-                    vmin=np.percentile(input_frame, 5),
-                    vmax=np.percentile(input_frame, 95),
+                    vmin=np.percentile(input_frame.compressed(), 5),
+                    vmax=np.percentile(input_frame.compressed(), 95),
                 )
                 ax2.set_title("Input Frame")
 
@@ -681,8 +830,8 @@ class PointSources(AligmentMethod):
                 ax1.imshow(
                     reference_frame,
                     cmap="gray",
-                    vmin=np.percentile(reference_frame, 5),
-                    vmax=np.percentile(reference_frame, 95),
+                    vmin=np.percentile(reference_frame.compressed(), 5),
+                    vmax=np.percentile(reference_frame.compressed(), 95),
                 )
                 ax1.set_title("Reference Frame")
 
@@ -690,8 +839,8 @@ class PointSources(AligmentMethod):
                 ax2.imshow(
                     input_frame,
                     cmap="gray",
-                    vmin=np.percentile(input_frame, 5),
-                    vmax=np.percentile(input_frame, 95),
+                    vmin=np.percentile(input_frame.compressed(), 5),
+                    vmax=np.percentile(input_frame.compressed() , 95),
                 )
                 ax2.set_title("Input Frame")
 
@@ -727,8 +876,8 @@ class PointSources(AligmentMethod):
             ax1.imshow(
                 reference_frame,
                 cmap="gray",
-                vmin=np.percentile(reference_frame, 5),
-                vmax=np.percentile(reference_frame, 95),
+                vmin=np.percentile(reference_frame.compressed(), 5),
+                vmax=np.percentile(reference_frame.compressed(), 95),
             )
             ax1.scatter(
                 target_list[:, 0],
@@ -744,8 +893,8 @@ class PointSources(AligmentMethod):
             ax2.imshow(
                 input_frame,
                 cmap="gray",
-                vmin=np.percentile(input_frame, 5),
-                vmax=np.percentile(input_frame, 95),
+                vmin=np.percentile(input_frame.compressed(), 5),
+                vmax=np.percentile(input_frame.compressed(), 95),
             )
             ax2.scatter(
                 source_list[:, 0],

@@ -12,9 +12,11 @@ from geometry import (
     matrix_to_parameters,
     detector_translation_to_sky_translation
 )
-from filters import remove_nans
+from filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
 import numpy as np
 import matplotlib.pyplot as plt
+
+
 
 
 
@@ -182,8 +184,8 @@ class AlignmentPipeline:
                     cmap="gray",
                     origin="lower",
                     interpolation="nearest",
-                    vmin=np.percentile(dither_set[i], 5),
-                    vmax=np.percentile(dither_set[i], 95),
+                    vmin=np.percentile(dither_set[i].compressed(), 5),
+                    vmax=np.percentile(dither_set[i].compressed(), 95),
                 )
                 ax.set_title(f"Dither {i + 1}")
                 ax.set_xlabel("x")
@@ -373,6 +375,8 @@ class AlignmentPipeline:
         # use reprojection to crop all dithers to the same size and WCS
         target_wcs = wcs_set[0]
 
+        bright_source_mask = None
+
         for i, dither in enumerate(dither_set):
             reprojected_dither, _ = reproject_image_to_target_wcs(
                 dither, wcs_set[i], target_wcs, shape_out=(min_height, min_width)
@@ -383,9 +387,38 @@ class AlignmentPipeline:
                 reprojected_dither, fill_value=0, logger=self.logger
             )
 
+            reprojected_dither, bright_source_mask = remove_bright_sources_simple(
+                reprojected_dither, logger=self.logger, mask=bright_source_mask
+            )
+
             dither_set[i] = reprojected_dither
 
+        
             wcs_set[i] = target_wcs
+
+        # second pass of masking to make sure same mask is applied to all dithers
+
+        for i, dither in enumerate(dither_set):
+            dither_set[i], bright_source_mask = remove_bright_sources_simple(
+                dither, logger=self.logger, mask=bright_source_mask
+            )
+
+            # mask 0's as bad pixels
+
+            dither_set[i], _ = mask_zero_as_bpm(dither_set[i], logger=self.logger)
+
+            # check if all values in the frame are nans. If so - make a zero frame:
+
+            valid = dither_set[i].compressed()
+
+            if valid.size == 0:
+                self.logger.warning(
+                    f"All values in dither {i+1} are NaN or masked. Replacing with a zero frame."
+                )
+                dither_set[i] = np.ma.array(np.zeros((min_height, min_width)), mask=np.zeros((min_height, min_width), dtype=bool))
+
+
+        
 
         for i, dither_1 in enumerate(dither_set):
 
@@ -662,6 +695,7 @@ class AlignmentPipeline:
             succes_table,
             dither_set,
             wcs_set,
+            bright_source_mask
         )
 
     # -----------------------------------------------------------------
@@ -705,8 +739,8 @@ class AlignmentPipeline:
         for i in range(len(dither_frames)):
             ax = axes[0, i]
             image = dither_frame_arrays[i]
-            vmin = np.percentile(image, 5)
-            vmax = np.percentile(image, 95)
+            vmin = np.percentile(image.compressed(), 5)
+            vmax = np.percentile(image.compressed(), 95)
             ax.imshow(
                 image,
                 cmap="gray",
@@ -911,6 +945,7 @@ class AlignmentPipeline:
         reference_frame, _ = read_fits_image(self.reference_file, logger=self.logger)
         reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
 
+
         reprojected_reference_frames = {}
 
         for pointing, exposures in self.config_dict.items():
@@ -932,6 +967,9 @@ class AlignmentPipeline:
             dither_frames = [
                 pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
             ]
+
+     
+
 
             for dither_frame in dither_frames:
                 self.logger.info(f"Reading dither frame: {dither_frame}")
@@ -962,6 +1000,7 @@ class AlignmentPipeline:
                 success_table,
                 dither_set,
                 wcs_set,
+                bright_source_mask
             ) = self.align_dithers(
                 dither_frame_arrays,
                 dither_frame_wcs,
@@ -989,8 +1028,18 @@ class AlignmentPipeline:
                     shape_out=dither_frame_arrays[i].shape,
                 )
 
+
                 reprojected_reference_frame = remove_nans(
                     reprojected_reference_frame, fill_value=0, logger=self.logger
+                )
+
+                reprojected_reference_frame, bright_source_mask = remove_bright_sources_simple(
+                    reprojected_reference_frame, logger=self.logger, mask = bright_source_mask
+                )
+
+                # replace 0's as bad pixels
+                reprojected_reference_frame, _ = mask_zero_as_bpm(
+                    reprojected_reference_frame, logger=self.logger
                 )
 
                 reprojected_reference_frames[(pointing, i)] = (
@@ -1039,6 +1088,7 @@ class AlignmentPipeline:
                         f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover..."
                     )
 
+                    # nearest neibhour case
                     for j in range(len(dither_frames)):
 
                         if j == i:
@@ -1046,7 +1096,7 @@ class AlignmentPipeline:
 
                         success_i_j = success_table[i, j]
 
-                        if success_i_j == 1:
+                        if success_i_j > 0:
 
                             if science_tables[pointing][j][6]:
                                 (
@@ -1134,6 +1184,132 @@ class AlignmentPipeline:
                                 )
 
                                 break
+
+                        # two intermediate frames search
+                    if not science_tables[pointing][i][6]:
+                        for j in range(len(dither_frames)):
+                            if j == i:
+                                continue
+                            for k in range(len(dither_frames)):
+                                if k == i or k == j:
+                                    continue
+
+                                success_i_j = success_table[i, j]
+                                success_j_k = success_table[j, k]
+                                success_k_ref = science_tables[pointing][k][6]
+
+                                if (
+                                    success_i_j > 0
+                                    and success_j_k > 0
+                                    and success_k_ref
+                                ):
+                                    (
+                                        tx_j,
+                                        ty_j,
+                                        rotation_angle_j,
+                                        tx_error_science,
+                                        ty_error_science,
+                                        rotation_error_science,
+                                        _,
+                                        _,
+                                        _,
+                                    ) = science_tables[pointing][j]
+                                    (
+                                        tx_k,
+                                        ty_k,
+                                        rotation_angle_k,
+                                        tx_error_science_k,
+                                        ty_error_science_k,
+                                        rotation_error_science_k,
+                                        _,
+                                        _,
+                                        _,
+                                    ) = science_tables[pointing][k]
+
+                                    tx_i_j = x_table[i, j]
+                                    ty_i_j = y_table[i, j]
+                                    rotation_angle_i_j = rotation_table[i, j]
+
+                                    tx_j_k = x_table[j, k]
+                                    ty_j_k = y_table[j, k]
+                                    rotation_angle_j_k = rotation_table[j, k]
+
+                                    T_i_j = transformation_matrix(
+                                        tx_i_j,
+                                        ty_i_j,
+                                        rotation_angle_i_j,
+                                        (
+                                            dither_frame_arrays[i].shape[0] // 2,
+                                            dither_frame_arrays[i].shape[1] // 2,
+                                        ),
+                                    )
+                                    T_j_k = transformation_matrix(
+                                        tx_j_k,
+                                        ty_j_k,
+                                        rotation_angle_j_k,
+                                        (
+                                            dither_frame_arrays[j].shape[0] // 2,
+                                            dither_frame_arrays[j].shape[1] // 2,
+                                        ),
+                                    )
+                                    T_k_ref = transformation_matrix(
+                                        tx_k,
+                                        ty_k,
+                                        rotation_angle_k,
+                                        (
+                                            dither_frame_arrays[k].shape[0] // 2,
+                                            dither_frame_arrays[k].shape[1] // 2,
+                                        ),
+                                    )
+                                    T_i_ref_composed = compose_transformations(
+                                        compose_transformations(T_i_j, T_j_k), T_k_ref
+                                    )
+                                    tx_composed, ty_composed, rotation_angle_composed = matrix_to_parameters(
+                                        T_i_ref_composed, (
+                                            dither_frame_arrays[i].shape[0] // 2,
+                                            dither_frame_arrays[i].shape[1] // 2,
+                                        )
+
+                                    )
+
+                                    tx_error = np.sqrt(
+                                        x_error_table[i, j] ** 2 + x_error_table[j, k] ** 2 + x_error_table[k, i] ** 2
+                                    )
+
+                                    ty_error = np.sqrt(
+                                        y_error_table[i, j] ** 2 + y_error_table[j, k] ** 2 + y_error_table[k, i] ** 2
+                                    )
+
+                                    rotation_error = np.sqrt(
+                                        rotation_error_table[i, j] ** 2 + rotation_error_table[j, k] ** 2 + rotation_error_table[k, i] ** 2
+                                    )
+
+                                    science_tables[pointing][i] = (
+                                        tx_composed,
+                                        ty_composed,
+                                        rotation_angle_composed,
+                                        tx_error,
+                                        ty_error,
+                                        rotation_error,
+                                        True,
+                                        True,
+                                        f"dither {k + 1} via dither {j + 1}",
+                                    )
+
+                                    self.logger.info(
+                                        f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {k+1} via dither {j+1}."   
+                                    )
+
+                                    self.point_sources_aligner.plot_difference_image(
+                                        dither_frame_arrays[i],
+                                        reprojected_reference_frames[(pointing, i)],
+                                        tx_composed,
+                                        ty_composed,
+                                        rotation_angle_composed,
+                                        f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}_and_dither_{k+1}",
+                                        show=False,
+                                        custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1} and dither {k+1}",
+                                    )
 
                     if not science_tables[pointing][i][6]:
                         self.logger.warning(
