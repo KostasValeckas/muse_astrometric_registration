@@ -16,6 +16,7 @@ with fits.open(path_reference) as hdul:
 # pipeline table
 with fits.open(path_pipeline) as hdul:
     pipeline_table = Table(hdul[1].data)
+    print(pipeline_table.colnames)
 
 date_obs_reference = reference_table["DATE_OBS"]
 ra_offset_reference = reference_table["RA_OFFSET"]

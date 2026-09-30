@@ -352,19 +352,12 @@ class PointSources(AligmentMethod):
         self, logger=None,
     
     
-        # this set of params work for NGC1365
-        #MIN_MATCHES_FRACTION = 0.4,
-        #detection_sigma = 5,
-        #NUM_NEAREST_NEIGHBOURS = 3,
-        #PIXEL_TOL = 5,
-        #min_area = 3, 
-
-        # testing this for NGC3211
-        MIN_MATCHES_FRACTION = 0.4,
-        detection_sigma = 2,
+        MIN_MATCHES_FRACTION = 0.5,
+        detection_sigma = 5,
         NUM_NEAREST_NEIGHBOURS = 3,
         PIXEL_TOL = 5,
-        min_area = 5, 
+        min_area = 10, 
+
 
 
 

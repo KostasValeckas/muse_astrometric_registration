@@ -17,7 +17,7 @@ def remove_nans(image, fill_value=0, logger=None):
 
     return np.nan_to_num(image, nan=fill_value)
 
-# filtering value for NGC1365: 200
+
 def remove_bright_sources_simple(image, threshold=1000, radius = 15, fill_value=0, logger=None, mask = None):
     """
     Remove bright sources from the image by setting pixels above a certain threshold to a fill value 
