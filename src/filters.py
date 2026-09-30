@@ -1,7 +1,8 @@
 from venv import logger
 
 import numpy as np
-
+from scipy.signal.windows import tukey
+import numpy.fft as fft
 """
 Module for filtering and processing images.
 """
@@ -64,3 +65,76 @@ def mask_zero_as_bpm(image, logger=None):
     masked_image = np.ma.masked_array(image, mask=bpm)
 
     return masked_image, bpm
+
+def tukey_window_2d(shape, alpha=0.25):
+    """
+    2D Tukey (tapered cosine) window.
+
+    alpha=0   -> rectangular window (no tapering)
+    alpha=1   -> Hann window (tapering over the whole array)
+    Typical values for edge-tapering a crop: 0.1-0.3
+    """
+    
+
+    h, w = shape
+    wy = tukey(h, alpha)
+    wx = tukey(w, alpha)
+
+    return np.outer(wy, wx)
+
+
+def hann_window_2d(shape):
+    """
+    2D Hann window (equivalent to Tukey with alpha=1).
+    """
+    h, w = shape
+    wy = np.hanning(h)
+    wx = np.hanning(w)
+
+    return np.outer(wy, wx)
+
+
+def apply_taper(im, window=None, alpha=0.25):
+    """
+    Apply a 2D taper to an image before FFT, to suppress edge
+    discontinuities / spectral leakage from non-periodic boundaries.
+
+    Parameters
+    ----------
+    im : 2D array
+    window : precomputed 2D window array (same shape as im), or None
+        to compute a Tukey window automatically
+    alpha : Tukey taper fraction, only used if window is None
+
+    Returns
+    -------
+    tapered image, same shape as im
+    """
+    if window is None:
+        window = tukey_window_2d(im.shape, alpha=alpha)
+
+    # mean-subtract before tapering so the tapered edges go to ~0,
+    # not to the image's mean flux level
+    im_zeroed = im - np.nanmean(im)
+
+    return im_zeroed * window
+
+def fourier_filter(im, sigma):
+    f = fft.fft2(im)
+
+    h, w = im.shape
+    fy = fft.fftfreq(h)
+    fx = fft.fftfreq(w)
+
+    FX, FY = np.meshgrid(fx, fy)
+
+    # Gaussian low-pass filter in frequency domain
+    H = np.exp(-(FX**2 + FY**2) / (2 * sigma**2))
+
+    # Apply filter
+    filtered_f = f * H
+
+    # Back to spatial domain
+    filtered_image = np.real(fft.ifft2(filtered_f))
+
+    return filtered_image

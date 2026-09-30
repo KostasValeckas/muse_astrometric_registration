@@ -7,6 +7,9 @@ from matplotlib.patches import ConnectionPatch
 import os
 from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate
+import numpy.fft as fft
+from filters import hann_window_2d, tukey_window_2d, apply_taper
+from scipy.ndimage import maximum_filter
 
 # plot styling
 plt.rcParams.update(
@@ -1360,3 +1363,176 @@ class PointSources(AligmentMethod):
             rot_err,
             True,
         )
+
+class FFIT(AligmentMethod):
+
+    def __init__(
+        self, logger=None,
+    
+    
+        QA_path=None
+    ):
+
+
+        super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
+
+        if self.logger:
+            self.logger.info(
+                f"Initialized {self.name} alignment method, version {self.version}."
+            )
+
+
+        def _upsampled_dft(self, data, upsampled_region_size, upsample_factor=1, axis_offsets=None):
+            """
+            Upsampled DFT by matrix multiplication (Guizar-Sicairos et al. 2008).
+
+            Computes a small, upsampled region of an inverse DFT, without
+            zero-padding and IFFT'ing the whole array.
+
+            Args:
+                data: 2D array in the frequency domain (e.g. F0 * conj(F1) / |...|)
+                upsampled_region_size: (rows, cols) size of the region to
+                    compute, in *upsampled* pixel units
+                upsample_factor: upsampling factor (kappa)
+                axis_offsets: (row_offset, col_offset) - where the region is
+                    centered, in upsampled-pixel units
+
+            Returns:
+                2D complex array of shape upsampled_region_size
+            """
+            if np.isscalar(upsampled_region_size):
+                upsampled_region_size = (upsampled_region_size,) * data.ndim
+            if axis_offsets is None:
+                axis_offsets = (0,) * data.ndim
+
+            im2pi = 1j * 2 * np.pi
+            out = data
+
+            # apply the 1D kernel along each axis, last axis first
+            for dim in reversed(range(data.ndim)):
+                n_items = data.shape[dim]
+                ups_size = upsampled_region_size[dim]
+                ax_offset = axis_offsets[dim]
+
+                kernel = (np.arange(ups_size) - ax_offset)[:, None] * fft.fftfreq(
+                    n_items, upsample_factor
+                )
+                kernel = np.exp(-im2pi * kernel)
+
+                out = np.tensordot(kernel, out, axes=(1, dim))
+                out = np.moveaxis(out, 0, dim)
+
+            return out
+
+        def phase_correlation(im0, im1, target_x, target_y, cutoff=None):
+        
+            window = tukey_window_2d(im0.shape, alpha=0.25)
+
+            im0 = apply_taper(im0, window=window)
+            im1 = apply_taper(im1, window=window)
+
+            target_coords = np.array([target_y, target_x])
+
+            f0, f1 = [fft.fft2(arr) for arr in (im0, im1)]
+
+            eps = abs(f1).max() * 1e-15
+
+            num = (f0 * f1.conjugate()) / (
+                abs(f0) * abs(f1) + eps
+            )
+
+            # Remove low spatial frequencies.
+            if cutoff is not None:
+                fy = fft.fftfreq(im0.shape[0])
+                fx = fft.fftfreq(im0.shape[1])
+
+                FX, FY = np.meshgrid(fx, fy)
+                R = np.sqrt(FX**2 + FY**2)
+
+                num[R < cutoff] = 0
+
+            cps = abs(fft.ifft2(num))
+            scps = fft.fftshift(cps)
+
+            target_coords_shifted = (
+                target_coords + np.array(scps.shape) / 2
+            )
+
+            return scps, num, target_coords_shifted
+
+        def count_peaks(a, size=2, threshold_fraction=0.2):
+        
+            threshold = threshold_fraction * np.max(a)
+
+            local_max = a == maximum_filter(a, size=size)
+            local_max &= a >= threshold
+
+            counts = np.count_nonzero(local_max)
+
+            return counts, threshold
+    
+        def run(
+            self,
+            reference_frame,
+            input_frame,
+            obs_name,
+            initial_guess_translation=(None, None),
+            initial_guess_rotation=None,
+            save_QA=True,
+            show_QA=False,
+            **kwargs,
+        ):
+            """
+            Align the target image to the reference image.
+    
+            Parameters
+            ----------
+    
+            reference_frame : np.2darray
+                The reference image to which the target image will be aligned.
+                Must be the same shape and scale as the input_frame.
+    
+            input_frame : np.2darray
+                The target image that needs to be aligned to the reference image.
+    
+            obs_name: str
+                Name of the observation, used for saving QA plots and logging.
+    
+            initial_guess_translation : tuple, optional
+                Initial guess for the translation (x, y) in pixels.
+    
+            initial_guess_rotation : float, optional
+                Initial guess for the rotation in degrees.
+    
+            **kwargs : dict
+                Additional keyword arguments specific to the alignment method.
+    
+            Returns
+            -------
+            offsets: tuple
+                The calculated offsets (x_offset, y_offset) in pixels.
+    
+            rotation: float
+                The calculated rotation in degrees.
+    
+            sigma_translation: tuple
+                The uncertainty in the calculated translation (sigma_x, sigma_y) in pixels.
+    
+            sigma_rotation: float
+                The uncertainty in the calculated rotation in degrees.
+    
+            success: bool
+                True if the alignment was successful, False otherwise.
+            """
+    
+            # Expected return values for the aligment methods
+    
+            (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
+    
+            return (
+                (tx, ty),
+                rot,
+                (tx_err, ty_err),
+                rot_err,
+                success,
+            )
