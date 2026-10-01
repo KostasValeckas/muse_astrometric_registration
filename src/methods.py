@@ -8,8 +8,9 @@ import os
 from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate
 import numpy.fft as fft
-from filters import hann_window_2d, tukey_window_2d, apply_taper
+from .filters import hann_window_2d, tukey_window_2d, apply_taper, estimate_nan_window
 from scipy.ndimage import maximum_filter
+from .geometry import reproject_image_to_target_wcs
 
 # plot styling
 plt.rcParams.update(
@@ -212,14 +213,14 @@ class AligmentMethod(ABC):
 
         _, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-        ref_vmin, ref_vmax = np.percentile(reference_frame.compressed(), 5), np.percentile(
-            reference_frame.compressed(), 95
+        ref_vmin, ref_vmax = np.percentile(
+            reference_frame.compressed(), 5
+        ), np.percentile(reference_frame.compressed(), 95)
+        in_vmin, in_vmax = np.percentile(input_frame.compressed(), 5), np.percentile(
+            input_frame.compressed(), 95
         )
-        in_vmin, in_vmax = np.percentile(input_frame.compressed(), 5), np.percentile(input_frame.compressed(), 95)
 
-        axes[0, 0].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
-        )
+        axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 0].imshow(
             input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
@@ -227,9 +228,7 @@ class AligmentMethod(ABC):
         axes[0, 0].set_xlabel("X Pixel")
         axes[0, 0].set_ylabel("Y Pixel")
 
-        axes[0, 1].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
-        )
+        axes[0, 1].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 1].imshow(
             aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
@@ -287,6 +286,8 @@ class AligmentMethod(ABC):
         reference_frame,
         input_frame,
         obs_name,
+        reference_wcs=None,
+        input_wcs=None,
         initial_guess_translation=(None, None),
         initial_guess_rotation=None,
         save_QA=True,
@@ -352,21 +353,16 @@ class AligmentMethod(ABC):
 class PointSources(AligmentMethod):
 
     def __init__(
-        self, logger=None,
-    
-    
-        MIN_MATCHES_FRACTION = 0.5,
-        detection_sigma = 5,
-        NUM_NEAREST_NEIGHBOURS = 3,
-        PIXEL_TOL = 5,
-        min_area = 10, 
-
-
-
-
-         
-        outlier_threshold=0.5, 
-        max_iterations=5, QA_path=None
+        self,
+        logger=None,
+        MIN_MATCHES_FRACTION=0.5,
+        detection_sigma=5,
+        NUM_NEAREST_NEIGHBOURS=3,
+        PIXEL_TOL=5,
+        min_area=10,
+        outlier_threshold=0.5,
+        max_iterations=5,
+        QA_path=None,
     ):
 
         self.MIN_MATCHES_FRACTION = MIN_MATCHES_FRACTION
@@ -375,11 +371,8 @@ class PointSources(AligmentMethod):
         self.PIXEL_TOL = PIXEL_TOL
         self.min_area = min_area
 
-
         self.outlier_threshold = outlier_threshold
         self.max_iterations = max_iterations
-
-
 
         super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -489,6 +482,8 @@ class PointSources(AligmentMethod):
         reference_frame,
         input_frame,
         obs_name,
+        reference_wcs=None,
+        input_wcs=None,
         save_QA=True,
         show_QA=False,
         initial_guess_translation=(None, None),
@@ -575,29 +570,28 @@ class PointSources(AligmentMethod):
         aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
         aa.PIXEL_TOL = self.PIXEL_TOL
 
-
         try:
             _, (source_list, target_list) = aa.find_transform(
                 input_frame,
                 reference_frame,
-                detection_sigma = self.detection_sigma,
-                min_area = self.min_area
+                detection_sigma=self.detection_sigma,
+                min_area=self.min_area,
             )
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed to find matching sources: {e}")
 
-
             recovered = False
-
 
             # some recovery options
 
-            if "List of matching triangles exhausted before an acceptable transformation was found" in str(e):
+            if (
+                "List of matching triangles exhausted before an acceptable transformation was found"
+                in str(e)
+            ):
                 if self.logger:
                     self.logger.warning(
                         "astroalign failed to find matching sources, trying to lower MIN_MATCHES_FRACTION..."
-
                     )
 
                     for MIN_MATCHES_FRACTION in [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
@@ -607,8 +601,8 @@ class PointSources(AligmentMethod):
                             _, (source_list, target_list) = aa.find_transform(
                                 input_frame,
                                 reference_frame,
-                                detection_sigma = self.detection_sigma,
-                                min_area = self.min_area
+                                detection_sigma=self.detection_sigma,
+                                min_area=self.min_area,
                             )
                             recovered = True
                             if self.logger:
@@ -640,7 +634,7 @@ class PointSources(AligmentMethod):
                             input_frame,
                             reference_frame,
                             detection_sigma=detection_sigma,
-                            min_area = self.min_area
+                            min_area=self.min_area,
                         )
                         recovered = True
                         if self.logger:
@@ -668,8 +662,8 @@ class PointSources(AligmentMethod):
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            min_area = self.min_area,
-                            detection_sigma = self.detection_sigma
+                            min_area=self.min_area,
+                            detection_sigma=self.detection_sigma,
                         )
                         recovered = True
                         if self.logger:
@@ -686,7 +680,6 @@ class PointSources(AligmentMethod):
                 # reset to default
 
                 aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
-                            
 
             # try increasing pixel_tolerance in find_transform
 
@@ -696,7 +689,7 @@ class PointSources(AligmentMethod):
                     self.logger.warning(
                         "astroalign failed to find matching sources, trying to increase pixel_tolerance..."
                     )
-                
+
                 for pixel_tolerance in [2, 3, 4, 5, 6, 7]:
 
                     aa.PIXEL_TOL = pixel_tolerance
@@ -705,8 +698,8 @@ class PointSources(AligmentMethod):
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            min_area = self.min_area,
-                            detection_sigma = self.detection_sigma
+                            min_area=self.min_area,
+                            detection_sigma=self.detection_sigma,
                         )
                         recovered = True
                         if self.logger:
@@ -732,13 +725,13 @@ class PointSources(AligmentMethod):
                         "astroalign failed to find matching sources, trying to change min_area..."
                     )
 
-                for min_area in [2, 3, 4, 5, 6, 7, 8 ,9 ,10, 15, 20]:
+                for min_area in [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]:
                     try:
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            detection_sigma = self.detection_sigma,
-                            min_area=min_area
+                            detection_sigma=self.detection_sigma,
+                            min_area=min_area,
                         )
                         recovered = True
                         if self.logger:
@@ -752,13 +745,11 @@ class PointSources(AligmentMethod):
                                 f"Failed to find matching sources with min_area={min_area}: {e_inner}"
                             )
 
-            # give up 
+            # give up
             if save_QA and not recovered:
 
                 if self.logger:
-                    self.logger.error(
-                        "astroalign failed."
-                    )
+                    self.logger.error("astroalign failed.")
 
                 fig = plt.figure(figsize=(10, 5))
 
@@ -836,7 +827,7 @@ class PointSources(AligmentMethod):
                     input_frame,
                     cmap="gray",
                     vmin=np.percentile(input_frame.compressed(), 5),
-                    vmax=np.percentile(input_frame.compressed() , 95),
+                    vmax=np.percentile(input_frame.compressed(), 95),
                 )
                 ax2.set_title("Input Frame")
 
@@ -1364,175 +1355,176 @@ class PointSources(AligmentMethod):
             True,
         )
 
-class FFIT(AligmentMethod):
 
-    def __init__(
-        self, logger=None,
-    
-    
-        QA_path=None
-    ):
+class FFT(AligmentMethod):
 
+    def __init__(self, oversample_factor=4, logger=None, QA_path=None):
 
-        super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
+        self.oversample_factor = oversample_factor
+
+        super().__init__("FFT", "0.0.0", logger=logger, QA_path=QA_path)
 
         if self.logger:
             self.logger.info(
                 f"Initialized {self.name} alignment method, version {self.version}."
             )
 
-
-        def _upsampled_dft(self, data, upsampled_region_size, upsample_factor=1, axis_offsets=None):
-            """
-            Upsampled DFT by matrix multiplication (Guizar-Sicairos et al. 2008).
-
-            Computes a small, upsampled region of an inverse DFT, without
-            zero-padding and IFFT'ing the whole array.
-
-            Args:
-                data: 2D array in the frequency domain (e.g. F0 * conj(F1) / |...|)
-                upsampled_region_size: (rows, cols) size of the region to
-                    compute, in *upsampled* pixel units
-                upsample_factor: upsampling factor (kappa)
-                axis_offsets: (row_offset, col_offset) - where the region is
-                    centered, in upsampled-pixel units
-
-            Returns:
-                2D complex array of shape upsampled_region_size
-            """
-            if np.isscalar(upsampled_region_size):
-                upsampled_region_size = (upsampled_region_size,) * data.ndim
-            if axis_offsets is None:
-                axis_offsets = (0,) * data.ndim
-
-            im2pi = 1j * 2 * np.pi
-            out = data
-
-            # apply the 1D kernel along each axis, last axis first
-            for dim in reversed(range(data.ndim)):
-                n_items = data.shape[dim]
-                ups_size = upsampled_region_size[dim]
-                ax_offset = axis_offsets[dim]
-
-                kernel = (np.arange(ups_size) - ax_offset)[:, None] * fft.fftfreq(
-                    n_items, upsample_factor
-                )
-                kernel = np.exp(-im2pi * kernel)
-
-                out = np.tensordot(kernel, out, axes=(1, dim))
-                out = np.moveaxis(out, 0, dim)
-
-            return out
-
-        def phase_correlation(im0, im1, target_x, target_y, cutoff=None):
+    def _upsampled_dft(
+        self, data, upsampled_region_size, upsample_factor=1, axis_offsets=None
+    ):
+        """
+        Upsampled DFT by matrix multiplication (Guizar-Sicairos et al. 2008).
+        Computes a small, upsampled region of an inverse DFT, without
+        zero-padding and IFFT'ing the whole array.
+        Args:
+            data: 2D array in the frequency domain (e.g. F0 * conj(F1) / |...|)
+            upsampled_region_size: (rows, cols) size of the region to
+                compute, in *upsampled* pixel units
+            upsample_factor: upsampling factor (kappa)
+            axis_offsets: (row_offset, col_offset) - where the region is
+                centered, in upsampled-pixel units
+        Returns:
+            2D complex array of shape upsampled_region_size
+        """
         
-            window = tukey_window_2d(im0.shape, alpha=0.25)
-
-            im0 = apply_taper(im0, window=window)
-            im1 = apply_taper(im1, window=window)
-
-            target_coords = np.array([target_y, target_x])
-
-            f0, f1 = [fft.fft2(arr) for arr in (im0, im1)]
-
-            eps = abs(f1).max() * 1e-15
-
-            num = (f0 * f1.conjugate()) / (
-                abs(f0) * abs(f1) + eps
-            )
-
-            # Remove low spatial frequencies.
-            if cutoff is not None:
-                fy = fft.fftfreq(im0.shape[0])
-                fx = fft.fftfreq(im0.shape[1])
-
-                FX, FY = np.meshgrid(fx, fy)
-                R = np.sqrt(FX**2 + FY**2)
-
-                num[R < cutoff] = 0
-
-            cps = abs(fft.ifft2(num))
-            scps = fft.fftshift(cps)
-
-            target_coords_shifted = (
-                target_coords + np.array(scps.shape) / 2
-            )
-
-            return scps, num, target_coords_shifted
-
-        def count_peaks(a, size=2, threshold_fraction=0.2):
+        if np.isscalar(upsampled_region_size):
+            upsampled_region_size = (upsampled_region_size,) * data.ndim
         
-            threshold = threshold_fraction * np.max(a)
+        if axis_offsets is None:
+            axis_offsets = (0,) * data.ndim
+        
+        im2pi = 1j * 2 * np.pi
+        
+        out = data
+        
+        # apply the 1D kernel along each axis, last axis first
+        
+        for dim in reversed(range(data.ndim)):
+            n_items = data.shape[dim]
+            ups_size = upsampled_region_size[dim]
+            ax_offset = axis_offsets[dim]
+            kernel = (np.arange(ups_size) - ax_offset)[:, None] * fft.fftfreq(
+                n_items, upsample_factor
+            )
+            kernel = np.exp(-im2pi * kernel)
+            out = np.tensordot(kernel, out, axes=(1, dim))
+            out = np.moveaxis(out, 0, dim)
+        
+        return out
 
-            local_max = a == maximum_filter(a, size=size)
-            local_max &= a >= threshold
+    def phase_correlation(im0, im1, target_x, target_y, cutoff=None):
 
-            counts = np.count_nonzero(local_max)
+        window = tukey_window_2d(im0.shape, alpha=0.25)
+        im0 = apply_taper(im0, window=window)
+        im1 = apply_taper(im1, window=window)
+        target_coords = np.array([target_y, target_x])
+        f0, f1 = [fft.fft2(arr) for arr in (im0, im1)]
+        eps = abs(f1).max() * 1e-15
+        num = (f0 * f1.conjugate()) / (abs(f0) * abs(f1) + eps)
+        # Remove low spatial frequencies.
+        if cutoff is not None:
+            fy = fft.fftfreq(im0.shape[0])
+            fx = fft.fftfreq(im0.shape[1])
+            FX, FY = np.meshgrid(fx, fy)
+            R = np.sqrt(FX**2 + FY**2)
+            num[R < cutoff] = 0
+        cps = abs(fft.ifft2(num))
+        scps = fft.fftshift(cps)
+        target_coords_shifted = target_coords + np.array(scps.shape) / 2
+        return scps, num, target_coords_shifted
 
-            return counts, threshold
-    
-        def run(
-            self,
+    def count_peaks(a, size=2, threshold_fraction=0.2):
+
+        threshold = threshold_fraction * np.max(a)
+        local_max = a == maximum_filter(a, size=size)
+        local_max &= a >= threshold
+        counts = np.count_nonzero(local_max)
+        return counts, threshold
+
+    def run(
+        self,
+        reference_frame,
+        input_frame,
+        obs_name,
+        reference_wcs=None,
+        input_wcs=None,
+        initial_guess_translation=(None, None),
+        initial_guess_rotation=None,
+        save_QA=True,
+        show_QA=False,
+        **kwargs,
+    ):
+        """
+        Align the target image to the reference image.
+
+        Parameters
+        ----------
+
+        reference_frame : np.2darray
+            The reference image to which the target image will be aligned.
+            Must be the same shape and scale as the input_frame.
+
+        input_frame : np.2darray
+            The target image that needs to be aligned to the reference image.
+
+        obs_name: str
+            Name of the observation, used for saving QA plots and logging.
+
+        initial_guess_translation : tuple, optional
+            Initial guess for the translation (x, y) in pixels.
+
+        initial_guess_rotation : float, optional
+            Initial guess for the rotation in degrees.
+
+        **kwargs : dict
+            Additional keyword arguments specific to the alignment method.
+
+        Returns
+        -------
+        offsets: tuple
+            The calculated offsets (x_offset, y_offset) in pixels.
+
+        rotation: float
+            The calculated rotation in degrees.
+
+        sigma_translation: tuple
+            The uncertainty in the calculated translation (sigma_x, sigma_y) in pixels.
+
+        sigma_rotation: float
+            The uncertainty in the calculated rotation in degrees.
+
+        success: bool
+            True if the alignment was successful, False otherwise.
+        """
+
+        # this is to calculate the output shape based on the NaN edge of muse data.
+        NaN_window = estimate_nan_window(input_frame)
+
+
+        # oversample the reference:
+        reference_frame, _ = reproject_image_to_target_wcs(
             reference_frame,
-            input_frame,
-            obs_name,
-            initial_guess_translation=(None, None),
-            initial_guess_rotation=None,
-            save_QA=True,
-            show_QA=False,
-            **kwargs,
-        ):
-            """
-            Align the target image to the reference image.
-    
-            Parameters
-            ----------
-    
-            reference_frame : np.2darray
-                The reference image to which the target image will be aligned.
-                Must be the same shape and scale as the input_frame.
-    
-            input_frame : np.2darray
-                The target image that needs to be aligned to the reference image.
-    
-            obs_name: str
-                Name of the observation, used for saving QA plots and logging.
-    
-            initial_guess_translation : tuple, optional
-                Initial guess for the translation (x, y) in pixels.
-    
-            initial_guess_rotation : float, optional
-                Initial guess for the rotation in degrees.
-    
-            **kwargs : dict
-                Additional keyword arguments specific to the alignment method.
-    
-            Returns
-            -------
-            offsets: tuple
-                The calculated offsets (x_offset, y_offset) in pixels.
-    
-            rotation: float
-                The calculated rotation in degrees.
-    
-            sigma_translation: tuple
-                The uncertainty in the calculated translation (sigma_x, sigma_y) in pixels.
-    
-            sigma_rotation: float
-                The uncertainty in the calculated rotation in degrees.
-    
-            success: bool
-                True if the alignment was successful, False otherwise.
-            """
-    
-            # Expected return values for the aligment methods
-    
-            (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
-    
-            return (
-                (tx, ty),
-                rot,
-                (tx_err, ty_err),
-                rot_err,
-                success,
-            )
+            reference_wcs,
+            input_wcs,
+            oversample_factor=self.oversample_factor,
+            shape_out=NaN_window
+        )
+        # oversample the input:
+        input_frame, _ = reproject_image_to_target_wcs(
+            input_frame, input_wcs, input_wcs, oversample_factor=self.oversample_factor, shape_out=NaN_window
+        )
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
+        ax1.imshow(reference_frame)
+        ax2.imshow(input_frame)
+        plt.show()
+        # Expected return values for the aligment methods
+
+        (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
+
+        return (
+            (tx, ty),
+            rot,
+            (tx_err, ty_err),
+            rot_err,
+            success,
+        )

@@ -42,6 +42,28 @@ def reproject_image_to_target_wcs(
         The footprint of the reprojected image.
     """
 
+
+    if oversample_factor > 1:   
+        
+        oversampled_wcs = target_wcs.deepcopy()
+
+        if oversampled_wcs.wcs.has_cd():
+            
+            oversampled_wcs.wcs.cd = oversampled_wcs.wcs.cd / oversample_factor
+
+        else:
+            oversampled_wcs.wcs.cdelt = oversampled_wcs.wcs.cdelt / oversample_factor
+    
+        # CRPIX must scale up so the same sky position maps to the
+        # correspondingly scaled-up pixel coordinate
+        oversampled_wcs.wcs.crpix = (np.array(oversampled_wcs.wcs.crpix) - 0.5) * oversample_factor + 0.5
+
+        shape_out = (target_wcs.array_shape[0] * oversample_factor, target_wcs.array_shape[1] * oversample_factor)
+        
+        target_wcs = oversampled_wcs
+
+
+
     if shape_out is None:
         shape_out = (target_wcs.array_shape[0], target_wcs.array_shape[1])
 

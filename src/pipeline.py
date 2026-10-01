@@ -1,18 +1,18 @@
-from logger import get_logger
+from .logger import get_logger
 
 import pathlib
 
-from methods import PointSources
+from .methods import PointSources
 
-from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
-from geometry import (
+from .IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
+from .geometry import (
     reproject_image_to_target_wcs,
     transformation_matrix,
     compose_transformations,
     matrix_to_parameters,
     detector_translation_to_sky_translation
 )
-from filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
+from .filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
 import numpy as np
 import matplotlib.pyplot as plt
 

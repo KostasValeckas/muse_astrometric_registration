@@ -8,6 +8,10 @@ __pycache__/
 ./*png*
 ./*.zip
 
+# extra file for reference 
+
+*./reference
+
 # C extensions
 *.so
 

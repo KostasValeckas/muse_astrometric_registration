@@ -1,6 +1,6 @@
 import argparse
 import json
-from pipeline import AlignmentPipeline
+from .pipeline import AlignmentPipeline
 
 
 """

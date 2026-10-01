@@ -138,3 +138,26 @@ def fourier_filter(im, sigma):
     filtered_image = np.real(fft.ifft2(filtered_f))
 
     return filtered_image
+
+
+def estimate_nan_window(image):
+    """
+    MUSE data has a non-homogenous edge with NaN values. This method estimates
+    the "deepest" nan value for left, right, bottom and top, and returns 
+    what image shape from the center would only hold finite values.
+    """
+
+    # Find the indices of NaN values
+    nan_indices = np.argwhere(np.isnan(image))
+
+    if nan_indices.size == 0:
+        return image.shape  # No NaNs, return original shape
+
+    # Get the min and max indices for each dimension
+    min_row, min_col = np.min(nan_indices, axis=0)
+    max_row, max_col = np.max(nan_indices, axis=0)
+
+    # Calculate the new shape that excludes NaN regions
+    new_shape = (max_row - min_row + 1, max_col - min_col + 1)
+
+    return new_shape
