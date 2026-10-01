@@ -8,9 +8,12 @@ import os
 from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate
 import numpy.fft as fft
-from .filters import hann_window_2d, tukey_window_2d, apply_taper, estimate_nan_window
+from .filters import hann_window_2d, tukey_window_2d, apply_taper, estimate_nan_window, fourier_filter
 from scipy.ndimage import maximum_filter
 from .geometry import reproject_image_to_target_wcs, make_window_wcs
+from skimage.transform import warp_polar
+from skimage.registration import phase_cross_correlation
+
 
 # plot styling
 plt.rcParams.update(
@@ -1441,6 +1444,79 @@ class FFT(AligmentMethod):
         counts = np.count_nonzero(local_max)
         return counts, threshold
 
+    def rotation_only(self, F_ref, F_mov, n_angles=1440, r_min=0.02, r_max=0.35,
+                      max_angle=None):
+        """
+        Rotation of mov relative to ref, assuming scale == 1.
+        F_* : unshifted 2D spectra (DC at [0, 0]), ideally high-passed.
+        r_min, r_max : radial band in cycles/pixel to use (excludes DC region
+                       and noisy high frequencies).
+        max_angle : if given (deg), only accept |angle| <= max_angle (e.g. from WCS).
+        """
+        h, w = F_ref.shape
+        radius = min(h, w) // 2
+
+        def angular_profile(F):
+            mag = np.log1p(np.abs(fft.fftshift(F)))
+            pol = warp_polar(mag, radius=radius, output_shape=(n_angles, radius),
+                             scaling="linear")          # (angle, radius)
+            # radial band in pixels of the polar map -> cycles/pixel = r / min(h, w)
+            r = np.arange(radius) / min(h, w)
+            band = (r >= r_min) & (r <= r_max)
+            prof = pol[:, band].sum(axis=1)
+            return prof - prof.mean()
+
+        p_ref, p_mov = angular_profile(F_ref), angular_profile(F_mov)
+
+        # circular cross-correlation via FFT
+        cc = np.real(fft.ifft(fft.fft(p_ref) * np.conj(fft.fft(p_mov))))
+
+        # optionally restrict the search window around 0 deg
+        lags = np.arange(n_angles)
+        lags = np.where(lags > n_angles // 2, lags - n_angles, lags)   # signed bins
+        deg_per_bin = 360.0 / n_angles
+        if max_angle is not None:
+            cc = np.where(np.abs(lags * deg_per_bin) <= max_angle, cc, -np.inf)
+
+        k = int(np.argmax(cc))
+
+        # sub-bin refinement: parabola through the peak and its neighbours
+        y0, y1, y2 = cc[(k - 1) % n_angles], cc[k], cc[(k + 1) % n_angles]
+        denom = y0 - 2 * y1 + y2
+        delta = 0.5 * (y0 - y2) / denom if denom != 0 else 0.0
+
+        return (lags[k] + delta) * deg_per_bin
+
+    def rotation_scale(self, F_ref, F_mov, upsample=10):
+        """
+        F_ref, F_mov : 2D complex spectra from fft.fft2 (unshifted, DC at [0, 0]),
+                       ideally already high-passed.
+        Returns (angle_deg, scale) of the moving image relative to the reference.
+        """
+        mag_ref = np.abs(fft.fftshift(F_ref))
+        mag_mov = np.abs(fft.fftshift(F_mov))
+
+        # compress the huge dynamic range so low frequencies don't dominate
+        mag_ref = np.log1p(mag_ref)
+        mag_mov = np.log1p(mag_mov)
+
+        h, w = mag_ref.shape
+        radius = min(h, w) // 2
+        out_shape = (360, radius)
+
+        lp_ref = warp_polar(mag_ref, radius=radius, output_shape=out_shape, scaling="log")
+        lp_mov = warp_polar(mag_mov, radius=radius, output_shape=out_shape, scaling="log")
+
+        shifts, error, _ = phase_cross_correlation(
+            lp_ref, lp_mov, upsample_factor=upsample, normalization=None
+        )
+        shift_angle, shift_logr = shifts
+
+        angle = shift_angle * 360.0 / out_shape[0]
+        klog = out_shape[1] / np.log(radius)
+        scale = np.exp(shift_logr / klog)
+        return angle, scale
+
     def run(
         self,
         reference_frame,
@@ -1498,26 +1574,70 @@ class FFT(AligmentMethod):
         """
 
         window, (height, width) = estimate_nan_window(input_frame, min_run=100)
-    
+
         target_wcs, shape_out = make_window_wcs(
             input_wcs, input_frame.shape, window, self.oversample_factor
         )
         print("shape_out:", shape_out)   # should be ~ (294, 295) * oversample_factor
-    
+
         input_frame, _ = reproject_image_to_target_wcs(
             input_frame, input_wcs, target_wcs, shape_out=shape_out,
         )
-    
+
         reference_frame, _ = reproject_image_to_target_wcs(
             reference_frame, reference_wcs, target_wcs, shape_out=shape_out,
         )
 
+        # remove NaN values from the images, use the same mask
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
+        mask = np.isnan(input_frame) | np.isnan(reference_frame)
+
+        input_frame[mask] = 0.0
+        reference_frame[mask] = 0.0
+
+        # taper the images to reduce edge effects
+        window = tukey_window_2d(input_frame.shape, alpha=0.25)
+        input_frame = apply_taper(input_frame, window=window)
+        reference_frame = apply_taper(reference_frame, window=window)
+
+
+        fft_input_frame = fft.fft2(input_frame)
+        fft_reference_frame = fft.fft2(reference_frame)
+
+        _, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(12, 12))
+
         ax1.imshow(reference_frame)
         ax2.imshow(input_frame)
+        ax3.imshow(np.abs(fft_reference_frame), vmin=0, vmax=np.percentile(np.abs(fft_reference_frame), 99))
+        ax4.imshow(np.abs(fft_input_frame), vmin=0, vmax=np.percentile(np.abs(fft_input_frame), 99))
         plt.show()
         # Expected return values for the aligment methods
+
+        fft_input_filtered = fourier_filter(fft_input_frame, 0.01, mode = "high")
+        fft_reference_filtered = fourier_filter(fft_reference_frame, 0.01, mode = "high")
+
+
+
+        angle, scale = self.rotation_scale(fft_reference_filtered, fft_input_filtered, upsample=100)
+
+        print(f"Estimated rotation: {angle:.4f} degrees, scale: {scale:.6f}")
+
+        angle = self.rotation_only(fft_reference_filtered, fft_input_filtered, n_angles=1440, r_min=0.02, r_max=0.35, max_angle=1.0)
+
+        print(f"Estimated rotation (only): {angle:.4f} degrees")
+
+
+
+
+
+
+
+
+
+        
+
+
+
 
 
         (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN

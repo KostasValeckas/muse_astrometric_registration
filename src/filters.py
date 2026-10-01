@@ -120,26 +120,30 @@ def apply_taper(im, window=None, alpha=0.25):
 
     return im_zeroed * window
 
-def fourier_filter(im, sigma):
-    f = fft.fft2(im)
+def fourier_filter(F, sigma, mode="low", return_image=False):
+    """
+    Gaussian filter applied to an already-transformed image.
 
-    h, w = im.shape
-    fy = fft.fftfreq(h)
-    fx = fft.fftfreq(w)
+    F     : 2D complex array from fft.fft2(im), in standard (unshifted) order,
+            i.e. DC term at F[0, 0].
+    sigma : Gaussian width in cycles/pixel (0 to 0.5).
+    mode  : "low" or "high".
+    return_image : if True, also return the real-space result.
+    """
+    h, w = F.shape
+    FX, FY = np.meshgrid(fft.fftfreq(w), fft.fftfreq(h))
 
-    FX, FY = np.meshgrid(fx, fy)
-
-    # Gaussian low-pass filter in frequency domain
     H = np.exp(-(FX**2 + FY**2) / (2 * sigma**2))
+    if mode == "high":
+        H = 1.0 - H
+    elif mode != "low":
+        raise ValueError("mode must be 'low' or 'high'")
 
-    # Apply filter
-    filtered_f = f * H
+    F_filt = F * H
 
-    # Back to spatial domain
-    filtered_image = np.real(fft.ifft2(filtered_f))
-
-    return filtered_image
-
+    if return_image:
+        return F_filt, np.real(fft.ifft2(F_filt))
+    return F_filt
 
 def longest_run(mask):
     """Length of the longest run of True in a 1D boolean array."""
