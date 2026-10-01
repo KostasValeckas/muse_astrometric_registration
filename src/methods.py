@@ -10,7 +10,7 @@ from scipy.ndimage import shift, rotate
 import numpy.fft as fft
 from .filters import hann_window_2d, tukey_window_2d, apply_taper, estimate_nan_window
 from scipy.ndimage import maximum_filter
-from .geometry import reproject_image_to_target_wcs
+from .geometry import reproject_image_to_target_wcs, make_window_wcs
 
 # plot styling
 plt.rcParams.update(
@@ -1497,27 +1497,28 @@ class FFT(AligmentMethod):
             True if the alignment was successful, False otherwise.
         """
 
-        # this is to calculate the output shape based on the NaN edge of muse data.
-        NaN_window = estimate_nan_window(input_frame)
-
-
-        # oversample the reference:
-        reference_frame, _ = reproject_image_to_target_wcs(
-            reference_frame,
-            reference_wcs,
-            input_wcs,
-            oversample_factor=self.oversample_factor,
-            shape_out=NaN_window
+        window, (height, width) = estimate_nan_window(input_frame, min_run=100)
+    
+        target_wcs, shape_out = make_window_wcs(
+            input_wcs, input_frame.shape, window, self.oversample_factor
         )
-        # oversample the input:
+        print("shape_out:", shape_out)   # should be ~ (294, 295) * oversample_factor
+    
         input_frame, _ = reproject_image_to_target_wcs(
-            input_frame, input_wcs, input_wcs, oversample_factor=self.oversample_factor, shape_out=NaN_window
+            input_frame, input_wcs, target_wcs, shape_out=shape_out,
         )
+    
+        reference_frame, _ = reproject_image_to_target_wcs(
+            reference_frame, reference_wcs, target_wcs, shape_out=shape_out,
+        )
+
+
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
         ax1.imshow(reference_frame)
         ax2.imshow(input_frame)
         plt.show()
         # Expected return values for the aligment methods
+
 
         (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
 

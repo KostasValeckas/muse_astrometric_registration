@@ -3,6 +3,7 @@ from venv import logger
 import numpy as np
 from scipy.signal.windows import tukey
 import numpy.fft as fft
+from scipy import ndimage
 """
 Module for filtering and processing images.
 """
@@ -140,24 +141,59 @@ def fourier_filter(im, sigma):
     return filtered_image
 
 
-def estimate_nan_window(image):
+def longest_run(mask):
+    """Length of the longest run of True in a 1D boolean array."""
+    if not mask.any():
+        return 0
+    padded = np.concatenate(([False], mask, [False]))
+    d = np.diff(padded.astype(np.int8))
+    starts = np.where(d == 1)[0]
+    ends = np.where(d == -1)[0]
+    return (ends - starts).max()
+
+def _shrink(finite, window, min_run):
     """
-    MUSE data has a non-homogenous edge with NaN values. This method estimates
-    the "deepest" nan value for left, right, bottom and top, and returns 
-    what image shape from the center would only hold finite values.
+    Shrink window = [top, bottom, left, right] (trims from each side) until
+    every edge passes. min_run=None requires the whole edge to be finite.
     """
+    nrows, ncols = finite.shape
+    top, bottom, left, right = window
 
-    # Find the indices of NaN values
-    nan_indices = np.argwhere(np.isnan(image))
+    def ok(edge):
+        if min_run is None:
+            return edge.all()
+        return longest_run(edge) >= min(min_run, edge.size)
 
-    if nan_indices.size == 0:
-        return image.shape  # No NaNs, return original shape
+    changed = True
+    while changed:
+        changed = False
+        r0, r1 = top, nrows - bottom
+        c0, c1 = left, ncols - right
+        if r1 - r0 < 1 or c1 - c0 < 1:
+            raise ValueError("Window collapsed; no valid region found.")
 
-    # Get the min and max indices for each dimension
-    min_row, min_col = np.min(nan_indices, axis=0)
-    max_row, max_col = np.max(nan_indices, axis=0)
+        if not ok(finite[r0, c0:c1]):      top += 1;    changed = True
+        if not ok(finite[r1 - 1, c0:c1]):  bottom += 1; changed = True
+        if not ok(finite[r0:r1, c0]):      left += 1;   changed = True
+        if not ok(finite[r0:r1, c1 - 1]):  right += 1;  changed = True
 
-    # Calculate the new shape that excludes NaN regions
-    new_shape = (max_row - min_row + 1, max_col - min_col + 1)
+    return [top, bottom, left, right]
 
-    return new_shape
+def estimate_nan_window(image, min_run=100):
+    finite = np.isfinite(image)
+    nrows, ncols = image.shape
+
+    # Pass 1: each edge needs >= min_run consecutive finite pixels
+    w1 = _shrink(finite, [0, 0, 0, 0], min_run)
+    print("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
+
+    # Pass 2: continue from pass-1 window, each edge must contain no NaN at all
+    w2 = _shrink(finite, w1, None)
+    print("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
+
+    top, bottom, left, right = w2
+    height = nrows - top - bottom
+    width = ncols - left - right
+    print(f"Final window: height={height}, width={width}")
+
+    return (top, bottom, left, right), (height, width)
