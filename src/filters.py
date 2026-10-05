@@ -145,6 +145,27 @@ def fourier_filter(F, sigma, mode="low", return_image=False):
         return F_filt, np.real(fft.ifft2(F_filt))
     return F_filt
 
+def _logpolar_filter(shape, r_min=0.02, r_max=0.35):
+    fy = fft.fftfreq(shape[0])
+    fx = fft.fftfreq(shape[1])
+
+    FX, FY = np.meshgrid(fx, fy)
+    R = np.sqrt(FX**2 + FY**2)
+
+    filt = np.ones_like(R)
+
+    # Smoothly suppress low frequencies
+    low = R < r_min
+    filt[low] = 0.5 * (
+        1 - np.cos(np.pi * R[low] / r_min)
+    )
+
+    # Suppress high frequencies
+    high = R > r_max
+    filt[high] = 0.0
+
+    return filt
+
 def longest_run(mask):
     """Length of the longest run of True in a 1D boolean array."""
     if not mask.any():
