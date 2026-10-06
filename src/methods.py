@@ -1369,7 +1369,7 @@ class PointSources(AligmentMethod):
 
 class FFT(AligmentMethod):
 
-    def __init__(self, oversample_factor=1, extra_rotation = 20.0, gaussian_sigma=0.0, polar_radius=10000.0, logger=None, QA_path=None):
+    def __init__(self, oversample_factor=4, extra_rotation = 10.0, gaussian_sigma=0.0, polar_radius=10000.0, logger=None, QA_path=None):
 
         self.oversample_factor = oversample_factor
         self.extra_rotation = extra_rotation
@@ -1774,11 +1774,11 @@ class FFT(AligmentMethod):
         print("shape_out:", shape_out)   # should be ~ (294, 295) * oversample_factor
 
         input_frame, _ = reproject_image_to_target_wcs(
-            input_frame, input_wcs, target_wcs, shape_out=shape_out,
+            input_frame, input_wcs, target_wcs, shape_out=shape_out
         )
 
         reference_frame, _ = reproject_image_to_target_wcs(
-            reference_frame, reference_wcs, target_wcs, shape_out=shape_out,
+            reference_frame, reference_wcs, target_wcs, shape_out=shape_out
         )
 
         # update the wcs
@@ -1795,42 +1795,6 @@ class FFT(AligmentMethod):
         input_frame[mask] = 0.0
         reference_frame[mask] = 0.0
 
-        if False:
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-            ax1.imshow(reference_frame)
-            ax1.set_title("Reference Frame")
-
-            ax2.imshow(input_frame)
-            ax2.set_title("Input Frame")
-
-            plt.show()
-
-            self.plot_difference_image(
-                np.ma.masked_invalid(reference_frame), np.ma.masked_invalid(input_frame), 0.0, 0.0, 0.0, obs_name, show=True
-            )
-
-            # first, gaussian filter
-
-            input_frame = gaussian_filter(input_frame, sigma=self.gaussian_sigma)
-            reference_frame = gaussian_filter(reference_frame, sigma=self.gaussian_sigma)
-
-        if False:
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-            ax1.imshow(reference_frame)
-            ax1.set_title("Reference Frame")
-
-            ax2.imshow(input_frame)
-            ax2.set_title("Input Frame")
-
-            plt.show()
-
-            self.plot_difference_image(
-                np.ma.masked_invalid(reference_frame), np.ma.masked_invalid(input_frame), 0.0, 0.0, 0.0, obs_name, show=True
-            )
 
         # now rotate the input frame by the extra rotation angle 
 
@@ -1870,69 +1834,56 @@ class FFT(AligmentMethod):
 
         input_frame_prior_rot[mask] = 0.0
 
-        if False:
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-            ax1.imshow(reference_frame)
-            ax1.set_title("Reference Frame")
-
-            ax2.imshow(input_frame)
-            ax2.set_title("Input Frame")
-
-            plt.show()
-
-            self.plot_difference_image(
-                np.ma.masked_invalid(reference_frame), np.ma.masked_invalid(input_frame), 0.0, 0.0, 0.0, obs_name, show=True
-            )
-
+ 
         # now window with hann windows
 
         input_frame = input_frame * window('hann', input_frame.shape)
         reference_frame = reference_frame * window('hann', reference_frame.shape)
         input_frame_prior_rot = input_frame_prior_rot * window('hann', input_frame_prior_rot.shape)
 
-        if False:   
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-            ax1.imshow(reference_frame)
-            ax1.set_title("Reference Frame")
-
-            ax2.imshow(input_frame)
-            ax2.set_title("Input Frame")
-
-            plt.show()
-
-            self.plot_difference_image(
-                np.ma.masked_invalid(reference_frame), np.ma.masked_invalid(input_frame), 0.0, 0.0, 0.0, obs_name, show=True
-            )
         recovered_angles = []
         recovered_scales = []
         angle_control = []
         scale_control = []
         angle_diff = []
+        used_simgas = []
 
         input_frame_copy = input_frame.copy()
         reference_frame_copy = reference_frame.copy()
         input_frame_prior_rot_copy = input_frame_prior_rot.copy()
 
-        sigmas = np.linspace(0.001, 0.1, 50)
+      
 
-        for sigma in sigmas:
+
+        # testing = hard coded constants
+
+        SCALE_ACCEPT_ERROR = 0.01
+
+        ANGLE_CONTROL_ACCEPT_ERROR = 1
+
+        ANGLE_DIFF_ACCEPT_ERROR = 0.01
+
+        SIGMA_START = 0.0001
+
+        BANDWITH_SIZE = 0.01
+
+        SIGMA_STOP = 15
+
+        CONVERGED = False
+
+
+        while not CONVERGED:
+
 
             input_frame = input_frame_copy.copy()
             reference_frame = reference_frame_copy.copy()
             input_frame_prior_rot = input_frame_prior_rot_copy.copy()
 
 
-        # off for now
-
    
-
-            input_frame = difference_of_gaussians(input_frame, sigma, sigma + 0.1)
-            reference_frame = difference_of_gaussians(reference_frame, sigma, sigma + 0.1)
-            input_frame_prior_rot = difference_of_gaussians(input_frame_prior_rot, sigma, sigma + 0.1)
+            input_frame = difference_of_gaussians(input_frame, SIGMA_START, SIGMA_START + BANDWITH_SIZE)
+            reference_frame = difference_of_gaussians(reference_frame, SIGMA_START, SIGMA_START + BANDWITH_SIZE)
+            input_frame_prior_rot = difference_of_gaussians(input_frame_prior_rot, SIGMA_START, SIGMA_START + BANDWITH_SIZE)
 
             image_fs = np.abs(fftshift(fft2(input_frame)))
             rts_fs = np.abs(fftshift(fft2(reference_frame)))
@@ -1957,20 +1908,6 @@ class FFT(AligmentMethod):
             warped_image_copy_prior_rot = warped_image_copy_prior_rot[: shape[0] // 2, :]
 
 
-            #fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-            #ax1.imshow(warped_rts_fs)
-            #ax1.set_title("Warped Reference Frame")
-
-            #ax2.imshow(warped_image_fs)
-            #ax2.set_title("Warped Input Frame")
-
-            #plt.show()
-
-            #self.plot_difference_image(
-            #    np.ma.masked_invalid(warped_rts_fs), np.ma.masked_invalid(warped_image_fs), 0.0, 0.0, 0.0, obs_name, show=True
-            #)
-
             shifts, error, phasediff = phase_cross_correlation(
                 warped_image_fs, warped_rts_fs, upsample_factor=100, normalization=None
             )
@@ -1988,12 +1925,8 @@ class FFT(AligmentMethod):
             shiftr_prior_rot, shiftc_prior_rot = shifts_prior_rot[:2]
             recovered_angle_prior_rot = (360 / shape[0]) * shiftr_prior_rot
             klog_prior_rot = shape[1] / np.log(self.polar_radius)
-            shift_scale_prior_rot = np.exp(shiftc_prior_rot / klog_prior_rot)   
+            shift_scale_prior_rot = np.exp(shiftc_prior_rot / klog_prior_rot)  
 
-            print(f"Recovered angle: {recovered_angle:.4f} degrees")
-            print(f"Recovered scale: {shift_scale:.6f}")
-            print(f"Recovered angle prior rotation: {recovered_angle_prior_rot:.4f} degrees")
-            print(f"Recovered scale prior rotation: {shift_scale_prior_rot:.6f}")
 
             recovered_angles.append(recovered_angle)
             recovered_scales.append(shift_scale)
@@ -2001,71 +1934,73 @@ class FFT(AligmentMethod):
             scale_control.append(shift_scale_prior_rot)
             angle_diff.append(recovered_angle - recovered_angle_prior_rot)
 
-
-        # find where the recovered scale is close to 1.0 (within 1/100) (make a mask):
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-        ax1.plot(recovered_angles, label="Recovered Angles")
-        ax1.plot(angle_control, label="Control Angles")
-        ax1.legend()
-        ax1.set_title("Angles")
-
-        ax2.plot(recovered_scales, label="Recovered Scales")
-        ax2.plot(scale_control, label="Control Scales")
-        ax2.legend()
-        ax2.set_title("Scales")
-
-        plt.show()
-
-        good_indices = [i for i, scale in enumerate(recovered_scales) if abs(scale - 1.0) < 1/100]
-
-        if len(good_indices) == 0:
-            if self.logger:
-                self.logger.warning(
-                    "No valid scales found within 1% of 1.0. Alignment is unreliable."
-                )
-            return self.FAILED_RETURN
-
-
-
-        valid_diffs = [angle_diff[i] for i in good_indices]
-        valid_recovered_angles = [recovered_angles[i] for i in good_indices]
-        valid_scales = [recovered_scales[i] for i in good_indices]
-        valid_control_angles = [angle_control[i] for i in good_indices]
+            used_simgas.append(SIGMA_START)
 
 
 
 
+            if np.abs(recovered_angle - recovered_angle_prior_rot) < ANGLE_DIFF_ACCEPT_ERROR and np.abs(shift_scale - 1.0) < SCALE_ACCEPT_ERROR and np.abs(shift_scale_prior_rot - 1.0) < SCALE_ACCEPT_ERROR and np.abs(recovered_angle_prior_rot + self.extra_rotation) < ANGLE_CONTROL_ACCEPT_ERROR:
+                CONVERGED = True
 
-        # find where the valid_control_angles is closest to the target angle (extra_rotation)
+                self.logger.info(f"Converged with sigma = {SIGMA_START:.4f}, recovered_angle = {recovered_angle:.4f}, recovered_scale = {shift_scale:.4f}, recovered_angle_prior_rot = {recovered_angle_prior_rot:.4f}, recovered_scale_prior_rot = {shift_scale_prior_rot:.4f}")
 
-        best_index = None
-        best_score = float('inf')
+                # now just testing, sep everything else than the angle as null and return
 
-        for i, angle in enumerate(valid_control_angles):
-            if abs(valid_control_angles[i] - (-self.extra_rotation)) < 5:
-                score = abs(angle - (-self.extra_rotation))
-                if score < best_score:
-                    best_score = score
-                    best_index = i
+                (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
 
-        if best_index is None:
-            if self.logger:
-                self.logger.warning(
-                    "No valid angles found within 5 degrees of the target angle. Alignment is unreliable."
-                )
-            return self.FAILED_RETURN
+                rot = recovered_angle - recovered_angle_prior_rot
 
-        else:
-            if self.logger:
-                self.logger.info(
-                    f"Best match found at index {best_index}: "
-                    f"angle={valid_diffs[best_index]:.4f} degrees, "
-                    f"scale={valid_scales[best_index]:.6f}"
-                ) 
+                print(f"Recovered rotation: {rot:.4f} degrees")
 
-        (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
+
+
+            else:
+
+                self.logger.info(f"Not converged with sigma = {SIGMA_START:.4f}, recovered_angle = {recovered_angle:.4f}, recovered_scale = {shift_scale:.4f}, recovered_angle_prior_rot = {recovered_angle_prior_rot:.4f}, recovered_scale_prior_rot = {shift_scale_prior_rot:.4f}")
+
+                SIGMA_START += BANDWITH_SIZE
+
+                if SIGMA_START > SIGMA_STOP:
+                    self.logger.error(f"Failed to converge after reaching sigma = {SIGMA_START:.4f}")
+                    (tx, ty), rot, (tx_err, ty_err), rot_err, success = self.FAILED_RETURN
+                    break
+
+
+        # save all the arrays using observation name as prefix
+
+        np.save(f"{self.QA_path}/{obs_name}_recovered_angles.npy", np.array(recovered_angles))
+        np.save(f"{self.QA_path}/{obs_name}_recovered_scales.npy", np.array(recovered_scales))
+        np.save(f"{self.QA_path}/{obs_name}_angle_control.npy", np.array(angle_control))
+        np.save(f"{self.QA_path}/{obs_name}_scale_control.npy", np.array(scale_control))
+        np.save(f"{self.QA_path}/{obs_name}_angle_diff.npy", np.array(angle_diff))
+        np.save(f"{self.QA_path}/{obs_name}_used_simgas.npy", np.array(used_simgas))
+
+        # plot and save the plots using observation name as prefix
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(used_simgas, label="Used Sigmas")
+        plt.plot(used_simgas, label="Used Sigmas")
+        plt.plot(used_simgas, recovered_angles, label="Recovered Angles")
+        plt.plot(used_simgas, angle_control, label="Angle Control")
+        plt.plot(used_simgas, angle_diff, label="Angle Difference")
+        plt.xlabel("Iteration")
+        plt.ylabel("Angle (degrees)")
+        plt.title(f"Recovered Angles for {obs_name}, status: {CONVERGED}")
+        plt.legend()
+        plt.savefig(f"{self.QA_path}/{obs_name}_recovered_angles.png")
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(used_simgas, recovered_scales, label="Recovered Scales")
+        plt.plot(used_simgas, scale_control, label="Scale Control")
+        plt.xlabel("Iteration")
+        plt.ylabel("Scale")
+        plt.title(f"Recovered Scales for {obs_name}, status: {CONVERGED}")
+        plt.legend()
+        plt.savefig(f"{self.QA_path}/{obs_name}_recovered_scales.png")
+        plt.close()
+
+
 
         return (
             (tx, ty),

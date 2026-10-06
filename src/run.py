@@ -1,6 +1,17 @@
 import argparse
 import json
-from .pipeline import AlignmentPipeline
+
+if __package__ is None or __package__ == "":
+    import pathlib
+    import sys
+
+    # Allow `python src/run.py ...` by adding the project root to sys.path.
+    project_root = pathlib.Path(__file__).resolve().parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from src.pipeline import AlignmentPipeline
+else:
+    from .pipeline import AlignmentPipeline
 
 
 """
