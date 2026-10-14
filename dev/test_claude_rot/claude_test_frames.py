@@ -380,7 +380,7 @@ def angular_shift(A, B, w, expected=0.0, halfwidth=None, upsample=64):
 # --------------------------------------------------------------------------
 def estimate_rotation_fixed_scale(
     reference, image, extra_rotation=0.0, sigmas=None, ratio=1.6,
-    ctrl_tol=0.03, snr_min=6.0, search_halfwidth=1.0, min_ok=3,
+    ctrl_tol=0.03, snr_min=30.0, search_halfwidth=1.0, min_ok=3,
     pad=2, upsample=64,
 ):
     """
@@ -403,7 +403,7 @@ def estimate_rotation_fixed_scale(
                      mode="constant", cval=0.0)
  
     if sigmas is None:                           # geometric: band centre ~ 1/sigma
-        sigmas = np.geomspace(1.0, 8.0, 16)
+        sigmas = np.geomspace(1.0, 16.0, 32)
  
     # my polar parameterisation rotates opposite to scipy's, hence the minus
     S = -1.0
@@ -472,12 +472,14 @@ if __name__ == "__main__":
     fits_in_input_dir = list(Path(input_dir).glob("*.fits"))
 
     # sort:
+    fits_in_input_dir.sort(key=lambda x: x.name)
 
     all_rots = []
 
-    fits_in_input_dir.sort()
+
+
     
-    for im2 in fits_in_input_dir:
+    for i, im2 in enumerate(fits_in_input_dir):
         print("Processing: ", im2)
         img_hdul = fits.open(im2)
 
@@ -494,10 +496,28 @@ if __name__ == "__main__":
         img = img_hdul[1].data
 
 
-        out = estimate_rotation_fixed_scale(ref, img, extra_rotation=0.0)
+        out = estimate_rotation_fixed_scale(ref, img, extra_rotation=6.0)
 
         n_ok = int(out["table"][:, -1].sum())
-        
+
+        snr_main = out["table"][:, 4]
+        snr_control = out["table"][:, 5]
+        rot_main = out["table"][:, 3]
+        plt.plot(snr_main, '-o', label="SNR Main")
+        plt.plot(snr_control, '-o', label="SNR Control")
+        plt.xlabel("Index")
+        plt.ylabel("SNR")
+        plt.title("SNR Main vs Index")
+        plt.axhline(30.0, color='r', linestyle='--', label="SNR Threshold")
+        plt.legend(loc='upper left')
+        # new y axis for rotation
+        ax2 = plt.gca().twinx()
+        ax2.plot(rot_main, '-o', color='orange', label="Rotation")
+        ax2.set_ylabel("Rotation (degrees)")
+        ax2.legend(loc='upper right')
+        plt.savefig(f"snr_rotation_plot_{fits_in_input_dir[i].name}.png")
+        plt.close()
+            
         print("\nper-sigma table for last case: sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok")
         np.set_printoptions(precision=4, suppress=True)
         print(out["table"])
@@ -506,7 +526,7 @@ if __name__ == "__main__":
 
         all_rots.append(out["rot"])
 
-    print("All rotations:", all_rots)
+    plt.plot(all_rots, '-o', label="Estimated Rotations")
 
     # write all rots to disc as an npy array
 
