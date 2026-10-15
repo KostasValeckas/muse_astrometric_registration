@@ -25,14 +25,17 @@ dec_offset_reference = reference_table["DEC_OFFSET"][:-8]
 rot_offset_reference = reference_table["ROTANGLE"][:-8]
 
 
-
 date_obs_pipeline = pipeline_table["DATE_OBS"]
 ra_offset_pipeline = pipeline_table["RA_OFFSET"]
 dec_offset_pipeline = pipeline_table["DEC_OFFSET"]
 rot_offset_pipeline = pipeline_table["ROTANGLE"]
 
 # build nan mask buold on pipeline data
-mask = ~np.isnan(ra_offset_pipeline) & ~np.isnan(dec_offset_pipeline) & ~np.isnan(rot_offset_pipeline)
+mask = (
+    ~np.isnan(ra_offset_pipeline)
+    & ~np.isnan(dec_offset_pipeline)
+    & ~np.isnan(rot_offset_pipeline)
+)
 
 # apply the mask to all the reference data
 ra_offset_reference = ra_offset_reference[mask]
@@ -43,7 +46,6 @@ rot_offset_reference = rot_offset_reference[mask]
 ra_offset_pipeline = ra_offset_pipeline[mask]
 dec_offset_pipeline = dec_offset_pipeline[mask]
 rot_offset_pipeline = rot_offset_pipeline[mask]
-
 
 
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
@@ -72,4 +74,3 @@ ax3.set_ylabel("Rotation Offset")
 ax3.set_title("Rotation Offset Comparison")
 ax3.legend()
 plt.show()
-

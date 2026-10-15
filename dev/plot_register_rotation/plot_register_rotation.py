@@ -63,8 +63,8 @@ plt.show()
 shifts, error, phasediff = phase_cross_correlation(
     image_polar, rotated_polar, normalization=None
 )
-print(f'Expected value for counterclockwise rotation in degrees: ' f'{angle}')
-print(f'Recovered value for counterclockwise rotation: ' f'{shifts[0]}')
+print(f"Expected value for counterclockwise rotation in degrees: " f"{angle}")
+print(f"Recovered value for counterclockwise rotation: " f"{shifts[0]}")
 
 ######################################################################
 # Recover rotation and scaling differences with log-polar transform
@@ -83,8 +83,8 @@ image = data.retina()
 image = img_as_float(image)
 rotated = rotate(image, angle)
 rescaled = rescale(rotated, scale, channel_axis=-1)
-image_polar = warp_polar(image, radius=radius, scaling='log', channel_axis=-1)
-rescaled_polar = warp_polar(rescaled, radius=radius, scaling='log', channel_axis=-1)
+image_polar = warp_polar(image, radius=radius, scaling="log", channel_axis=-1)
+rescaled_polar = warp_polar(rescaled, radius=radius, scaling="log", channel_axis=-1)
 
 fig, axes = plt.subplots(2, 2, figsize=(8, 8))
 ax = axes.ravel()
@@ -108,11 +108,11 @@ shiftr, shiftc = shifts[:2]
 klog = radius / np.log(radius)
 shift_scale = 1 / (np.exp(shiftc / klog))
 
-print(f'Expected value for cc rotation in degrees: {angle}')
-print(f'Recovered value for cc rotation: {shiftr}')
+print(f"Expected value for cc rotation in degrees: {angle}")
+print(f"Recovered value for cc rotation: {shiftr}")
 print()
-print(f'Expected value for scaling difference: {scale}')
-print(f'Recovered value for scaling difference: {shift_scale}')
+print(f"Expected value for scaling difference: {scale}")
+print(f"Recovered value for scaling difference: {shift_scale}")
 
 ######################################################################
 # Register rotation and scaling on a translated image - Part 1
@@ -159,21 +159,21 @@ shift_scale = 1 / (np.exp(shiftc / klog))
 fig, axes = plt.subplots(2, 2, figsize=(8, 8))
 ax = axes.ravel()
 ax[0].set_title("Original Image")
-ax[0].imshow(image, cmap='gray')
+ax[0].imshow(image, cmap="gray")
 ax[1].set_title("Modified Image")
-ax[1].imshow(rts_image, cmap='gray')
+ax[1].imshow(rts_image, cmap="gray")
 ax[2].set_title("Log-Polar-Transformed Original")
 ax[2].imshow(warped_image)
 ax[3].set_title("Log-Polar-Transformed Modified")
 ax[3].imshow(warped_rts)
-fig.suptitle('log-polar-based registration fails when no shared center')
+fig.suptitle("log-polar-based registration fails when no shared center")
 plt.show()
 
-print(f'Expected value for cc rotation in degrees: {angle}')
-print(f'Recovered value for cc rotation: {shiftr}')
+print(f"Expected value for cc rotation in degrees: {angle}")
+print(f"Recovered value for cc rotation: {shiftr}")
 print()
-print(f'Expected value for scaling difference: {scale}')
-print(f'Recovered value for scaling difference: {shift_scale}')
+print(f"Expected value for scaling difference: {scale}")
+print(f"Recovered value for scaling difference: {shift_scale}")
 
 ######################################################################
 # Register rotation and scaling on a translated image - Part 2
@@ -190,8 +190,8 @@ image = difference_of_gaussians(image, 5, 20)
 rts_image = difference_of_gaussians(rts_image, 5, 20)
 
 # window images
-wimage = image * window('hann', image.shape)
-rts_wimage = rts_image * window('hann', image.shape)
+wimage = image * window("hann", image.shape)
+rts_wimage = rts_image * window("hann", image.shape)
 
 # work with shifted FFT magnitudes
 image_fs = np.abs(fftshift(fft2(wimage)))
@@ -201,10 +201,10 @@ rts_fs = np.abs(fftshift(fft2(rts_wimage)))
 shape = image_fs.shape
 radius = shape[0] // 8  # only take lower frequencies
 warped_image_fs = warp_polar(
-    image_fs, radius=radius, output_shape=shape, scaling='log', order=0
+    image_fs, radius=radius, output_shape=shape, scaling="log", order=0
 )
 warped_rts_fs = warp_polar(
-    rts_fs, radius=radius, output_shape=shape, scaling='log', order=0
+    rts_fs, radius=radius, output_shape=shape, scaling="log", order=0
 )
 
 warped_image_fs = warped_image_fs[: shape[0] // 2, :]  # only use half of FFT
@@ -227,27 +227,27 @@ ax[0].imshow(
     image_fs[
         center[0] - radius : center[0] + radius, center[1] - radius : center[1] + radius
     ],
-    cmap='magma',
+    cmap="magma",
 )
 ax[1].set_title("Modified Image FFT\n(magnitude; zoomed)")
 ax[1].imshow(
     rts_fs[
         center[0] - radius : center[0] + radius, center[1] - radius : center[1] + radius
     ],
-    cmap='magma',
+    cmap="magma",
 )
 ax[2].set_title("Log-Polar-Transformed\nOriginal FFT")
-ax[2].imshow(warped_image_fs, cmap='magma')
+ax[2].imshow(warped_image_fs, cmap="magma")
 ax[3].set_title("Log-Polar-Transformed\nModified FFT")
-ax[3].imshow(warped_rts_fs, cmap='magma')
-fig.suptitle('Working in frequency domain can recover rotation and scaling')
+ax[3].imshow(warped_rts_fs, cmap="magma")
+fig.suptitle("Working in frequency domain can recover rotation and scaling")
 plt.show()
 
-print(f'Expected value for cc rotation in degrees: {angle}')
-print(f'Recovered value for cc rotation: {recovered_angle}')
+print(f"Expected value for cc rotation in degrees: {angle}")
+print(f"Recovered value for cc rotation: {recovered_angle}")
 print()
-print(f'Expected value for scaling difference: {scale}')
-print(f'Recovered value for scaling difference: {shift_scale}')
+print(f"Expected value for scaling difference: {scale}")
+print(f"Recovered value for scaling difference: {shift_scale}")
 
 ######################################################################
 # Some notes on this approach

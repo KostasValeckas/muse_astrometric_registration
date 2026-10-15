@@ -40,7 +40,6 @@ if __name__ == "__main__":
     # create the output directory if it does not exist
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-  
 
     with open(args.config_file, "r") as f:
         config = json.load(f)

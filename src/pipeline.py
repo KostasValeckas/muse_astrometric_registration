@@ -11,7 +11,7 @@ from geometry import (
     compose_transformations,
     matrix_to_parameters,
     inverse_transformation,
-    detector_translation_to_sky_translation
+    detector_translation_to_sky_translation,
 )
 from filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
 import numpy as np
@@ -37,14 +37,7 @@ def _is_usable_alignment(status):
     return status == 1 or status == 0.5
 
 
-
-
-
-
-
-
 # TODO: for now, hardcoded to 4 dithers pr. pointing
-
 
 # for plotting
 STATUS_COLORS = {
@@ -365,7 +358,9 @@ class AlignmentPipeline:
             plt.tight_layout()
             if save:
                 if save_path is None:
-                    save_path = pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
+                    save_path = (
+                        pathlib.Path(self.output_dir) / "aligment_QA" / "dithers"
+                    )
                     save_path.mkdir(parents=True, exist_ok=True)
                 plt.savefig(save_path / f"{obs_title}_dither_alignment.png")
             if show:
@@ -416,7 +411,6 @@ class AlignmentPipeline:
 
             dither_set[i] = reprojected_dither
 
-        
             wcs_set[i] = target_wcs
 
         # second pass of masking to make sure same mask is applied to all dithers
@@ -438,10 +432,10 @@ class AlignmentPipeline:
                 self.logger.warning(
                     f"All values in dither {i+1} are NaN or masked. Replacing with a zero frame."
                 )
-                dither_set[i] = np.ma.array(np.zeros((min_height, min_width)), mask=np.zeros((min_height, min_width), dtype=bool))
-
-
-        
+                dither_set[i] = np.ma.array(
+                    np.zeros((min_height, min_width)),
+                    mask=np.zeros((min_height, min_width), dtype=bool),
+                )
 
         for i, dither_1 in enumerate(dither_set):
 
@@ -562,7 +556,8 @@ class AlignmentPipeline:
                             T_i_j_composed = compose_transformations(T_i_k, T_k_j)
                             tx_composed, ty_composed, rotation_angle_composed = (
                                 matrix_to_parameters(
-                                    T_i_j_composed, _image_centre((min_height, min_width))
+                                    T_i_j_composed,
+                                    _image_centre((min_height, min_width)),
                                 )
                             )
                             x_return_table[i, j] = tx_composed
@@ -735,7 +730,7 @@ class AlignmentPipeline:
             succes_table,
             dither_set,
             wcs_set,
-            bright_source_mask
+            bright_source_mask,
         )
 
     # -----------------------------------------------------------------
@@ -985,13 +980,13 @@ class AlignmentPipeline:
         reference_frame, _ = read_fits_image(self.reference_file, logger=self.logger)
         reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
 
-
         reprojected_reference_frames = {}
 
         for pointing, exposures in self.config_dict.items():
 
             # this entry is only used for bookeeping
-            if pointing == "headers": continue
+            if pointing == "headers":
+                continue
 
             if len(exposures) < 4:
                 self.logger.warning(
@@ -1017,9 +1012,6 @@ class AlignmentPipeline:
             dither_frames = [
                 pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
             ]
-
-     
-
 
             for dither_frame in dither_frames:
                 self.logger.info(f"Reading dither frame: {dither_frame}")
@@ -1050,7 +1042,7 @@ class AlignmentPipeline:
                 success_table,
                 dither_set,
                 wcs_set,
-                bright_source_mask
+                bright_source_mask,
             ) = self.align_dithers(
                 dither_frame_arrays,
                 dither_frame_wcs,
@@ -1078,13 +1070,16 @@ class AlignmentPipeline:
                     shape_out=dither_frame_arrays[i].shape,
                 )
 
-
                 reprojected_reference_frame = remove_nans(
                     reprojected_reference_frame, fill_value=0, logger=self.logger
                 )
 
-                reprojected_reference_frame, bright_source_mask = remove_bright_sources_simple(
-                    reprojected_reference_frame, logger=self.logger, mask = bright_source_mask
+                reprojected_reference_frame, bright_source_mask = (
+                    remove_bright_sources_simple(
+                        reprojected_reference_frame,
+                        logger=self.logger,
+                        mask=bright_source_mask,
+                    )
                 )
 
                 # replace 0's as bad pixels
@@ -1105,7 +1100,7 @@ class AlignmentPipeline:
                 ) = self.point_sources_aligner.run(
                     reprojected_reference_frame,
                     dither_frame_arrays[i],
-                    f"{pointing}_dither_{i+1}_to_reference"
+                    f"{pointing}_dither_{i+1}_to_reference",
                 )
 
                 science_tables[pointing][i] = (
@@ -1181,13 +1176,13 @@ class AlignmentPipeline:
                         )
 
                         tx_error = np.sqrt(
-                            tx_error_science_j ** 2 + x_error_table[j, i] ** 2
+                            tx_error_science_j**2 + x_error_table[j, i] ** 2
                         )
                         ty_error = np.sqrt(
-                            ty_error_science_j ** 2 + y_error_table[j, i] ** 2
+                            ty_error_science_j**2 + y_error_table[j, i] ** 2
                         )
                         rotation_error = np.sqrt(
-                            rotation_error_science_j ** 2
+                            rotation_error_science_j**2
                             + rotation_error_table[j, i] ** 2
                         )
 
@@ -1251,10 +1246,16 @@ class AlignmentPipeline:
                                     tx_k, ty_k, rotation_angle_k, centre
                                 )
                                 D_k_j = transformation_matrix(
-                                    x_table[k, j], y_table[k, j], rotation_table[k, j], centre
+                                    x_table[k, j],
+                                    y_table[k, j],
+                                    rotation_table[k, j],
+                                    centre,
                                 )
                                 D_j_i = transformation_matrix(
-                                    x_table[j, i], y_table[j, i], rotation_table[j, i], centre
+                                    x_table[j, i],
+                                    y_table[j, i],
+                                    rotation_table[j, i],
+                                    centre,
                                 )
                                 T_ref_i = compose_transformations(
                                     compose_transformations(S_ref_k, D_k_j), D_j_i
@@ -1264,17 +1265,17 @@ class AlignmentPipeline:
                                 )
 
                                 tx_error = np.sqrt(
-                                    tx_error_science_k ** 2
+                                    tx_error_science_k**2
                                     + x_error_table[k, j] ** 2
                                     + x_error_table[j, i] ** 2
                                 )
                                 ty_error = np.sqrt(
-                                    ty_error_science_k ** 2
+                                    ty_error_science_k**2
                                     + y_error_table[k, j] ** 2
                                     + y_error_table[j, i] ** 2
                                 )
                                 rotation_error = np.sqrt(
-                                    rotation_error_science_k ** 2
+                                    rotation_error_science_k**2
                                     + rotation_error_table[k, j] ** 2
                                     + rotation_error_table[j, i] ** 2
                                 )
@@ -1392,14 +1393,15 @@ class AlignmentPipeline:
                     composed_from,
                 ) = science_tables[pointing][i]
 
-
                 if not success:
                     self.logger.warning(
                         f"Alignment for pointing {pointing}, dither {i+1} failed. Writing None values."
                     )
 
-                    dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = rotation_error = None
-                
+                    dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = (
+                        rotation_error
+                    ) = None
+
                 else:
 
                     # convert offsets and offset errors from detector pixels to sky coordinates (degrees)
@@ -1421,7 +1423,7 @@ class AlignmentPipeline:
                     rotation_angle,
                     rotation_error,
                     output_table_entries=self.output_table_entries.values(),
-                    logger=self.logger
+                    logger=self.logger,
                 )
 
                 # unpack the values and append

@@ -58,11 +58,11 @@ shiftr = 30
 shiftc = 15
 
 image = rgb2gray(data.retina())
-#translated = image[shiftr:, shiftc:]
+# translated = image[shiftr:, shiftc:]
 rotated = rotate(image, angle)
-#rescaled = rescale(rotated, scale)
+# rescaled = rescale(rotated, scale)
 sizer, sizec = image.shape
-#rts_image = rescaled[:sizer, :sizec]
+# rts_image = rescaled[:sizer, :sizec]
 rts_image = rotated
 
 
@@ -86,25 +86,23 @@ recovered_scales = []
 
 # window the image and rts image
 
-image = image * window('hann', image.shape)
-rts_image = rts_image * window('hann', image.shape)
+image = image * window("hann", image.shape)
+rts_image = rts_image * window("hann", image.shape)
 
 for sigma in sigma_range:
 
-
-
     # Apply bandpass filter
     image_filtered = difference_of_gaussians(image, sigma, sigma + BANDPASS_WIDTH)
-    rts_image_filtered = difference_of_gaussians(rts_image, sigma, sigma + BANDPASS_WIDTH)
+    rts_image_filtered = difference_of_gaussians(
+        rts_image, sigma, sigma + BANDPASS_WIDTH
+    )
 
-    plt.imshow(image_filtered, cmap='gray')
+    plt.imshow(image_filtered, cmap="gray")
     plt.show()
 
-
-
     # window images
-    wimage = image_filtered * window('hann', image.shape)
-    rts_wimage = rts_image_filtered * window('hann', image.shape)
+    wimage = image_filtered * window("hann", image.shape)
+    rts_wimage = rts_image_filtered * window("hann", image.shape)
 
     # work with shifted FFT magnitudes
     image_fs = np.abs(fftshift(fft2(wimage)))
@@ -114,10 +112,10 @@ for sigma in sigma_range:
     shape = image_fs.shape
     radius = shape[0] // 8  # only take lower frequencies
     warped_image_fs = warp_polar(
-        image_fs, radius=radius, output_shape=shape, scaling='log', order=0
+        image_fs, radius=radius, output_shape=shape, scaling="log", order=0
     )
     warped_rts_fs = warp_polar(
-        rts_fs, radius=radius, output_shape=shape, scaling='log', order=0
+        rts_fs, radius=radius, output_shape=shape, scaling="log", order=0
     )
 
     warped_image_fs = warped_image_fs[: shape[0] // 2, :]  # only use half of FFT
@@ -140,31 +138,33 @@ for sigma in sigma_range:
         center = np.array(shape) // 2
         ax[0].imshow(
             image_fs[
-                center[0] - radius : center[0] + radius, center[1] - radius : center[1] + radius
+                center[0] - radius : center[0] + radius,
+                center[1] - radius : center[1] + radius,
             ],
-            cmap='magma',
+            cmap="magma",
         )
         ax[1].set_title("Modified Image FFT\n(magnitude; zoomed)")
         ax[1].imshow(
             rts_fs[
-                center[0] - radius : center[0] + radius, center[1] - radius : center[1] + radius
+                center[0] - radius : center[0] + radius,
+                center[1] - radius : center[1] + radius,
             ],
-            cmap='magma',
+            cmap="magma",
         )
         ax[2].set_title("Log-Polar-Transformed\nOriginal FFT")
-        ax[2].imshow(warped_image_fs, cmap='magma')
+        ax[2].imshow(warped_image_fs, cmap="magma")
         ax[3].set_title("Log-Polar-Transformed\nModified FFT")
-        ax[3].imshow(warped_rts_fs, cmap='magma')
-        fig.suptitle('Working in frequency domain can recover rotation and scaling')
+        ax[3].imshow(warped_rts_fs, cmap="magma")
+        fig.suptitle("Working in frequency domain can recover rotation and scaling")
         plt.show()
 
-        print(f'Expected value for cc rotation in degrees: {angle}')
-    
-        print()
-        print(f'Expected value for scaling difference: {scale}')
-        print(f'Recovered value for scaling difference: {shift_scale}')
+        print(f"Expected value for cc rotation in degrees: {angle}")
 
-    print(f'Recovered value for cc rotation: {recovered_angle}')
+        print()
+        print(f"Expected value for scaling difference: {scale}")
+        print(f"Recovered value for scaling difference: {shift_scale}")
+
+    print(f"Recovered value for cc rotation: {recovered_angle}")
 
     recovered_angles.append(recovered_angle)
     recovered_scales.append(shift_scale)

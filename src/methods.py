@@ -209,7 +209,6 @@ class AligmentMethod(ABC):
 
         reference_frame[input_frame == 0] = 0
 
-        
         # normalize both images to unity
 
         reference_frame = reference_frame / np.nanmax(reference_frame)
@@ -227,9 +226,7 @@ class AligmentMethod(ABC):
         )
         in_vmin, in_vmax = np.percentile(input_frame, 5), np.percentile(input_frame, 95)
 
-        axes[0, 0].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
-        )
+        axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 0].imshow(
             input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
@@ -237,9 +234,7 @@ class AligmentMethod(ABC):
         axes[0, 0].set_xlabel("X Pixel")
         axes[0, 0].set_ylabel("Y Pixel")
 
-        axes[0, 1].imshow(
-            reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
-        )
+        axes[0, 1].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 1].imshow(
             aligned_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
         )
@@ -362,16 +357,16 @@ class AligmentMethod(ABC):
 class PointSources(AligmentMethod):
 
     def __init__(
-        self, logger=None,
-    
-        MIN_MATCHES_FRACTION = 0.5,
-        detection_sigma = 5,
-        NUM_NEAREST_NEIGHBOURS = 3,
-        PIXEL_TOL = 5,
-        min_area = 5, 
-
-        outlier_threshold=0.5, 
-        max_iterations=5, QA_path=None
+        self,
+        logger=None,
+        MIN_MATCHES_FRACTION=0.5,
+        detection_sigma=5,
+        NUM_NEAREST_NEIGHBOURS=3,
+        PIXEL_TOL=5,
+        min_area=5,
+        outlier_threshold=0.5,
+        max_iterations=5,
+        QA_path=None,
     ):
 
         self.MIN_MATCHES_FRACTION = MIN_MATCHES_FRACTION
@@ -380,11 +375,8 @@ class PointSources(AligmentMethod):
         self.PIXEL_TOL = PIXEL_TOL
         self.min_area = min_area
 
-
         self.outlier_threshold = outlier_threshold
         self.max_iterations = max_iterations
-
-
 
         super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -580,29 +572,28 @@ class PointSources(AligmentMethod):
         aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
         aa.PIXEL_TOL = self.PIXEL_TOL
 
-
         try:
             _, (source_list, target_list) = aa.find_transform(
                 input_frame,
                 reference_frame,
-                detection_sigma = self.detection_sigma,
-                min_area = self.min_area
+                detection_sigma=self.detection_sigma,
+                min_area=self.min_area,
             )
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed to find matching sources: {e}")
 
-
             recovered = False
-
 
             # some recovery options
 
-            if "List of matching triangles exhausted before an acceptable transformation was found" in str(e):
+            if (
+                "List of matching triangles exhausted before an acceptable transformation was found"
+                in str(e)
+            ):
                 if self.logger:
                     self.logger.warning(
                         "astroalign failed to find matching sources, trying to lower MIN_MATCHES_FRACTION..."
-
                     )
 
                     for MIN_MATCHES_FRACTION in [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
@@ -612,8 +603,8 @@ class PointSources(AligmentMethod):
                             _, (source_list, target_list) = aa.find_transform(
                                 input_frame,
                                 reference_frame,
-                                detection_sigma = self.detection_sigma,
-                                min_area = self.min_area
+                                detection_sigma=self.detection_sigma,
+                                min_area=self.min_area,
                             )
                             recovered = True
                             if self.logger:
@@ -645,7 +636,7 @@ class PointSources(AligmentMethod):
                             input_frame,
                             reference_frame,
                             detection_sigma=detection_sigma,
-                            min_area = self.min_area
+                            min_area=self.min_area,
                         )
                         recovered = True
                         if self.logger:
@@ -673,8 +664,8 @@ class PointSources(AligmentMethod):
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            min_area = self.min_area,
-                            detection_sigma = self.detection_sigma
+                            min_area=self.min_area,
+                            detection_sigma=self.detection_sigma,
                         )
                         recovered = True
                         if self.logger:
@@ -691,7 +682,6 @@ class PointSources(AligmentMethod):
                 # reset to default
 
                 aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
-                            
 
             # try increasing pixel_tolerance in find_transform
 
@@ -701,7 +691,7 @@ class PointSources(AligmentMethod):
                     self.logger.warning(
                         "astroalign failed to find matching sources, trying to increase pixel_tolerance..."
                     )
-                
+
                 for pixel_tolerance in [2, 3, 4, 5, 6, 7]:
 
                     aa.PIXEL_TOL = pixel_tolerance
@@ -710,8 +700,8 @@ class PointSources(AligmentMethod):
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            min_area = self.min_area,
-                            detection_sigma = self.detection_sigma
+                            min_area=self.min_area,
+                            detection_sigma=self.detection_sigma,
                         )
                         recovered = True
                         if self.logger:
@@ -737,13 +727,13 @@ class PointSources(AligmentMethod):
                         "astroalign failed to find matching sources, trying to change min_area..."
                     )
 
-                for min_area in [2, 3, 4, 5, 6, 7, 8 ,9 ,10, 15, 20]:
+                for min_area in [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]:
                     try:
                         _, (source_list, target_list) = aa.find_transform(
                             input_frame,
                             reference_frame,
-                            detection_sigma = self.detection_sigma,
-                            min_area=min_area
+                            detection_sigma=self.detection_sigma,
+                            min_area=min_area,
                         )
                         recovered = True
                         if self.logger:
@@ -757,13 +747,11 @@ class PointSources(AligmentMethod):
                                 f"Failed to find matching sources with min_area={min_area}: {e_inner}"
                             )
 
-            # give up 
+            # give up
             if save_QA and not recovered:
 
                 if self.logger:
-                    self.logger.error(
-                        "astroalign failed."
-                    )
+                    self.logger.error("astroalign failed.")
 
                 fig = plt.figure(figsize=(10, 5))
 
@@ -841,7 +829,7 @@ class PointSources(AligmentMethod):
                     input_frame,
                     cmap="gray",
                     vmin=np.percentile(input_frame.compressed(), 5),
-                    vmax=np.percentile(input_frame.compressed() , 95),
+                    vmax=np.percentile(input_frame.compressed(), 95),
                 )
                 ax2.set_title("Input Frame")
 

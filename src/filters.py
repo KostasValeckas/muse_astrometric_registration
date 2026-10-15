@@ -18,16 +18,19 @@ def remove_nans(image, fill_value=0, logger=None):
     return np.nan_to_num(image, nan=fill_value)
 
 
-
-def remove_bright_sources_simple(image, threshold=500, radius = 15, fill_value=0, logger=None, mask = None):
+def remove_bright_sources_simple(
+    image, threshold=500, radius=15, fill_value=0, logger=None, mask=None
+):
     """
-    Remove bright sources from the image by setting pixels above a certain threshold to a fill value 
+    Remove bright sources from the image by setting pixels above a certain threshold to a fill value
     including a radius around the bright source. This is a simple approach and may not be suitable for all cases.
     """
 
     if logger:
-        logger.info(f"Removing bright sources with threshold: {threshold}, radius: {radius}, and fill_value: {fill_value}")
-    
+        logger.info(
+            f"Removing bright sources with threshold: {threshold}, radius: {radius}, and fill_value: {fill_value}"
+        )
+
     if mask is None:
         # Create a mask for pixels above the threshold
         mask = image > threshold
@@ -43,13 +46,14 @@ def remove_bright_sources_simple(image, threshold=500, radius = 15, fill_value=0
         for j in range(image.shape[1]):
             if mask[i, j]:
                 # Create a circular mask
-                y, x = np.ogrid[:image.shape[0], :image.shape[1]]
-                circular_mask = (x - j)**2 + (y - i)**2 <= radius**2
+                y, x = np.ogrid[: image.shape[0], : image.shape[1]]
+                circular_mask = (x - j) ** 2 + (y - i) ** 2 <= radius**2
 
                 # Apply the circular mask to the filtered image
                 filtered_image[circular_mask] = fill_value
 
     return filtered_image, mask
+
 
 def mask_zero_as_bpm(image, logger=None):
     """

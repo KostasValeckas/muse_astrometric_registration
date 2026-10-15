@@ -57,7 +57,6 @@ if __name__ == "__main__":
 
     logger.info(f"Output directory: {output_dir}")
 
-
     fits_file_list_input = list(args.input_directory.glob("*.fits"))
 
     # sort
@@ -66,7 +65,6 @@ if __name__ == "__main__":
 
     all_rots = []
 
-
     for input_image in fits_file_list_input:
         logger.info(f"Processing input image: {input_image}")
 
@@ -74,12 +72,15 @@ if __name__ == "__main__":
         fft_aligner = FFT(logger=logger)
 
         # Read the FITS images
-        reference_frame, reference_hdul = read_fits_image(args.reference_image, logger=logger)
-        input_frame, input_hdul = read_fits_image(input_image, logger=logger, data_extension=1)
+        reference_frame, reference_hdul = read_fits_image(
+            args.reference_image, logger=logger
+        )
+        input_frame, input_hdul = read_fits_image(
+            input_image, logger=logger, data_extension=1
+        )
 
         reference_wcs = WCS(reference_hdul[0].header)
         input_wcs = WCS(input_hdul[1].header)
-
 
         (tx, ty), rot, (tx_err, ty_err), rot_err, success = fft_aligner.run(
             reference_frame,
@@ -102,7 +103,3 @@ if __name__ == "__main__":
 
     plt.plot(all_rots)
     plt.show()
-
-
-
-
