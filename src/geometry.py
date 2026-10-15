@@ -76,9 +76,37 @@ def reproject_image_to_target_wcs(
     return reprojected_image, footprint
 
 
-# some helper methods for euclidean transforms
+def reproject_dithers(dither_set, wcs_set, logger = None, method = "interpolation"):
+    """
+    Reprojects a stack of frames to the referrence frame of the first frame in the stack.
 
-import numpy as np
+    Keeps the minimum width and height from all frames as the shape.
+    """
+    if logger:
+        logger.info(f"Reprojecting dithered frames to the reference frame of the first frame using method '{method}'...")
+
+        min_height = min([dither.shape[0] for dither in dither_set])
+        min_width = min([dither.shape[1] for dither in dither_set])
+
+        # use reprojection to crop all dithers to the same size and WCS
+        target_wcs = wcs_set[0]
+
+        for i, dither in enumerate(dither_set):
+            reprojected_dither, _ = reproject_image_to_target_wcs(
+                dither, wcs_set[i], target_wcs, shape_out=(min_height, min_width), method=method
+            )
+
+
+            dither_set[i] = reprojected_dither
+
+            wcs_set[i] = target_wcs
+
+    if logger:
+        logger.info("Reprojection of dithered frames completed successfully.")
+
+    return dither_set, wcs_set
+
+
 
 
 def transformation_matrix(tx, ty, rotation_deg, centre):
@@ -228,3 +256,5 @@ def detector_translation_to_sky_translation(wcs, dx, dy, logger=None):
         )
 
     return dRA, dDec
+
+

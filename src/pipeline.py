@@ -2,7 +2,7 @@ from logger import get_logger
 
 import pathlib
 
-from methods import PointSources
+from methods import PointSources, NoAlignment
 
 from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
 from geometry import (
@@ -12,11 +12,11 @@ from geometry import (
     matrix_to_parameters,
     inverse_transformation,
     detector_translation_to_sky_translation,
+    reproject_dithers
 )
 from filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
 import numpy as np
 import matplotlib.pyplot as plt
-
 
 def _image_centre(shape):
     """
@@ -27,7 +27,6 @@ def _image_centre(shape):
     """
     return (shape[1] // 2, shape[0] // 2)
 
-
 def _is_usable_alignment(status):
     """
     A dither-to-dither entry may be used as a link in a composition only if it
@@ -35,7 +34,6 @@ def _is_usable_alignment(status):
     inconsistent (0.7) entries are excluded.
     """
     return status == 1 or status == 0.5
-
 
 # TODO: for now, hardcoded to 4 dithers pr. pointing
 
@@ -54,7 +52,6 @@ cmap = ListedColormap(
     [STATUS_COLORS[0], STATUS_COLORS[0.5], STATUS_COLORS[0.7], STATUS_COLORS[1]]
 )
 norm = BoundaryNorm([0, 0.5, 0.7, 1, 1.5], cmap.N)
-
 
 class AlignmentPipeline:
     """
@@ -379,6 +376,7 @@ class AlignmentPipeline:
 
         n_dithers = len(dither_set)
 
+        # initialize tables to store the results
         x_return_table = np.full((n_dithers, n_dithers), np.nan)
         x_error_table = np.full((n_dithers, n_dithers), np.nan)
         y_return_table = np.full((n_dithers, n_dithers), np.nan)
@@ -390,52 +388,8 @@ class AlignmentPipeline:
         min_height = min([dither.shape[0] for dither in dither_set])
         min_width = min([dither.shape[1] for dither in dither_set])
 
-        # use reprojection to crop all dithers to the same size and WCS
-        target_wcs = wcs_set[0]
-
-        bright_source_mask = None
-
-        for i, dither in enumerate(dither_set):
-            reprojected_dither, _ = reproject_image_to_target_wcs(
-                dither, wcs_set[i], target_wcs, shape_out=(min_height, min_width)
-            )
-
-            # remove the NaN values from the reprojected dither:
-            reprojected_dither = remove_nans(
-                reprojected_dither, fill_value=0, logger=self.logger
-            )
-
-            reprojected_dither, bright_source_mask = remove_bright_sources_simple(
-                reprojected_dither, logger=self.logger, mask=bright_source_mask
-            )
-
-            dither_set[i] = reprojected_dither
-
-            wcs_set[i] = target_wcs
-
-        # second pass of masking to make sure same mask is applied to all dithers
-
-        for i, dither in enumerate(dither_set):
-            dither_set[i], bright_source_mask = remove_bright_sources_simple(
-                dither, logger=self.logger, mask=bright_source_mask
-            )
-
-            # mask 0's as bad pixels
-
-            dither_set[i], _ = mask_zero_as_bpm(dither_set[i], logger=self.logger)
-
-            # check if all values in the frame are nans. If so - make a zero frame:
-
-            valid = dither_set[i].compressed()
-
-            if valid.size == 0:
-                self.logger.warning(
-                    f"All values in dither {i+1} are NaN or masked. Replacing with a zero frame."
-                )
-                dither_set[i] = np.ma.array(
-                    np.zeros((min_height, min_width)),
-                    mask=np.zeros((min_height, min_width), dtype=bool),
-                )
+        # first aligment, all pairs of dithers are aligned to each other, 
+        # and the tables are populated
 
         for i, dither_1 in enumerate(dither_set):
 
@@ -463,7 +417,8 @@ class AlignmentPipeline:
 
                 succes_table[i, j] = success
 
-        # check for consistency
+        # check for consistency back and forth between all pairs of dithers, 
+        # and replace any inconsistent values with nans
 
         self.logger.info("Checking for consistency in x alignment ...")
 
@@ -491,27 +446,30 @@ class AlignmentPipeline:
                 if i == j:
                     continue
 
+                # this bool is used to break out of the loop if a path is found
                 success = False
                 if not succes_table[i, j] == 1:
                     # direct path does not exist, look for intermediate frames
 
                     # first check if opposite pair exists - if so, replace with negative of that:
-
                     if succes_table[j, i] == 1:
                         # The inverse of a rotation about the centre is NOT
                         # (-tx, -ty, -rot) unless rot == 0, so invert the matrix.
                         centre = _image_centre((min_height, min_width))
+
                         T_j_i = transformation_matrix(
                             x_return_table[j, i],
                             y_return_table[j, i],
                             rotation_return_table[j, i],
                             centre,
                         )
+
                         (
                             x_return_table[i, j],
                             y_return_table[i, j],
                             rotation_return_table[i, j],
                         ) = matrix_to_parameters(inverse_transformation(T_j_i), centre)
+
                         x_error_table[i, j] = x_error_table[j, i]
                         y_error_table[i, j] = y_error_table[j, i]
                         rotation_error_table[i, j] = rotation_error_table[j, i]
@@ -530,9 +488,13 @@ class AlignmentPipeline:
                             custom_title=f"Mirrored Alignment from Dither {i+1} to Dither {j+1}",
                         )
 
+                    # this is the loop for all dithers. If opposite pair was found,
+                    # the success bool will break it.
                     for k in range(n_dithers):
                         if success:
                             break
+                        
+                        # skip duplicates
                         if k == i or k == j:
                             continue
 
@@ -564,7 +526,7 @@ class AlignmentPipeline:
                             y_return_table[i, j] = ty_composed
                             rotation_return_table[i, j] = rotation_angle_composed
 
-                            # TODO: refine
+                            # TODO: check if this is the correct way to propagate errors for composed transformations
 
                             tx_error = np.sqrt(
                                 x_error_table[i, k] ** 2 + x_error_table[k, j] ** 2
@@ -649,6 +611,8 @@ class AlignmentPipeline:
                                         rotation_angle_composed
                                     )
 
+                                    #TODO: check if this is the correct way to propagate errors for composed transformations
+
                                     tx_error = np.sqrt(
                                         x_error_table[i, k] ** 2
                                         + x_error_table[k, l] ** 2
@@ -694,7 +658,7 @@ class AlignmentPipeline:
                             f"No path found from dither {i+1} to dither {j+1}."
                         )
 
-        # check for consistency
+        # check for consistency again
 
         self.logger.info(
             "Checking for consistency after extrapolating missing paths ..."
@@ -727,10 +691,7 @@ class AlignmentPipeline:
             y_error_table,
             rotation_return_table,
             rotation_error_table,
-            succes_table,
-            dither_set,
-            wcs_set,
-            bright_source_mask,
+            succes_table
         )
 
     # -----------------------------------------------------------------
@@ -1032,6 +993,12 @@ class AlignmentPipeline:
 
             self.point_sources_aligner.QA_path = QA_dir_dithers
 
+                    # bring dithers to the same WCS and shape using reprojection
+            dither_set, wcs_set = reproject_dithers(
+                dither_set, wcs_set, logger=self.logger, method="interpolation"
+            )
+
+
             (
                 x_table,
                 x_error_table,
@@ -1039,10 +1006,7 @@ class AlignmentPipeline:
                 y_error_table,
                 rotation_table,
                 rotation_error_table,
-                success_table,
-                dither_set,
-                wcs_set,
-                bright_source_mask,
+                success_table
             ) = self.align_dithers(
                 dither_frame_arrays,
                 dither_frame_wcs,
