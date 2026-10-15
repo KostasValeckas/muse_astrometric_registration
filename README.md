@@ -2,11 +2,17 @@
 
 ### DEVELOPMENT GROUNDS ###
 
-# KEEP PRIVATE - INTERNAL USE ONLY #
+# KEEP PRIVATE #
 
-Tested on Python 3.12
+# Installation
 
-![Alignment Repository Sketch](./docs/alignment_repo_sketch.png)
+Tested on Python 3.12. Extra dependencies are in the ```requirements.txt``` file. Install them with:
+
+```
+pip install -r requirements.txt
+```
+
+
 
 
 # Running the pipeline
@@ -152,4 +158,10 @@ Where the different parameters are:
 python run.py configuration_file reference_file --input_dir path_to_directory_with_data --output_dir path_to_directory_where_QA_plots_and_results_will_be_stored
 ```
 ------------------------------------------------------------------------------
+
+
+### Repository structure
+
+![Alignment Repository Sketch](./docs/alignment_repo_sketch.png)
+
 
