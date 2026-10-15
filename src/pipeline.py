@@ -18,10 +18,6 @@ import matplotlib.pyplot as plt
 
 
 
-
-
-
-
 # TODO: for now, hardcoded to 4 dithers pr. pointing
 
 
