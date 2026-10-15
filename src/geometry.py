@@ -1,102 +1,79 @@
 import numpy as np
 from astropy.wcs import WCS
 from reproject import reproject_interp, reproject_exact, reproject_adaptive
-from astropy.wcs.utils import proj_plane_pixel_scales
 
 """
 Module for reprojections and WCS conversions.
 """
-
-def make_window_wcs(wcs, shape, window, oversample_factor=1):
-    """
-    Slice `wcs` (for an image of `shape`) to the window (top, bottom, left, right),
-    then oversample. Returns (wcs_out, shape_out) on the cropped grid.
-    """
-    ny, nx = shape
-    top, bottom, left, right = (int(w) for w in window)
-
-    wcs_out = wcs.slice((slice(top, ny - bottom), slice(left, nx - right)))
-    shape_out = (ny - top - bottom, nx - left - right)
-
-    if oversample_factor > 1:
-        if wcs_out.wcs.has_cd():
-            wcs_out.wcs.cd = wcs_out.wcs.cd / oversample_factor
-        else:
-            wcs_out.wcs.cdelt = wcs_out.wcs.cdelt / oversample_factor
-        wcs_out.wcs.crpix = (np.array(wcs_out.wcs.crpix) - 0.5) * oversample_factor + 0.5
-        shape_out = (shape_out[0] * oversample_factor, shape_out[1] * oversample_factor)
-
-    wcs_out.array_shape = shape_out
-    return wcs_out, shape_out
 
 
 def reproject_image_to_target_wcs(
     source_image,
     source_wcs,
     target_wcs,
+    shape_out=None,
     oversample_factor=1,
     method="interpolation",
-    window=None,
-    shape_out=None,
     logger=None,
 ):
     """
-    window : (top, bottom, left, right), optional
-        Trims in *source* pixels from estimate_nan_window. If given, the
-        output shape is the window shape and the output grid is centred on
-        the window centre. shape_out is ignored.
+    Reprojects a source image to the WCS of a target image.
+
+    Parameters
+    ----------
+    source_image : np.ndarray
+        The source image data.
+    source_wcs : astropy.wcs.WCS
+        The WCS of the source image.
+    target_wcs : astropy.wcs.WCS
+        The WCS of the target image.
+    shape_out : tuple, optional
+        The shape of the output image. If None, it will be inferred from the target WCS.
+    method : str, optional
+        The reprojection method to use. Options are 'interpolation', 'exact', or 'adaptive'.
+        Default is 'interpolation'.
+        See https://reproject.readthedocs.io/en/stable/ for more details (reproject_interp, reproject_adaptive, reproject_exact).
+
+    Returns
+    -------
+    reprojected_image : np.ndarray
+        The reprojected image data.
+    footprint : np.ndarray
+        The footprint of the reprojected image.
     """
 
-    target_wcs = target_wcs.deepcopy()
-
-    if window is not None:
-        ny, nx = source_image.shape
-        top, bottom, left, right = (int(w) for w in window)
-        height = ny - top - bottom
-        width = nx - left - right
-
-        # centre of the clean window in source pixels (0-based) -> sky
-        cx = left + (width - 1) / 2
-        cy = top + (height - 1) / 2
-        crval = source_wcs.wcs_pix2world([[cx, cy]], 0)[0]
-
-        # account for a different pixel scale between source and target
-        ratio = (proj_plane_pixel_scales(source_wcs)[0]
-                 / proj_plane_pixel_scales(target_wcs)[0])
-        out_h = int(round(height * ratio))
-        out_w = int(round(width * ratio))
-
-        target_wcs.wcs.crval = crval
-        target_wcs.wcs.crpix = [(out_w + 1) / 2, (out_h + 1) / 2]  # 1-based FITS
-        shape_out = (out_h, out_w)
-
-    elif shape_out is None:
-        if target_wcs.array_shape is None:
-            raise ValueError("Need window, shape_out or target_wcs.array_shape.")
-        shape_out = tuple(target_wcs.array_shape)
-
-    if oversample_factor > 1:
-        if target_wcs.wcs.has_cd():
-            target_wcs.wcs.cd = target_wcs.wcs.cd / oversample_factor
-        else:
-            target_wcs.wcs.cdelt = target_wcs.wcs.cdelt / oversample_factor
-        target_wcs.wcs.crpix = (np.array(target_wcs.wcs.crpix) - 0.5) * oversample_factor + 0.5
-        shape_out = (shape_out[0] * oversample_factor, shape_out[1] * oversample_factor)
-
-    target_wcs.array_shape = shape_out
+    if shape_out is None:
+        shape_out = (target_wcs.array_shape[0], target_wcs.array_shape[1])
 
     if logger:
-        logger.info(f"Reprojecting to shape {shape_out} using '{method}'...")
+        logger.info(
+            f"Reprojecting image to target WCS with shape {shape_out} using method '{method}'..."
+        )
 
-    funcs = {"interpolation": reproject_interp,
-             "exact": reproject_exact,
-             "adaptive": reproject_adaptive}
-    if method not in funcs:
+    if method == "interpolation":
+        reprojected_image, footprint = reproject_interp(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
+    elif method == "exact":
+        reprojected_image, footprint = reproject_exact(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
+    elif method == "adaptive":
+        reprojected_image, footprint = reproject_adaptive(
+            (source_image, source_wcs), target_wcs, shape_out=shape_out
+        )
+    else:
         if logger:
-            logger.error(f"Invalid reprojection method: {method}. Returning source image.")
-        return source_image, np.zeros(shape_out)
+            logger.error(
+                f"Invalid reprojection method: {method}. Choose from 'interpolation', 'exact', or 'adaptive'."
+            )
+            logger.error("Returning the source image without reprojection...")
+            return source_image, np.zeros(shape_out)
 
-    return funcs[method]((source_image, source_wcs), target_wcs, shape_out=shape_out)
+    if logger:
+        logger.info("Reprojection completed successfully.")
+
+    return reprojected_image, footprint
 
 
 # some helper methods for euclidean transforms

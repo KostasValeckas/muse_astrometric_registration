@@ -1,17 +1,7 @@
 import argparse
 import json
-
-if __package__ is None or __package__ == "":
-    import pathlib
-    import sys
-
-    # Allow `python src/run.py ...` by adding the project root to sys.path.
-    project_root = pathlib.Path(__file__).resolve().parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    from src.pipeline import AlignmentPipeline
-else:
-    from .pipeline import AlignmentPipeline
+import os
+from pipeline import AlignmentPipeline
 
 
 """
@@ -47,9 +37,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # for now, just load all the filenames
-
-    filenames = []
+    # create the output directory if it does not exist
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+  
 
     with open(args.config_file, "r") as f:
         config = json.load(f)
