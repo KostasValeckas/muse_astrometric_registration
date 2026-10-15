@@ -10,11 +10,32 @@ from geometry import (
     transformation_matrix,
     compose_transformations,
     matrix_to_parameters,
+    inverse_transformation,
     detector_translation_to_sky_translation
 )
 from filters import remove_nans, remove_bright_sources_simple, mask_zero_as_bpm
 import numpy as np
 import matplotlib.pyplot as plt
+
+
+def _image_centre(shape):
+    """
+    Rotation centre in (x, y) order for an array of `shape` = (ny, nx).
+    `transformation_matrix` / `matrix_to_parameters` treat points as [x, y],
+    so the centre must be (nx // 2, ny // 2), not (ny // 2, nx // 2).
+    (Identical for square frames.)
+    """
+    return (shape[1] // 2, shape[0] // 2)
+
+
+def _is_usable_alignment(status):
+    """
+    A dither-to-dither entry may be used as a link in a composition only if it
+    was measured (1) or derived consistently (0.5). Failed (0) and
+    inconsistent (0.7) entries are excluded.
+    """
+    return status == 1 or status == 0.5
+
 
 
 
@@ -56,6 +77,8 @@ class AlignmentPipeline:
         self.reference_file = reference_file
         self.output_dir = output_dir
 
+        self.output_table_entries = config_dict["headers"]
+
     def _cross_ref_dither_table(
         self, sucess_table, table, threshold_frac=0.1, minimum_value=0.1
     ):
@@ -86,8 +109,8 @@ class AlignmentPipeline:
 
             if (
                 (abs(val_ab - val_ba) / max(abs(val_ab), abs(val_ba))) > threshold_frac
-                and val_ab != np.nan
-                and val_ba != np.nan
+                and np.isfinite(val_ab)
+                and np.isfinite(val_ba)
             ):
 
                 self.logger.warning(
@@ -481,10 +504,25 @@ class AlignmentPipeline:
                     # first check if opposite pair exists - if so, replace with negative of that:
 
                     if succes_table[j, i] == 1:
-                        x_return_table[i, j] = -x_return_table[j, i]
-                        y_return_table[i, j] = -y_return_table[j, i]
-                        rotation_return_table[i, j] = -rotation_return_table[j, i]
+                        # The inverse of a rotation about the centre is NOT
+                        # (-tx, -ty, -rot) unless rot == 0, so invert the matrix.
+                        centre = _image_centre((min_height, min_width))
+                        T_j_i = transformation_matrix(
+                            x_return_table[j, i],
+                            y_return_table[j, i],
+                            rotation_return_table[j, i],
+                            centre,
+                        )
+                        (
+                            x_return_table[i, j],
+                            y_return_table[i, j],
+                            rotation_return_table[i, j],
+                        ) = matrix_to_parameters(inverse_transformation(T_j_i), centre)
+                        x_error_table[i, j] = x_error_table[j, i]
+                        y_error_table[i, j] = y_error_table[j, i]
+                        rotation_error_table[i, j] = rotation_error_table[j, i]
                         succes_table[i, j] = 0.5
+                        success = True
 
                         # the QA plot:
                         method.plot_difference_image(
@@ -499,6 +537,8 @@ class AlignmentPipeline:
                         )
 
                     for k in range(n_dithers):
+                        if success:
+                            break
                         if k == i or k == j:
                             continue
 
@@ -511,18 +551,18 @@ class AlignmentPipeline:
                                 x_return_table[i, k],
                                 y_return_table[i, k],
                                 rotation_return_table[i, k],
-                                (min_height // 2, min_width // 2),
+                                _image_centre((min_height, min_width)),
                             )
                             T_k_j = transformation_matrix(
                                 x_return_table[k, j],
                                 y_return_table[k, j],
                                 rotation_return_table[k, j],
-                                (min_height // 2, min_width // 2),
+                                _image_centre((min_height, min_width)),
                             )
                             T_i_j_composed = compose_transformations(T_i_k, T_k_j)
                             tx_composed, ty_composed, rotation_angle_composed = (
                                 matrix_to_parameters(
-                                    T_i_j_composed, (min_height // 2, min_width // 2)
+                                    T_i_j_composed, _image_centre((min_height, min_width))
                                 )
                             )
                             x_return_table[i, j] = tx_composed
@@ -583,19 +623,19 @@ class AlignmentPipeline:
                                         x_return_table[i, k],
                                         y_return_table[i, k],
                                         rotation_return_table[i, k],
-                                        (min_height // 2, min_width // 2),
+                                        _image_centre((min_height, min_width)),
                                     )
                                     T_k_l = transformation_matrix(
                                         x_return_table[k, l],
                                         y_return_table[k, l],
                                         rotation_return_table[k, l],
-                                        (min_height // 2, min_width // 2),
+                                        _image_centre((min_height, min_width)),
                                     )
                                     T_l_j = transformation_matrix(
                                         x_return_table[l, j],
                                         y_return_table[l, j],
                                         rotation_return_table[l, j],
-                                        (min_height // 2, min_width // 2),
+                                        _image_centre((min_height, min_width)),
                                     )
                                     T_i_j_composed = compose_transformations(
                                         compose_transformations(T_i_k, T_k_l), T_l_j
@@ -606,7 +646,7 @@ class AlignmentPipeline:
                                         rotation_angle_composed,
                                     ) = matrix_to_parameters(
                                         T_i_j_composed,
-                                        (min_height // 2, min_width // 2),
+                                        _image_centre((min_height, min_width)),
                                     )
                                     x_return_table[i, j] = tx_composed
                                     y_return_table[i, j] = ty_composed
@@ -950,11 +990,21 @@ class AlignmentPipeline:
 
         for pointing, exposures in self.config_dict.items():
 
-            if len(exposures) != 4:
+            # this entry is only used for bookeeping
+            if pointing == "headers": continue
+
+            if len(exposures) < 4:
                 self.logger.warning(
-                    f"Pointing {pointing} has {len(exposures)} exposures, expected 4. Skipping this pointing."
+                    f"Pointing {pointing} has less than 4 dithers. Skipping."
                 )
                 continue
+
+            if len(exposures) > 4:
+                # take the first 4 dithers only
+                self.logger.warning(
+                    f"Pointing {pointing} has more than 4 dithers. Taking the first 4 only."
+                )
+                exposures = exposures[:4]
 
             science_tables[pointing] = {}
 
@@ -1053,9 +1103,9 @@ class AlignmentPipeline:
                     rotation_error,
                     success,
                 ) = self.point_sources_aligner.run(
-                    dither_frame_arrays[i],
                     reprojected_reference_frame,
-                    f"{pointing}_dither_{i+1}_to_reference",
+                    dither_frame_arrays[i],
+                    f"{pointing}_dither_{i+1}_to_reference"
                 )
 
                 science_tables[pointing][i] = (
@@ -1088,71 +1138,144 @@ class AlignmentPipeline:
                         f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover..."
                     )
 
-                    # nearest neibhour case
-                    for j in range(len(dither_frames)):
+                    # Direction convention (see geometry.py):
+                    #   science table : run(reference, dither_i) -> ref -> i
+                    #   dither tables : run(dither_a, dither_b)  -> a -> b, stored at [a, b]
+                    # To get ref -> i through an already-aligned dither j we chain
+                    #   ref -> j   (science_tables[j])   then   j -> i   (dither table [j, i]).
+                    # compose_transformations(A, B) applies A first, then B.
+                    centre = _image_centre(dither_frame_arrays[i].shape)
+                    n_dith = len(dither_frames)
+                    recovered = False
 
+                    # one intermediate frame: ref -> j -> i
+                    for j in range(n_dith):
                         if j == i:
                             continue
+                        if not _is_usable_alignment(success_table[j, i]):
+                            continue
+                        if not science_tables[pointing][j][6]:
+                            continue
 
-                        success_i_j = success_table[i, j]
+                        (
+                            tx_j,
+                            ty_j,
+                            rotation_angle_j,
+                            tx_error_science_j,
+                            ty_error_science_j,
+                            rotation_error_science_j,
+                            _,
+                            _,
+                            _,
+                        ) = science_tables[pointing][j]
 
-                        if success_i_j > 0:
+                        S_ref_j = transformation_matrix(
+                            tx_j, ty_j, rotation_angle_j, centre
+                        )
+                        D_j_i = transformation_matrix(
+                            x_table[j, i], y_table[j, i], rotation_table[j, i], centre
+                        )
+                        T_ref_i = compose_transformations(S_ref_j, D_j_i)
+                        tx_composed, ty_composed, rotation_angle_composed = (
+                            matrix_to_parameters(T_ref_i, centre)
+                        )
 
-                            if science_tables[pointing][j][6]:
+                        tx_error = np.sqrt(
+                            tx_error_science_j ** 2 + x_error_table[j, i] ** 2
+                        )
+                        ty_error = np.sqrt(
+                            ty_error_science_j ** 2 + y_error_table[j, i] ** 2
+                        )
+                        rotation_error = np.sqrt(
+                            rotation_error_science_j ** 2
+                            + rotation_error_table[j, i] ** 2
+                        )
+
+                        science_tables[pointing][i] = (
+                            tx_composed,
+                            ty_composed,
+                            rotation_angle_composed,
+                            tx_error,
+                            ty_error,
+                            rotation_error,
+                            True,
+                            True,
+                            j + 1,
+                        )
+
+                        self.logger.info(
+                            f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {j+1}."
+                        )
+
+                        self.point_sources_aligner.plot_difference_image(
+                            reprojected_reference_frames[(pointing, i)],
+                            dither_frame_arrays[i],
+                            tx_composed,
+                            ty_composed,
+                            rotation_angle_composed,
+                            f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}",
+                            show=False,
+                            custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1}",
+                        )
+
+                        recovered = True
+                        break
+
+                    # two intermediate frames: ref -> k -> j -> i
+                    if not recovered:
+                        for k in range(n_dith):
+                            if k == i or not science_tables[pointing][k][6]:
+                                continue
+                            for j in range(n_dith):
+                                if j == i or j == k:
+                                    continue
+                                if not (
+                                    _is_usable_alignment(success_table[k, j])
+                                    and _is_usable_alignment(success_table[j, i])
+                                ):
+                                    continue
+
                                 (
-                                    tx_j,
-                                    ty_j,
-                                    rotation_angle_j,
-                                    tx_error_science,
-                                    ty_error_science,
-                                    rotation_error_science,
+                                    tx_k,
+                                    ty_k,
+                                    rotation_angle_k,
+                                    tx_error_science_k,
+                                    ty_error_science_k,
+                                    rotation_error_science_k,
                                     _,
                                     _,
                                     _,
-                                ) = science_tables[pointing][j]
-                                tx_i_j = x_table[i, j]
-                                ty_i_j = y_table[i, j]
-                                rotation_angle_i_j = rotation_table[i, j]
+                                ) = science_tables[pointing][k]
 
-                                T_i_j = transformation_matrix(
-                                    tx_i_j,
-                                    ty_i_j,
-                                    rotation_angle_i_j,
-                                    (
-                                        dither_frame_arrays[i].shape[0] // 2,
-                                        dither_frame_arrays[i].shape[1] // 2,
-                                    ),
+                                S_ref_k = transformation_matrix(
+                                    tx_k, ty_k, rotation_angle_k, centre
                                 )
-                                T_j_ref = transformation_matrix(
-                                    tx_j,
-                                    ty_j,
-                                    rotation_angle_j,
-                                    (
-                                        dither_frame_arrays[j].shape[0] // 2,
-                                        dither_frame_arrays[j].shape[1] // 2,
-                                    ),
+                                D_k_j = transformation_matrix(
+                                    x_table[k, j], y_table[k, j], rotation_table[k, j], centre
                                 )
-                                T_i_ref_composed = compose_transformations(
-                                    T_i_j, T_j_ref
+                                D_j_i = transformation_matrix(
+                                    x_table[j, i], y_table[j, i], rotation_table[j, i], centre
+                                )
+                                T_ref_i = compose_transformations(
+                                    compose_transformations(S_ref_k, D_k_j), D_j_i
                                 )
                                 tx_composed, ty_composed, rotation_angle_composed = (
-                                    matrix_to_parameters(
-                                        T_i_ref_composed,
-                                        (
-                                            dither_frame_arrays[i].shape[0] // 2,
-                                            dither_frame_arrays[i].shape[1] // 2,
-                                        ),
-                                    )
+                                    matrix_to_parameters(T_ref_i, centre)
                                 )
 
                                 tx_error = np.sqrt(
-                                    x_error_table[i, j] ** 2 + x_error_table[j, i] ** 2
+                                    tx_error_science_k ** 2
+                                    + x_error_table[k, j] ** 2
+                                    + x_error_table[j, i] ** 2
                                 )
                                 ty_error = np.sqrt(
-                                    y_error_table[i, j] ** 2 + y_error_table[j, i] ** 2
+                                    ty_error_science_k ** 2
+                                    + y_error_table[k, j] ** 2
+                                    + y_error_table[j, i] ** 2
                                 )
                                 rotation_error = np.sqrt(
-                                    rotation_error_table[i, j] ** 2
+                                    rotation_error_science_k ** 2
+                                    + rotation_error_table[k, j] ** 2
                                     + rotation_error_table[j, i] ** 2
                                 )
 
@@ -1165,151 +1288,28 @@ class AlignmentPipeline:
                                     rotation_error,
                                     True,
                                     True,
-                                    j + 1,
+                                    f"dither {k + 1} via dither {j + 1}",
                                 )
 
                                 self.logger.info(
-                                    f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {j+1}."
+                                    f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {k+1} via dither {j+1}."
                                 )
 
                                 self.point_sources_aligner.plot_difference_image(
-                                    dither_frame_arrays[i],
                                     reprojected_reference_frames[(pointing, i)],
+                                    dither_frame_arrays[i],
                                     tx_composed,
                                     ty_composed,
                                     rotation_angle_composed,
-                                    f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}",
+                                    f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{k+1}_and_dither_{j+1}",
                                     show=False,
-                                    custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1}",
+                                    custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {k+1} and dither {j+1}",
                                 )
 
+                                recovered = True
                                 break
-
-                        # two intermediate frames search
-                    if not science_tables[pointing][i][6]:
-                        for j in range(len(dither_frames)):
-                            if j == i:
-                                continue
-                            for k in range(len(dither_frames)):
-                                if k == i or k == j:
-                                    continue
-
-                                success_i_j = success_table[i, j]
-                                success_j_k = success_table[j, k]
-                                success_k_ref = science_tables[pointing][k][6]
-
-                                if (
-                                    success_i_j > 0
-                                    and success_j_k > 0
-                                    and success_k_ref
-                                ):
-                                    (
-                                        tx_j,
-                                        ty_j,
-                                        rotation_angle_j,
-                                        tx_error_science,
-                                        ty_error_science,
-                                        rotation_error_science,
-                                        _,
-                                        _,
-                                        _,
-                                    ) = science_tables[pointing][j]
-                                    (
-                                        tx_k,
-                                        ty_k,
-                                        rotation_angle_k,
-                                        tx_error_science_k,
-                                        ty_error_science_k,
-                                        rotation_error_science_k,
-                                        _,
-                                        _,
-                                        _,
-                                    ) = science_tables[pointing][k]
-
-                                    tx_i_j = x_table[i, j]
-                                    ty_i_j = y_table[i, j]
-                                    rotation_angle_i_j = rotation_table[i, j]
-
-                                    tx_j_k = x_table[j, k]
-                                    ty_j_k = y_table[j, k]
-                                    rotation_angle_j_k = rotation_table[j, k]
-
-                                    T_i_j = transformation_matrix(
-                                        tx_i_j,
-                                        ty_i_j,
-                                        rotation_angle_i_j,
-                                        (
-                                            dither_frame_arrays[i].shape[0] // 2,
-                                            dither_frame_arrays[i].shape[1] // 2,
-                                        ),
-                                    )
-                                    T_j_k = transformation_matrix(
-                                        tx_j_k,
-                                        ty_j_k,
-                                        rotation_angle_j_k,
-                                        (
-                                            dither_frame_arrays[j].shape[0] // 2,
-                                            dither_frame_arrays[j].shape[1] // 2,
-                                        ),
-                                    )
-                                    T_k_ref = transformation_matrix(
-                                        tx_k,
-                                        ty_k,
-                                        rotation_angle_k,
-                                        (
-                                            dither_frame_arrays[k].shape[0] // 2,
-                                            dither_frame_arrays[k].shape[1] // 2,
-                                        ),
-                                    )
-                                    T_i_ref_composed = compose_transformations(
-                                        compose_transformations(T_i_j, T_j_k), T_k_ref
-                                    )
-                                    tx_composed, ty_composed, rotation_angle_composed = matrix_to_parameters(
-                                        T_i_ref_composed, (
-                                            dither_frame_arrays[i].shape[0] // 2,
-                                            dither_frame_arrays[i].shape[1] // 2,
-                                        )
-
-                                    )
-
-                                    tx_error = np.sqrt(
-                                        x_error_table[i, j] ** 2 + x_error_table[j, k] ** 2 + x_error_table[k, i] ** 2
-                                    )
-
-                                    ty_error = np.sqrt(
-                                        y_error_table[i, j] ** 2 + y_error_table[j, k] ** 2 + y_error_table[k, i] ** 2
-                                    )
-
-                                    rotation_error = np.sqrt(
-                                        rotation_error_table[i, j] ** 2 + rotation_error_table[j, k] ** 2 + rotation_error_table[k, i] ** 2
-                                    )
-
-                                    science_tables[pointing][i] = (
-                                        tx_composed,
-                                        ty_composed,
-                                        rotation_angle_composed,
-                                        tx_error,
-                                        ty_error,
-                                        rotation_error,
-                                        True,
-                                        True,
-                                        f"dither {k + 1} via dither {j + 1}",
-                                    )
-
-                                    self.logger.info(
-                                        f"Recovered alignment for pointing {pointing}, dither {i+1} using dither {k+1} via dither {j+1}."   
-                                    )
-
-                                    self.point_sources_aligner.plot_difference_image(
-                                        dither_frame_arrays[i],
-                                        reprojected_reference_frames[(pointing, i)],
-                                        tx_composed,
-                                        ty_composed,
-                                        rotation_angle_composed,
-                                        f"{pointing}_dither_{i+1}_to_reference_composed_via_dither_{j+1}_and_dither_{k+1}",
-                                        show=False,
-                                        custom_title=f"Composed Alignment from Dither {i+1} to reference through dither {j+1} and dither {k+1}",
-                                    )
+                            if recovered:
+                                break
 
                     if not science_tables[pointing][i][6]:
                         self.logger.warning(
@@ -1398,7 +1398,7 @@ class AlignmentPipeline:
                         f"Alignment for pointing {pointing}, dither {i+1} failed. Writing None values."
                     )
 
-                    dRA = dRA_sigma = dDEC = dDEC_sigma = dROT = dROT_sigma = None
+                    dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = rotation_error = None
                 
                 else:
 
@@ -1420,6 +1420,7 @@ class AlignmentPipeline:
                     dDEC_sigma,
                     rotation_angle,
                     rotation_error,
+                    output_table_entries=self.output_table_entries.values(),
                     logger=self.logger
                 )
 
@@ -1428,6 +1429,3 @@ class AlignmentPipeline:
 
         # write the final results to a FITS table
         write_final_results(output_table, self.output_dir, logger=self.logger)
-
-
-    

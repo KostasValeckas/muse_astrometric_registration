@@ -18,7 +18,8 @@ def remove_nans(image, fill_value=0, logger=None):
     return np.nan_to_num(image, nan=fill_value)
 
 
-def remove_bright_sources_simple(image, threshold=1000, radius = 15, fill_value=0, logger=None, mask = None):
+
+def remove_bright_sources_simple(image, threshold=500, radius = 15, fill_value=0, logger=None, mask = None):
     """
     Remove bright sources from the image by setting pixels above a certain threshold to a fill value 
     including a radius around the bright source. This is a simple approach and may not be suitable for all cases.

@@ -197,6 +197,19 @@ class AligmentMethod(ABC):
             Custom title for the plot. If None, a default title will be used.
         """
 
+        # take copies to avoid modifying the original images
+
+        reference_frame = np.copy(reference_frame)
+        input_frame = np.copy(input_frame)
+
+        # map  0 values to from from the input frame to the reference frame to avoid issues in plotting
+
+        reference_frame[np.isfinite(input_frame) == False] = 0
+        # and 0's
+
+        reference_frame[input_frame == 0] = 0
+
+        
         # normalize both images to unity
 
         reference_frame = reference_frame / np.nanmax(reference_frame)
@@ -209,10 +222,10 @@ class AligmentMethod(ABC):
 
         _, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-        ref_vmin, ref_vmax = np.percentile(reference_frame.compressed(), 5), np.percentile(
-            reference_frame.compressed(), 95
+        ref_vmin, ref_vmax = np.percentile(reference_frame, 5), np.percentile(
+            reference_frame, 95
         )
-        in_vmin, in_vmax = np.percentile(input_frame.compressed(), 5), np.percentile(input_frame.compressed(), 95)
+        in_vmin, in_vmax = np.percentile(input_frame, 5), np.percentile(input_frame, 95)
 
         axes[0, 0].imshow(
             reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax
@@ -237,8 +250,8 @@ class AligmentMethod(ABC):
         axes[1, 0].imshow(
             diff_prior,
             cmap="gray",
-            vmin=np.percentile(diff_prior.compressed(), 5),
-            vmax=np.percentile(diff_prior.compressed(), 95),
+            vmin=np.percentile(diff_prior, 5),
+            vmax=np.percentile(diff_prior, 95),
         )
         axes[1, 0].set_title("Difference Before Alignment")
         axes[1, 0].set_xlabel("X Pixel")
@@ -247,8 +260,8 @@ class AligmentMethod(ABC):
         axes[1, 1].imshow(
             diff_post,
             cmap="gray",
-            vmin=np.percentile(diff_post.compressed(), 5),
-            vmax=np.percentile(diff_post.compressed(), 95),
+            vmin=np.percentile(diff_post, 5),
+            vmax=np.percentile(diff_post, 95),
         )
         axes[1, 1].set_title("Difference After Alignment")
         axes[1, 1].set_xlabel("X Pixel")
@@ -351,17 +364,12 @@ class PointSources(AligmentMethod):
     def __init__(
         self, logger=None,
     
-    
         MIN_MATCHES_FRACTION = 0.5,
         detection_sigma = 5,
         NUM_NEAREST_NEIGHBOURS = 3,
         PIXEL_TOL = 5,
-        min_area = 10, 
+        min_area = 5, 
 
-
-
-
-         
         outlier_threshold=0.5, 
         max_iterations=5, QA_path=None
     ):

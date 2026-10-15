@@ -113,7 +113,7 @@ OUTPUT_TABLE_HEADERS = [
     "ROTATION_ERROR"
 ]
 
-def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, extension=0, logger = None):
+def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, output_table_entries, extension=0, logger = None):
     """
     Creates a table entry for the pipeline output, which is a tupple of 
     OUTPUT_TABLE_ENTRIES and the values of dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma.
@@ -145,7 +145,7 @@ def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, e
 
 
     table_entry = {}
-    for entry in OUTPUT_TABLE_ENTRIES:
+    for entry in output_table_entries:
         try:
             table_entry[entry] = hdul[extension].header[entry]
         except KeyError:
@@ -211,7 +211,7 @@ def write_final_results(output_table, path = '.', logger=None):
     if logger:
         logger.info(f"Writing final results to {path}")
 
-    table.write(path + "/output_table.fits", format="fits", overwrite=True)
+    table.write(path + "/alignment_output_table.fits", format="fits", overwrite=True)
 
     if logger:
         logger.info(f"Successfully wrote final results to {path}")

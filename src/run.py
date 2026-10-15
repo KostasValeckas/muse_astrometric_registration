@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pipeline import AlignmentPipeline
 
 
@@ -36,9 +37,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # for now, just load all the filenames
-
-    filenames = []
+    # create the output directory if it does not exist
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+  
 
     with open(args.config_file, "r") as f:
         config = json.load(f)
