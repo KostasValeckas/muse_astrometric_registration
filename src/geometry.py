@@ -73,6 +73,7 @@ def reproject_image_to_target_wcs(
     if logger:
         logger.info("Reprojection completed successfully.")
 
+
     return reprojected_image, footprint
 
 

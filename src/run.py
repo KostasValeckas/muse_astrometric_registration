@@ -1,14 +1,13 @@
-import argparse
-import json
-import os
-from pipeline import AlignmentPipeline
-
-
 """
 Reads the configuration file and runs the alignment pipeline.
 """
 
 if __name__ == "__main__":
+
+
+    import argparse
+    import os
+    import json
 
     parser = argparse.ArgumentParser(description="Run aligment pipeline")
 
@@ -35,7 +34,24 @@ if __name__ == "__main__":
         help="Path to the output directory. Default is current working directory.",
     )
 
+    parser.add_argument(
+        "--plot_headless",
+        action="store_true",
+        help="If set, plots will be generated in headless mode (no GUI). Default is False.",
+    )
+
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="NoAlignment",
+        help="The alignment method to use. Default is NoAlignment. Options are NoAlignment, PointSources.",
+    )
+
     args = parser.parse_args()
+
+
+    import matplotlib
+    if args.plot_headless: matplotlib.use("Agg")
 
     # create the output directory if it does not exist
     if not os.path.exists(args.output_dir):
@@ -44,12 +60,37 @@ if __name__ == "__main__":
     with open(args.config_file, "r") as f:
         config = json.load(f)
 
+    # imports happen here so we can set global backends for matplotlib 
+    # before importing any other modules that use it
+    
+    from pipeline import AlignmentPipeline
+    from methods import NoAlignment, PointSources
+
+    # TODO: this method selection needs to be refactored
+    
+    method = None
+
+    switcher = {
+        "NoAlignment": NoAlignment,
+        "PointSources": PointSources,
+    }
+
+    if args.method in switcher:
+        method = switcher[args.method]
+
+    else:
+        raise ValueError(
+            f"Invalid method: {args.method}. Choose from 'NoAlignment', 'PointSources'."
+        )
+
+
     # create the pipeline
     pipeline = AlignmentPipeline(
         config_dict=config,
         input_dir=args.input_dir,
         reference_file=args.ref_file_path,
         output_dir=args.output_dir,
+        aligment_method=method,
     )
 
     pipeline.run()
