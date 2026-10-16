@@ -1135,7 +1135,7 @@ class AlignmentPipeline:
                         )
  
                         self.aligner.plot_difference_image(
-                            reprojected_reference_frames[(pointing, i)],
+                            reprojected_reference_frames[pointing],
                             dither_frame_arrays[i],
                             tx_composed,
                             ty_composed,
@@ -1229,7 +1229,7 @@ class AlignmentPipeline:
                                 )
  
                                 self.point_sources_aligner.plot_difference_image(
-                                    reprojected_reference_frames[(pointing, i)],
+                                    reprojected_reference_frames[pointing],
                                     dither_frame_arrays[i],
                                     tx_composed,
                                     ty_composed,

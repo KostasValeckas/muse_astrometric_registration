@@ -71,6 +71,7 @@ if __name__ == "__main__":
     POINTING_OBS_KEYWORD = args.pointing_keyword
     IEXPO_OBS_KEYWORD = args.exp_keyword
     DATE_OBS_KEYWORD = args.date_keyword
+    TPL_START_OBS_KEYWORD = args.tpl_start_keyword
 
     # all ".fits" files in the input directory
     fits_files = [f for f in os.listdir(input_dir) if f.endswith(".fits")]
@@ -87,20 +88,34 @@ if __name__ == "__main__":
             IEXPO_OBS = header.get(IEXPO_OBS_KEYWORD, None)
             POINTING_OBS = header.get(POINTING_OBS_KEYWORD, None)
             DATE_OBS = header.get(DATE_OBS_KEYWORD, None)
+            TPL_START_OBS = header.get(TPL_START_OBS_KEYWORD, None)
 
             print(
-                f"File: {file}, IEXPO_OBS: {IEXPO_OBS}, POINTING_OBS: {POINTING_OBS}, DATE_OBS: {DATE_OBS}"
+                f"File: {file}, IEXPO_OBS: {IEXPO_OBS}, POINTING_OBS: {POINTING_OBS}, DATE_OBS: {DATE_OBS}, TPL_START_OBS: {TPL_START_OBS}"
             )
 
             if POINTING_OBS not in sorted_files:
                 sorted_files[POINTING_OBS] = []
 
-            sorted_files[POINTING_OBS].append((IEXPO_OBS, DATE_OBS, file))
+            sorted_files[POINTING_OBS].append((IEXPO_OBS, TPL_START_OBS, DATE_OBS, file))
 
 
-    # sort the files within each pointing by IEXPO_OBS
+    # sort the files within each pointing by exposure number, then template start
     for pointing in sorted_files:
-        sorted_files[pointing].sort(key=lambda x: x[0])  # sort by IEXPO_OBS
+        sorted_files[pointing].sort(
+            key=lambda x: (
+                x[0] if x[0] is not None else -1,
+                x[1] if x[1] is not None else "",
+                x[2] if x[2] is not None else "",
+                x[3],
+            )
+        )
+
+        # renumber the exposures so different template starts count as extra slots
+        sorted_files[pointing] = [
+            (exposure_number, date_obs, file)
+            for exposure_number, (_, _, date_obs, file) in enumerate(sorted_files[pointing], start=1)
+        ]
 
     # lastly, for bookingeeping, we add the headers used to sort the files to the dictionary
     sorted_files["headers"] = {

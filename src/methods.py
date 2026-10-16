@@ -12,7 +12,7 @@ from scipy.ndimage import maximum_filter
 from geometry import reproject_image_to_target_wcs
 from skimage.transform import warp_polar
 from skimage.registration import phase_cross_correlation
-from filters import remove_nans
+from filters import remove_nans, remove_bright_sources_simple
 
 
 from skimage.filters import window, difference_of_gaussians
@@ -620,7 +620,37 @@ class PointSources(AligmentMethod):
             True if alignment was successful, False otherwise.
         """
 
+        # set all nans zerous:
+
+        reference_frame = remove_nans(reference_frame, fill_value=0, logger=self.logger)
+
+        input_frame = remove_nans(input_frame, fill_value=0, logger=self.logger)
+
+        # check for other non-numerical things
+
         good_data = self.check_input(reference_frame, input_frame)
+
+
+        # remove bright sources from both:
+
+        reference_frame, _ = remove_bright_sources_simple(reference_frame, logger=self.logger)
+
+
+        input_frame, _ = remove_bright_sources_simple(input_frame, logger=self.logger)
+
+        # now, find all zero's in both frames and build a mask
+
+        reference_mask = reference_frame == 0
+        input_mask = input_frame == 0
+        mask = reference_mask | input_mask
+
+        # take copy of the original frames, and create masked arrays and apply the masks
+
+        input_copy = np.copy(input_frame)
+        reference_copy = np.copy(reference_frame)
+        
+        reference_frame = np.ma.masked_array(reference_copy, mask=mask)
+        input_frame = np.ma.masked_array(input_copy, mask=mask)
 
         if not good_data:
             if self.logger:
@@ -1389,7 +1419,7 @@ class PointSources(AligmentMethod):
             # ------------------------------------------------------------------
 
             self.plot_difference_image(
-                reference_frame, input_frame, tx, ty, rot, obs_name, show=show_QA
+                reference_copy, input_copy, tx, ty, rot, obs_name, show=show_QA
             )
 
         # ------------------------------------------------------------------
