@@ -5,6 +5,27 @@ from reproject import reproject_interp, reproject_exact, reproject_adaptive
 """
 Module for reprojections and WCS conversions.
 """
+def make_window_wcs(wcs, shape, window, oversample_factor=1):
+    """
+    Slice `wcs` (for an image of `shape`) to the window (top, bottom, left, right),
+    then oversample. Returns (wcs_out, shape_out) on the cropped grid.
+    """
+    ny, nx = shape
+    top, bottom, left, right = (int(w) for w in window)
+
+    wcs_out = wcs.slice((slice(top, ny - bottom), slice(left, nx - right)))
+    shape_out = (ny - top - bottom, nx - left - right)
+
+    if oversample_factor > 1:
+        if wcs_out.wcs.has_cd():
+            wcs_out.wcs.cd = wcs_out.wcs.cd / oversample_factor
+        else:
+            wcs_out.wcs.cdelt = wcs_out.wcs.cdelt / oversample_factor
+        wcs_out.wcs.crpix = (np.array(wcs_out.wcs.crpix) - 0.5) * oversample_factor + 0.5
+        shape_out = (shape_out[0] * oversample_factor, shape_out[1] * oversample_factor)
+
+    wcs_out.array_shape = shape_out
+    return wcs_out, shape_out
 
 
 def reproject_image_to_target_wcs(

@@ -1,4 +1,5 @@
 from venv import logger
+from stats import longest_run
 
 import numpy as np
 
@@ -69,3 +70,50 @@ def mask_zero_as_bpm(image, logger=None):
     masked_image = np.ma.masked_array(image, mask=bpm)
 
     return masked_image, bpm
+
+def _shrink(finite, window, min_run):
+    """
+    Shrink window = [top, bottom, left, right] (trims from each side) until
+    every edge passes. min_run=None requires the whole edge to be finite.
+    """
+    nrows, ncols = finite.shape
+    top, bottom, left, right = window
+
+    def ok(edge):
+        if min_run is None:
+            return edge.all()
+        return longest_run(edge) >= min(min_run, edge.size)
+
+    changed = True
+    while changed:
+        changed = False
+        r0, r1 = top, nrows - bottom
+        c0, c1 = left, ncols - right
+        if r1 - r0 < 1 or c1 - c0 < 1:
+            raise ValueError("Window collapsed; no valid region found.")
+
+        if not ok(finite[r0, c0:c1]):      top += 1;    changed = True
+        if not ok(finite[r1 - 1, c0:c1]):  bottom += 1; changed = True
+        if not ok(finite[r0:r1, c0]):      left += 1;   changed = True
+        if not ok(finite[r0:r1, c1 - 1]):  right += 1;  changed = True
+
+    return [top, bottom, left, right]
+
+def estimate_nan_window(image, min_run=100):
+    finite = np.isfinite(image)
+    nrows, ncols = image.shape
+
+    # Pass 1: each edge needs >= min_run consecutive finite pixels
+    w1 = _shrink(finite, [0, 0, 0, 0], min_run)
+    print("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
+
+    # Pass 2: continue from pass-1 window, each edge must contain no NaN at all
+    w2 = _shrink(finite, w1, None)
+    print("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
+
+    top, bottom, left, right = w2
+    height = nrows - top - bottom
+    width = ncols - left - right
+    print(f"Final window: height={height}, width={width}")
+
+    return (top, bottom, left, right), (height, width)

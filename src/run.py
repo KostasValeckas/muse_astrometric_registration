@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # before importing any other modules that use it
     
     from pipeline import AlignmentPipeline
-    from methods import NoAlignment, PointSources
+    from methods import NoAlignment, PointSources, FFT
 
     # TODO: this method selection needs to be refactored
     
@@ -73,6 +73,7 @@ if __name__ == "__main__":
     switcher = {
         "NoAlignment": NoAlignment,
         "PointSources": PointSources,
+        "FFT": FFT
     }
 
     if args.method in switcher:
@@ -80,7 +81,7 @@ if __name__ == "__main__":
 
     else:
         raise ValueError(
-            f"Invalid method: {args.method}. Choose from 'NoAlignment', 'PointSources'."
+            f"Invalid method: {args.method}. Choose from 'NoAlignment', 'PointSources', 'FFT'."
         )
 
 

@@ -2,7 +2,7 @@ from logger import get_logger
  
 import pathlib
  
-from methods import PointSources, NoAlignment
+from methods import  NoAlignment
  
 from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
 from geometry import (
@@ -369,6 +369,8 @@ class AlignmentPipeline:
                     dither_1,
                     dither_2,
                     f"{obs_name}_dither_{i+1}_to_dither_{j+1}",
+                    input_wcs = wcs_set[i],
+                    reference_wcs = wcs_set[j],
                 )
  
                 x_return_table[i, j] = tx
@@ -1003,6 +1005,8 @@ class AlignmentPipeline:
                 dither_frame_wcs[0],
                 shape_out=dither_frame_arrays[0].shape,
             )
+
+            reference_WCS_reprojected = dither_frame_wcs[0]  # update reference WCS to match the dither WCS
  
             # keep this for plotting later
             reprojected_reference_frames[pointing] = (
@@ -1025,6 +1029,8 @@ class AlignmentPipeline:
                     reprojected_reference_frame,
                     dither_frame_arrays[i],
                     f"{pointing}_dither_{i+1}_to_reference",
+                    input_wcs=dither_frame_wcs[i],
+                    reference_wcs=reference_WCS_reprojected
                 )
  
                 # put the results in the output table
