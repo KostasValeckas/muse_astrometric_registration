@@ -89,14 +89,15 @@ def extract_image_wcs(file_path, logger=None, wcs_extension=0):
 
     return wcs_info
 
+
 # list of what header entries to extract from the frames
 OUTPUT_TABLE_ENTRIES = [
     "DATE-OBS",
     "MJD-OBS",
     "HIERARCH ESO TPL START",
     "HIERARCH MUSEPIPE_IEXPO",
-    "HIERARCH MUSEPIPE_DATASET" # for NGC3221
-    #"HIERARCH MUSEPIPE_POINTING" # for NGC1365
+    "HIERARCH MUSEPIPE_DATASET",  # for NGC3221
+    # "HIERARCH MUSEPIPE_POINTING" # for NGC1365
 ]
 
 OUTPUT_TABLE_HEADERS = [
@@ -110,12 +111,24 @@ OUTPUT_TABLE_HEADERS = [
     "DEC_OFFSET",
     "DEC_OFFSET_ERROR",
     "ROTANGLE",
-    "ROTATION_ERROR"
+    "ROTATION_ERROR",
 ]
 
-def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, output_table_entries, extension=0, logger = None):
+
+def make_table_entry(
+    hdul,
+    dRA,
+    dRA_sigma,
+    dDEC,
+    dDEC_sigma,
+    dROT,
+    dROT_sigma,
+    output_table_entries,
+    extension=0,
+    logger=None,
+):
     """
-    Creates a table entry for the pipeline output, which is a tupple of 
+    Creates a table entry for the pipeline output, which is a tupple of
     OUTPUT_TABLE_ENTRIES and the values of dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma.
 
     Parameters
@@ -143,7 +156,6 @@ def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, o
         A dictionary representing the table entry with the provided values.
     """
 
-
     table_entry = {}
     for entry in output_table_entries:
         try:
@@ -163,14 +175,12 @@ def make_table_entry(hdul, dRA, dRA_sigma, dDEC, dDEC_sigma, dROT, dROT_sigma, o
     table_entry["dROT_sigma"] = dROT_sigma
 
     if logger:
-        logger.info(
-            f"Created table entry for output:\n      {table_entry}"
-        )
+        logger.info(f"Created table entry for output:\n      {table_entry}")
 
     return table_entry
 
-def write_final_results(output_table, path = '.', logger=None):
 
+def write_final_results(output_table, path=".", logger=None):
     """
     Writes the final results to a FITS table file.
 
@@ -188,22 +198,24 @@ def write_final_results(output_table, path = '.', logger=None):
     logger : logging.Logger, optional
         The logger to use for logging messages. If None, no logging will be performed.
 
-    
+
     """
 
     # Build columns explicitly so dtypes are correct (esp. the string columns)
     columns = {
-        "DATE_OBS":         np.array([row[0] for row in output_table], dtype="U23"),
-        "MJD_OBS":          np.array([row[1] for row in output_table], dtype=np.float64),
-        "TPL_START":        np.array([row[2] for row in output_table], dtype="U19"),
-        "IEXPO_OBS":        np.array([row[3] for row in output_table], dtype=np.int32),
-        "POINTING_OBS":     np.array([row[4] for row in output_table], dtype=np.int32),
-        "RA_OFFSET":        np.array([row[5] for row in output_table], dtype=np.float64),
-        "RA_OFFSET_ERROR":  np.array([row[6] for row in output_table], dtype=np.float64),
-        "DEC_OFFSET":       np.array([row[7] for row in output_table], dtype=np.float64),
-        "DEC_OFFSET_ERROR": np.array([row[8] for row in output_table], dtype=np.float64),
-        "ROTANGLE":         np.array([row[9] for row in output_table], dtype=np.float64),
-        "ROTATION_ERROR":   np.array([row[10] for row in output_table], dtype=np.float64),
+        "DATE_OBS": np.array([row[0] for row in output_table], dtype="U23"),
+        "MJD_OBS": np.array([row[1] for row in output_table], dtype=np.float64),
+        "TPL_START": np.array([row[2] for row in output_table], dtype="U19"),
+        "IEXPO_OBS": np.array([row[3] for row in output_table], dtype=np.int32),
+        "POINTING_OBS": np.array([row[4] for row in output_table], dtype=np.int32),
+        "RA_OFFSET": np.array([row[5] for row in output_table], dtype=np.float64),
+        "RA_OFFSET_ERROR": np.array([row[6] for row in output_table], dtype=np.float64),
+        "DEC_OFFSET": np.array([row[7] for row in output_table], dtype=np.float64),
+        "DEC_OFFSET_ERROR": np.array(
+            [row[8] for row in output_table], dtype=np.float64
+        ),
+        "ROTANGLE": np.array([row[9] for row in output_table], dtype=np.float64),
+        "ROTATION_ERROR": np.array([row[10] for row in output_table], dtype=np.float64),
     }
 
     table = Table(columns, names=OUTPUT_TABLE_HEADERS)

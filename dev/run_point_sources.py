@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.logger import get_logger
 from src.methods import PointSources
-from src.io import read_fits_image
+from src.IO import read_fits_image
 from src.filters import remove_nans
 
 import argparse
