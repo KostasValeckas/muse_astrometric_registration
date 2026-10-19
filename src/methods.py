@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from asyncio.log import logger
 import os
 import astroalign as aa
 import numpy as np
@@ -12,7 +13,10 @@ from scipy.ndimage import maximum_filter
 from geometry import reproject_image_to_target_wcs, make_window_wcs
 from skimage.transform import warp_polar
 from skimage.registration import phase_cross_correlation
-from filters import remove_nans, remove_bright_sources_simple, estimate_nan_window
+from filters import remove_nans, remove_bright_sources_simple, estimate_nan_window, dog_passband, dog, polar_rings, radial_window, tukey2d
+from numpy.fft import rfft, irfft, rfftfreq, fft2, ifft2, fftfreq
+from scipy.ndimage import shift as ndi_shift
+from scipy.optimize import minimize
 
 
 from skimage.filters import window, difference_of_gaussians
@@ -1458,12 +1462,15 @@ class PointSources(AligmentMethod):
 
 class FFT(AligmentMethod):
 
-    def __init__(self, oversample_factor=1, extra_rotation = 10.0, gaussian_sigma=0.0, polar_radius=10000.0, logger=None, QA_path=None):
+    def __init__(self, oversample_factor=1, extra_rotation = 6.0, control_tol = 0.03, snr_min = 10.0, sigma_start = 1.0, sigma_end = 4, sigma_num = 32, logger=None, QA_path=None):
 
         self.oversample_factor = oversample_factor
         self.extra_rotation = extra_rotation
-        self.gaussian_sigma = gaussian_sigma
-        self.polar_radius = polar_radius
+        self.control_tol = control_tol
+        self.snr_min = snr_min
+        self.sigma_start = sigma_start
+        self.sigma_end = sigma_end
+        self.sigma_num = sigma_num
 
         super().__init__("FFT", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -1471,7 +1478,301 @@ class FFT(AligmentMethod):
             self.logger.info(
                 f"Initialized {self.name} alignment method, version {self.version}."
             )
+
+    def angular_shift(self, A, B, w, expected=0.0, halfwidth=None, upsample=64):
+        """Shift m (deg) such that A(theta) ~ B(theta - m), plus a peak SNR.
+
+        C(m) = sum_r w_r sum_t A_r[t+m] B_r[t]  computed with an FFT along theta
+        only; zero-padding the angular spectrum gives *exact* band-limited
+        interpolation (no parabola/centroid bias).
+        """
+        n = A.shape[1]
+        cross = (w[:, None] * rfft(A, axis=1) * np.conj(rfft(B, axis=1))).sum(axis=0)
+        if n % 2 == 0:
+            cross[-1] = 0.0  # Nyquist term is ambiguous
+        c = irfft(cross, n=n * upsample)
+        ang = (np.arange(c.size) * (180.0 / c.size) + 90.0) % 180.0 - 90.0
+        if halfwidth is not None:
+            d = (ang - expected + 90.0) % 180.0 - 90.0
+            cs = np.where(np.abs(d) <= halfwidth, c, -np.inf)
+        else:
+            cs = c
+        k = int(np.argmax(cs))
+        med = np.median(c)
+        mad = 1.4826 * np.median(np.abs(c - med))
+        return ang[k], (c[k] - med) / mad
+
+
+    def estimate_rotation_fixed_scale(
+        self,
+        reference,
+        image,
+        extra_rotation=0.0,
+        sigmas=None,
+        ratio=1.6,
+        ctrl_tol=0.03,
+        snr_min=30.0,
+        search_halfwidth=1.0,
+        min_ok=3,
+        pad=2,
+        upsample=64,
+    ):
+        """
+        Returns dict(rot, rot_err, success, table).
+
+        rot  : degrees, scipy convention: rotate(reference, rot) ~ image.
+        table: per-sigma rows (sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok).
+
+        `extra_rotation` should be larger than search_halfwidth + peak width so the
+        true peak is separated from frame-fixed features (sensor striping, pixel-grid
+        anisotropy) that all pile up at dtheta = 0.
+        """
+
+        # we take copies before we start altering the frames
+
+        reference = reference.copy()
+        image = image.copy()
+
+        # remove nans and replace with medians
+
+        median_ref = np.nanmedian(reference)
+        median_img = np.nanmedian(image)
+
+
+
+        reference = remove_nans(reference, fill_value=median_ref)
+        image = remove_nans(image, fill_value=median_img)
+
+        # TODO - if poor performace, try also to subtract background level later
+        # reference = reference - np.nanmean(reference)
+        # image = image - np.nanmean(image)
+
+        # these are needed for filtering
+        L = max(reference.shape)
+        win = radial_window(reference.shape)
+
+        # control image: the *same* data rotated by a known angle (spline, no NaNs
+        # inside the inscribed disk)
+        img_rot = rotate(
+            image, extra_rotation, reshape=False, order=3, mode="constant", cval=0.0
+        )
+
+        
+        # TODO: figure out what this does, for now just leave it 
+        if sigmas is None:  # geometric: band centre ~ 1/sigma
+            sigmas = np.geomspace(1.0, 16.0, 32)
+
+        # my polar parameterisation rotates opposite to scipy's, hence the minus
+        S = -1.0
+        rows, ok_eps = [], []
+        for s in sigmas:
+            f_lo, f_hi = dog_passband(s, ratio) # dog - difference of Gaussians
+            n_theta = max(128, 2 * int(2 * np.pi * f_hi * L))  # even
+            rings = {}
+            for name, im in (("ref", reference), ("img", image), ("rot", img_rot)):
+                rings[name], f = polar_rings(
+                    dog(im, s, ratio) * win, f_lo, f_hi, n_theta, pad
+                )
+            w = f / f.sum()  # ring information ~ |f|
+
+            m_main, snr_main = self.angular_shift(
+                rings["rot"],
+                rings["ref"],
+                w,
+                S * extra_rotation,
+                search_halfwidth,
+                upsample,
+            )
+            m_ctrl, snr_ctrl = self.angular_shift(
+                rings["rot"],
+                rings["img"],
+                w,
+                S * extra_rotation,
+                search_halfwidth,
+                upsample,
+            )
+            a_main, a_ctrl = S * m_main, S * m_ctrl
+            eps = a_main - a_ctrl  # bias-cancelled
+            ok = (
+                abs(a_ctrl - extra_rotation) < ctrl_tol
+                and snr_main > snr_min
+                and snr_ctrl > snr_min
+            )
+            rows.append((s, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok))
+            if ok:
+                ok_eps.append(eps)
+
+        table = np.array(rows, dtype=float)
+        if len(ok_eps) >= min_ok:
+            rot = float(np.median(ok_eps))
+            err = float(np.std(ok_eps, ddof=1))  # conservative: sigmas correlated
+            return dict(rot=rot, rot_err=err, success=True, table=table)
+        return dict(rot=np.nan, rot_err=np.nan, success=False, table=table)
+
+    def cross_spectrum(self, A, B, gamma=0.5):
+        """
+
+        Helper for translation estimation.
+
+        X = FA conj(FB) / |FA conj(FB)|^gamma.
+        gamma=0: plain cross-correlation; gamma=1: pure phase correlation."""
+        X = fft2(A) * np.conj(fft2(B))
+        if gamma:
+            mag = np.abs(X)
+            X = X / (mag + 1e-8 * mag.max()) ** gamma
+        return X
     
+
+    def integer_peak(self, X, expected, halfwidth):
+        """
+        
+        Helper for translation estimation.
+        
+        Integer-lag peak of ifft2(X) inside |lag - expected| <= halfwidth.
+        Returns (tx, ty) integer start point and a peak SNR (peak vs MAD)."""
+        Ny, Nx = X.shape
+        c = ifft2(X).real
+        ly, lx = fftfreq(Ny, 1.0 / Ny), fftfreq(Nx, 1.0 / Nx)  # signed integer lags
+        m = (np.abs(ly - expected[1]) <= halfwidth)[:, None] & (
+            np.abs(lx - expected[0]) <= halfwidth
+        )[None, :]
+        iy, ix = np.unravel_index(np.argmax(np.where(m, c, -np.inf)), c.shape)
+        med = np.median(c)
+        mad = 1.4826 * np.median(np.abs(c - med))
+        return (lx[ix], ly[iy]), (c[iy, ix] - med) / mad, c[iy, ix]
+
+    def refine_peak(self, X, t0, scale):
+        """Maximise the band-limited correlation C(t) continuously, starting at t0."""
+        Ny, Nx = X.shape
+        ky, kx = fftfreq(Ny), fftfreq(Nx)  # cycles / pixel
+        Xs = X / scale
+
+        def neg_c(t):
+            ey = np.exp(2j * np.pi * ky * t[1])
+            ex = np.exp(2j * np.pi * kx * t[0])
+            v = ey @ Xs @ ex
+            gx = ey @ Xs @ (2j * np.pi * kx * ex)
+            gy = (2j * np.pi * ky * ey) @ Xs @ ex
+            return -v.real, -np.array([gx.real, gy.real])
+
+        res = minimize(
+            neg_c,
+            np.asarray(t0, float),
+            jac=True,
+            method="BFGS",
+            options=dict(gtol=1e-9, maxiter=100),
+        )
+        return res.x, bool(res.success) and np.all(np.abs(res.x - t0) < 1.0)
+
+    def estimate_translation(
+        self,
+        reference,
+        image,
+        control_offset=(10.0, 10.0),
+        sigmas=None,
+        ratio=1.6,
+        gamma=0.0,
+        taper=0.25,
+        ctrl_tol=0.02,
+        snr_min=20.0,
+        search_halfwidth=5.0,
+        min_ok=3,
+        window_iters=2,
+    ):
+        """
+        Returns dict(shift=(tx, ty), shift_err=(sx, sy), success, table, raw).
+
+        control_offset  : known (dx, dy) applied to `image` for the control pair.
+                          Must exceed search_halfwidth + peak width so the dx=dy=0
+                          artefacts (window, DFT edge effects) stay outside the search.
+                          Use dx != dy: equal offsets cannot reveal an x/y swap.
+        search_halfwidth: largest |residual| (px) you are willing to accept.
+        table columns   : sigma, tx, ty, ctrl_x, ctrl_y, eps_x, eps_y, snr_main, snr_ctrl, ok
+        raw             : median uncorrected shift (main - nominal offset), for comparison.
+        window_iters    : after the first estimate the reference window is moved onto the
+                          same sky area as the image window and the estimate is redone.
+                          The control cannot see this bias (control pair has identical
+                          windows); it grows with the true shift and with sigma.
+        """
+        # we take copies before we start altering the frames
+
+        reference = reference.copy()
+        image = image.copy()
+
+        # remove nans and replace with medians
+
+        median_ref = np.nanmedian(reference)
+        median_img = np.nanmedian(image)
+
+
+
+        reference = remove_nans(reference, fill_value=median_ref)
+        image = remove_nans(image, fill_value=median_img)
+        cx, cy = control_offset
+
+
+        win = tukey2d(reference.shape, taper)
+        # zero-pad so the known shift never crops content and the correlation never wraps
+        pad = int(np.ceil(max(abs(cx), abs(cy)) + search_halfwidth)) + 2
+
+        if sigmas is None:
+            sigmas = np.geomspace(1.0, 4.0, 10)
+
+        rows = []
+        for s in sigmas:
+            # DoG -> window -> pad, all in each image's OWN frame.  The window must
+            # travel with the content: windowing *after* a shift pulls the estimate
+            # toward zero by tens of milli-pixels.
+            Dref, Dimg = dog(reference, s, ratio), dog(image, s, ratio)
+            U = np.pad(Dimg * win, pad)  # unshifted image
+            A = ndi_shift(U, (cy, cx), order=3, mode="constant", cval=0.0)  # shifted image
+
+            # control: A is an exact shifted copy of U -> truth is (cx, cy)
+            Xc = self.cross_spectrum(A, U, gamma)
+            t0c, snr_c, pk_c = self.integer_peak(Xc, (cx, cy), search_halfwidth)
+            tc, ok_c = self.refine_peak(Xc, t0c, pk_c * Xc.size)
+
+            # main: A vs reference.  Image content at p <-> reference content at p - eps,
+            # so the reference window is the image window displaced by -eps.
+            w_ref = win
+            for _ in range(window_iters + 1):
+                R = np.pad(Dref * w_ref, pad)
+                Xm = self.cross_spectrum(A, R, gamma)
+                t0m, snr_m, pk_m = self.integer_peak(Xm, (cx, cy), search_halfwidth)
+                tm, ok_m = self.refine_peak(Xm, t0m, pk_m * Xm.size)
+                e = tm - (cx, cy)
+                w_ref = ndi_shift(win, (-e[1], -e[0]), order=3, mode="constant", cval=0.0)
+            eps = tm - tc  # bias-cancelled residual
+            ok = (
+                ok_m
+                and ok_c
+                and np.all(np.abs(tc - (cx, cy)) < ctrl_tol)
+                and snr_m > snr_min
+                and snr_c > snr_min
+            )
+            rows.append((s, *tm, *tc, *eps, snr_m, snr_c, float(ok)))
+
+        table = np.array(rows, float)
+        good = table[table[:, -1] == 1]
+        raw = np.median(table[:, 1:3], axis=0) - (cx, cy)
+        if len(good) >= min_ok:
+            est = np.median(good[:, 5:7], axis=0)
+            err = good[:, 5:7].std(axis=0, ddof=1)  # conservative: sigmas are correlated
+            return dict(
+                shift=tuple(est),
+                shift_err=tuple(err),
+                success=True,
+                table=table,
+                raw=tuple(raw),
+            )
+        return dict(
+            shift=(np.nan, np.nan),
+            shift_err=(np.nan, np.nan),
+            success=False,
+            table=table,
+            raw=tuple(raw),
+    )
+
     def run(
         self,
         reference_frame,
@@ -1533,7 +1834,7 @@ class FFT(AligmentMethod):
         input_frame = input_frame.copy()
         
 
-        window_clean_input, (height, width) = estimate_nan_window(input_frame, min_run=100)
+        window_clean_input, (height, width) = estimate_nan_window(input_frame, min_run=100, logger=self.logger)
 
         window_clean_reference, (height_ref, width_ref) = estimate_nan_window(reference_frame, min_run=100)
 
@@ -1547,7 +1848,7 @@ class FFT(AligmentMethod):
         target_wcs, shape_out = make_window_wcs(
             input_wcs, input_frame.shape, window_clean, self.oversample_factor
         )
-        print("shape_out:", shape_out)   # should be ~ (294, 295) * oversample_factor
+        
 
         input_frame, _ = reproject_image_to_target_wcs(
             input_frame, input_wcs, target_wcs, shape_out=shape_out
@@ -1557,14 +1858,176 @@ class FFT(AligmentMethod):
             reference_frame, reference_wcs, target_wcs, shape_out=shape_out
         )
 
-        (tx, ty), rot, (tx_err, ty_err), rot_err, success = (0.0, 0.0), 0.0, (0.0, 0.0), 0.0, True
-        # plot diffence image after reprojection and alignment
+        if self.logger:
+            self.logger.info(
+                f"Reprojected input and reference frames to a common WCS and shape: {shape_out}"
+            )
 
-        self.plot_difference_image(
-            reference_frame, input_frame, tx, ty, rot, obs_name, show=show_QA
+        
+        # first, we try to estimate rotation
+
+        rot_dict = self.estimate_rotation_fixed_scale(
+            reference_frame,
+            input_frame,
+            extra_rotation=self.extra_rotation,
+            sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
+            ratio=1.6,
+            ctrl_tol=self.control_tol,
+            snr_min=10.0,
+            search_halfwidth=1.0,
+            min_ok=3,
+            pad=2,
+            upsample=64,
+        )
+        np.set_printoptions(precision=4, suppress=True)
+        self.logger.info(
+            "\nper-sigma table for last case: sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok\n" + str(rot_dict["table"])
+        )
+        
+        # from the rot dict, take all entries where: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min: 
+
+        filtered_entries = rot_dict["table"][
+            (rot_dict["table"][:, 2] - np.abs(self.extra_rotation) <= self.control_tol) &
+            (rot_dict["table"][:, 4] > self.snr_min) &
+            (rot_dict["table"][:, 5] > self.snr_min)
+        ]
+
+        # find the arg with highest snr_main
+
+        if len(filtered_entries) > 0:
+            best_entry = filtered_entries[np.argmax(filtered_entries[:, 4])]
+            best_sigma = best_entry[0]
+            best_eps = best_entry[3]
+            self.logger.info(
+                f"Best sigma: {best_sigma:.4f}, Best eps: {best_eps:.4f}"
+            )
+        else:
+            self.logger.warning(
+                "No valid entries found in the per-sigma table that satisfy the control tolerance and SNR thresholds. No rotation estimated - alignment failed."
+            )
+            return self.FAILED_RETURN
+
+        # QA for angles
+        plt.plot(filtered_entries[:, 0], filtered_entries[:, 3], marker='o', linestyle='-', color='blue', label='eps')
+        plt.axvline(x=best_sigma, color='red', linestyle='--', label=f'Best sigma: {best_sigma:.4f}')
+        plt.xlabel('sigma')
+        plt.ylabel('eps')
+        plt.title(f'eps vs sigma for {obs_name}')
+        plt.legend()
+        plt.grid()
+        if save_QA:
+            plt.savefig(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
+            if self.logger:
+                self.logger.info(
+                    f"Saved QA plot of eps vs sigma to "
+                    f"{self.QA_path}/eps_vs_sigma_{obs_name}.png"
+                )
+        if show_QA:
+            plt.show()
+        else:
+            plt.close()
+
+
+        rot = best_eps
+
+        # TODO - estimation on rotation error based on neibhours
+        rot_err = 0
+
+        # now we rotate the input frame by the estimated rotation and then estimate translation
+
+
+        # remove NaNs from the input frame before rotation
+        median_input = np.nanmedian(input_frame)
+        input_frame = remove_nans(input_frame, fill_value=median_input)
+
+        rotated_input_frame = rotate(
+            input_frame, -rot, reshape=False, order=3, cval=0.0
         )
 
 
+
+
+        trans_dict = self.estimate_translation(
+            reference_frame,
+            rotated_input_frame,
+            control_offset=(10.0, 10.0),
+            sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
+            ratio=1.6,
+            gamma=0.0,
+            taper=0.25,
+            ctrl_tol=self.control_tol,
+            snr_min=10.0,
+            search_halfwidth=20.0,
+            min_ok=3,
+            window_iters=2,
+        )
+
+        self.logger.info(
+            "\nper-sigma table for last case: sigma, tx, ty, ctrl_x, ctrl_y, eps_x, eps_y, snr_main, snr_ctrl, ok\n" + str(trans_dict["table"])
+        )
+
+        snr_main_array = trans_dict["table"][:, 7]
+        snr_ctrl_array = trans_dict["table"][:, 8]
+        ctrl_x = trans_dict["table"][:, 3]
+        ctrl_y = trans_dict["table"][:, 4]
+
+        eps_x = trans_dict["table"][:, 5]
+        eps_y = trans_dict["table"][:, 6]
+
+        # same cut as before: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min
+
+        mask = (np.abs(trans_dict["table"][:, 3] - 10.0) < self.control_tol) & (np.abs(trans_dict["table"][:, 4] - 10.0) < self.control_tol) & (snr_main_array > self.snr_min) & (snr_ctrl_array > self.snr_min)    
+
+        clean_table = trans_dict["table"][mask]
+
+        # best snr: 
+
+        if len(clean_table) > 0:
+            best_entry = clean_table[np.argmax(clean_table[:, 7])]
+            best_sigma_trans = best_entry[0]
+            best_eps_x = best_entry[5]
+            best_eps_y = best_entry[6]
+            self.logger.info(
+                f"Best sigma for translation: {best_sigma_trans:.4f}, Best eps_x: {best_eps_x:.4f}, Best eps_y: {best_eps_y:.4f}"
+            )
+        else:
+            self.logger.warning(
+                "No valid entries found in the per-sigma table for translation that satisfy the control tolerance and SNR thresholds. No translation estimated - alignment failed."
+            )
+            return self.FAILED_RETURN
+
+        # QA plot for translation
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(clean_table[:, 0], clean_table[:, 5], marker='o', linestyle='-', color='blue', label='eps_x')
+        plt.plot(clean_table[:, 0], clean_table[:, 6], marker='o', linestyle='-', color='orange', label='eps_y')
+        plt.axvline(x=best_sigma_trans, color='red', linestyle='--', label=f'Best sigma: {best_sigma_trans:.4f}')
+        plt.xlabel('sigma')
+        plt.ylabel('eps_x, eps_y')
+        plt.title(f'eps_x and eps_y vs sigma for {obs_name}')
+        plt.legend()
+        plt.grid()
+        if save_QA:
+            plt.savefig(f"{self.QA_path}/eps_xy_vs_sigma_{obs_name}.png")
+            if self.logger:
+                self.logger.info(
+                    f"Saved QA plot of eps_x and eps_y vs sigma to "
+                    f"{self.QA_path}/eps_xy_vs_sigma_{obs_name}.png"
+                )
+        if show_QA:
+            plt.show()
+        else:
+            plt.close()
+
+        tx, ty = best_eps_x, best_eps_y
+        tx_err, ty_err = 0.0, 0.0  # TODO - estimation on translation error based on neighbors
+
+        success = True
+
+    
+        self.plot_difference_image(
+            reference_frame, input_frame, -tx, -ty, -rot, obs_name, show=False
+        )
 
         return (
             (tx, ty),

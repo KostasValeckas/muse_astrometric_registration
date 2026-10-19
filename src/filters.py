@@ -1,5 +1,8 @@
 from venv import logger
 from stats import longest_run
+from scipy.ndimage import gaussian_filter, map_coordinates
+from numpy.fft import fft2, fftshift
+from scipy.signal.windows import tukey
 
 import numpy as np
 
@@ -99,21 +102,93 @@ def _shrink(finite, window, min_run):
 
     return [top, bottom, left, right]
 
-def estimate_nan_window(image, min_run=100):
+def estimate_nan_window(image, min_run=100, logger= None):
+
+    if logger:
+        logger.info(f"Estimating window of finite pixels with minimum finite array size: {min_run}")
+
     finite = np.isfinite(image)
     nrows, ncols = image.shape
 
     # Pass 1: each edge needs >= min_run consecutive finite pixels
     w1 = _shrink(finite, [0, 0, 0, 0], min_run)
-    print("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
+    if logger:
+        logger.info("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
 
     # Pass 2: continue from pass-1 window, each edge must contain no NaN at all
     w2 = _shrink(finite, w1, None)
-    print("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
+    if logger:
+        logger.info("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
 
     top, bottom, left, right = w2
     height = nrows - top - bottom
     width = ncols - left - right
-    print(f"Final window: height={height}, width={width}")
+    if logger:
+        logger.info(f"Final window: height={height}, width={width}")
 
     return (top, bottom, left, right), (height, width)
+
+def dog_passband(sigma, ratio=1.6, level=0.2):
+    """Frequency range (cycles/pixel) where the DoG response >= level * peak."""
+    f = np.linspace(1e-4, 0.5, 4000)
+    h = np.exp(-2 * (np.pi * sigma * f) ** 2) - np.exp(
+        -2 * (np.pi * ratio * sigma * f) ** 2
+    )
+    keep = f[h >= level * h.max()]
+    return keep[0], keep[-1]
+
+def dog(img, sigma, ratio=1.6):
+    """DoG with a fixed sigma *ratio*: sigma sets the band centre, ratio the
+    (fractional) bandwidth.  Absolute sigma differences only scale amplitude."""
+    return gaussian_filter(img, sigma, mode="nearest") - gaussian_filter(
+        img, ratio * sigma, mode="nearest"
+    )
+
+# --------------------------------------------------------------------------
+# spectrum -> rings -> angular correlation
+# --------------------------------------------------------------------------
+def polar_rings(img, f_lo, f_hi, n_theta, pad=2):
+    """Whitened rings of sqrt(power spectrum) on a linear (|f|, theta) grid.
+
+    * theta covers [0, 180 deg) only (power spectrum is point-symmetric),
+      so the angular axis is exactly periodic with period 180 deg.
+    * 2x zero padding makes |F|^2 (FT of the autocorrelation) essentially
+      band-limited, so cubic interpolation of it is accurate.
+    * Each ring is mean-subtracted and unit-variance so that the steep radial
+      power-law of the spectrum cannot dominate the correlation.
+    """
+    ny, nx = img.shape
+    P = pad * max(ny, nx)
+    pw = np.abs(fftshift(fft2(img, s=(P, P)))) ** 2
+    c = P // 2  # DC bin after fftshift
+    n_r = max(8, int(round((f_hi - f_lo) * P)))
+    f = np.linspace(f_lo, f_hi, n_r)
+    theta = np.arange(n_theta) * (np.pi / n_theta)
+    rr = (f * P)[:, None]
+    rows = c + rr * np.sin(theta)[None, :]
+    cols = c + rr * np.cos(theta)[None, :]
+    ring = map_coordinates(pw, [rows, cols], order=3, mode="nearest")
+    ring = np.sqrt(np.clip(ring, 0, None))
+    ring -= ring.mean(axis=1, keepdims=True)
+    sd = ring.std(axis=1, keepdims=True)
+    ring /= np.where(sd > 0, sd, 1.0)
+    return ring, f
+
+def radial_window(shape, taper=0.4):
+    """Rotation-invariant (disk) Tukey window, centred on (N-1)/2 like
+    scipy.ndimage.rotate.  Unlike a separable Hann it has no frame-fixed
+    cross in its spectrum, and a disk inscribed in the frame never sees the
+    NaN/empty corners that rotation creates."""
+    ny, nx = shape
+    y, x = np.indices(shape)
+    r = np.hypot(y - (ny - 1) / 2, x - (nx - 1) / 2)
+    r_out = min(ny, nx) / 2
+    r_in = r_out * (1 - taper)
+    w = np.ones(shape)
+    ramp = (r > r_in) & (r < r_out)
+    w[ramp] = 0.5 * (1 + np.cos(np.pi * (r[ramp] - r_in) / (r_out - r_in)))
+    w[r >= r_out] = 0.0
+    return w
+
+def tukey2d(shape, taper=0.25):
+    return np.outer(tukey(shape[0], taper), tukey(shape[1], taper))

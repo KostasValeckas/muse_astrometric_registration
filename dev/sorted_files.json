@@ -2,2297 +2,353 @@
     "1": [
         [
             1,
-            "2021-11-27T03:13:14.863",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0001.fits"
+            "2024-01-06T07:35:24.113",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2024-01-06T07:35:06_0001.fits"
         ],
         [
             2,
-            "2021-11-27T03:18:29.277",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0002.fits"
+            "2024-01-06T07:50:08.266",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2024-01-06T07:35:06_0002.fits"
         ],
         [
             3,
-            "2021-11-27T03:23:43.565",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0003.fits"
+            "2024-01-06T08:01:13.049",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2024-01-06T07:35:06_0003.fits"
         ],
         [
             4,
-            "2021-11-27T03:28:58.097",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0004.fits"
-        ],
-        [
-            5,
-            "2021-11-27T03:37:29.897",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0005.fits"
-        ],
-        [
-            6,
-            "2021-11-27T03:42:44.167",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0006.fits"
-        ],
-        [
-            7,
-            "2021-11-27T03:47:58.646",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0007.fits"
-        ],
-        [
-            8,
-            "2021-11-27T03:53:13.094",
-            "IMAGE_FOV_prealign_OB001_WFI_BB_2021-11-27T03:07:22_0008.fits"
+            "2024-01-06T08:15:57.400",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2024-01-06T07:35:06_0004.fits"
         ]
     ],
     "2": [
         [
             1,
-            "2021-11-30T02:12:44.409",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0001.fits"
+            "2024-01-11T07:15:22.599",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2024-01-11T07:15:04_0001.fits"
         ],
         [
             2,
-            "2021-11-30T02:17:58.685",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0002.fits"
+            "2024-01-11T07:30:04.868",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2024-01-11T07:15:04_0002.fits"
         ],
         [
             3,
-            "2021-11-30T02:23:13.163",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0003.fits"
+            "2024-01-11T07:41:09.060",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2024-01-11T07:15:04_0003.fits"
         ],
         [
             4,
-            "2021-11-30T02:28:27.626",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0004.fits"
-        ],
-        [
-            5,
-            "2021-11-30T02:36:56.624",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0005.fits"
-        ],
-        [
-            6,
-            "2021-11-30T02:42:10.833",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0006.fits"
-        ],
-        [
-            7,
-            "2021-11-30T02:47:24.814",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0007.fits"
-        ],
-        [
-            8,
-            "2021-11-30T02:52:39.193",
-            "IMAGE_FOV_prealign_OB002_WFI_BB_2021-11-30T02:05:15_0008.fits"
+            "2024-01-11T07:55:50.866",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2024-01-11T07:15:04_0004.fits"
         ]
     ],
     "3": [
         [
             1,
-            "2021-12-07T03:02:54.698",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0001.fits"
+            "2024-01-06T06:38:38.513",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2024-01-06T06:38:20_0001.fits"
         ],
         [
             2,
-            "2021-12-07T03:08:08.408",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0002.fits"
+            "2024-01-06T06:53:22.352",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2024-01-06T06:38:20_0002.fits"
         ],
         [
             3,
-            "2021-12-07T03:13:22.555",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0003.fits"
+            "2024-01-06T07:04:26.539",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2024-01-06T06:38:20_0003.fits"
         ],
         [
             4,
-            "2021-12-07T03:18:36.406",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0004.fits"
-        ],
-        [
-            5,
-            "2021-12-07T03:28:51.408",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0005.fits"
-        ],
-        [
-            6,
-            "2021-12-07T03:34:05.699",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0006.fits"
-        ],
-        [
-            7,
-            "2021-12-07T03:39:19.671",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0007.fits"
-        ],
-        [
-            8,
-            "2021-12-07T03:44:33.934",
-            "IMAGE_FOV_prealign_OB003_WFI_BB_2021-12-07T02:56:56_0008.fits"
+            "2024-01-06T07:19:09.388",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2024-01-06T06:38:20_0004.fits"
         ]
     ],
     "4": [
         [
             1,
-            "2021-12-28T01:19:11.393",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0001.fits"
+            "2024-01-07T07:08:31.582",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2024-01-07T07:08:13_0001.fits"
         ],
         [
             2,
-            "2021-12-28T01:24:25.615",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0002.fits"
+            "2024-01-07T07:23:14.499",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2024-01-07T07:08:13_0002.fits"
         ],
         [
             3,
-            "2021-12-28T01:29:39.841",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0003.fits"
+            "2024-01-07T07:34:18.487",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2024-01-07T07:08:13_0003.fits"
         ],
         [
             4,
-            "2021-12-28T01:34:54.033",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0004.fits"
-        ],
-        [
-            5,
-            "2021-12-28T01:43:25.601",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0005.fits"
-        ],
-        [
-            6,
-            "2021-12-28T01:48:39.749",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0006.fits"
-        ],
-        [
-            7,
-            "2021-12-28T01:53:53.852",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0007.fits"
-        ],
-        [
-            8,
-            "2021-12-28T01:59:08.039",
-            "IMAGE_FOV_prealign_OB004_WFI_BB_2021-12-28T01:15:08_0008.fits"
+            "2024-01-07T07:49:00.427",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2024-01-07T07:08:13_0004.fits"
         ]
     ],
     "5": [
         [
             1,
-            "2021-12-29T01:11:45.039",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0001.fits"
+            "2023-01-25T06:37:51.395",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-01-25T06:37:33_0001.fits"
         ],
         [
             2,
-            "2021-12-29T01:16:59.248",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0002.fits"
+            "2023-01-25T06:52:52.684",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-01-25T06:37:33_0002.fits"
         ],
         [
             3,
-            "2021-12-29T01:22:13.358",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0003.fits"
+            "2023-01-25T07:04:07.498",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-01-25T06:37:33_0003.fits"
         ],
         [
             4,
-            "2021-12-29T01:27:27.491",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0004.fits"
-        ],
-        [
-            5,
-            "2021-12-29T01:36:21.872",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0005.fits"
-        ],
-        [
-            6,
-            "2021-12-29T01:41:35.977",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0006.fits"
-        ],
-        [
-            7,
-            "2021-12-29T01:46:50.047",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0007.fits"
-        ],
-        [
-            8,
-            "2021-12-29T01:52:04.228",
-            "IMAGE_FOV_prealign_OB005_WFI_BB_2021-12-29T01:07:39_0008.fits"
+            "2023-01-25T07:19:06.416",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-01-25T06:37:33_0004.fits"
         ]
     ],
     "6": [
         [
             1,
-            "2022-06-29T08:21:29.906",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0001.fits"
+            "2023-01-25T05:40:48.903",
+            "IMAGE_FOV_prealign_OB006_LEGACY_R_2023-01-25T05:40:31_0001.fits"
         ],
         [
             2,
-            "2022-06-29T08:26:44.240",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0002.fits"
+            "2023-01-25T05:55:50.875",
+            "IMAGE_FOV_prealign_OB006_LEGACY_R_2023-01-25T05:40:31_0002.fits"
         ],
         [
             3,
-            "2022-06-29T08:31:58.150",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0003.fits"
+            "2023-01-25T06:07:03.712",
+            "IMAGE_FOV_prealign_OB006_LEGACY_R_2023-01-25T05:40:31_0003.fits"
         ],
         [
             4,
-            "2022-06-29T08:37:12.149",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0004.fits"
-        ],
-        [
-            5,
-            "2022-06-29T08:46:08.563",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0005.fits"
-        ],
-        [
-            6,
-            "2022-06-29T08:51:22.825",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0006.fits"
-        ],
-        [
-            7,
-            "2022-06-29T08:56:37.154",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0007.fits"
-        ],
-        [
-            8,
-            "2022-06-29T09:01:51.231",
-            "IMAGE_FOV_prealign_OB006_WFI_BB_2022-06-29T08:17:05_0008.fits"
+            "2023-01-25T06:22:04.968",
+            "IMAGE_FOV_prealign_OB006_LEGACY_R_2023-01-25T05:40:31_0004.fits"
         ]
     ],
     "7": [
         [
             1,
-            "2022-07-02T07:25:12.208",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0001.fits"
+            "2024-01-07T06:12:17.042",
+            "IMAGE_FOV_prealign_OB007_LEGACY_R_2024-01-07T06:11:59_0001.fits"
         ],
         [
             2,
-            "2022-07-02T07:30:26.042",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0002.fits"
+            "2024-01-07T06:27:03.510",
+            "IMAGE_FOV_prealign_OB007_LEGACY_R_2024-01-07T06:11:59_0002.fits"
         ],
         [
             3,
-            "2022-07-02T07:35:39.952",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0003.fits"
+            "2024-01-07T06:38:08.149",
+            "IMAGE_FOV_prealign_OB007_LEGACY_R_2024-01-07T06:11:59_0003.fits"
         ],
         [
             4,
-            "2022-07-02T07:40:54.121",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0004.fits"
-        ],
-        [
-            5,
-            "2022-07-02T07:49:45.512",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0005.fits"
-        ],
-        [
-            6,
-            "2022-07-02T07:54:59.973",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0006.fits"
-        ],
-        [
-            7,
-            "2022-07-02T08:00:14.148",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0007.fits"
-        ],
-        [
-            8,
-            "2022-07-02T08:05:30.985",
-            "IMAGE_FOV_prealign_OB007_WFI_BB_2022-07-02T07:21:10_0008.fits"
+            "2024-01-07T06:52:52.833",
+            "IMAGE_FOV_prealign_OB007_LEGACY_R_2024-01-07T06:11:59_0004.fits"
         ]
     ],
     "8": [
         [
             1,
-            "2022-07-02T08:26:06.367",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0001.fits"
+            "2023-12-23T07:24:16.016",
+            "IMAGE_FOV_prealign_OB008_LEGACY_R_2023-12-23T07:23:57_0001.fits"
         ],
         [
             2,
-            "2022-07-02T08:31:20.648",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0002.fits"
+            "2023-12-23T07:39:04.026",
+            "IMAGE_FOV_prealign_OB008_LEGACY_R_2023-12-23T07:23:57_0002.fits"
         ],
         [
             3,
-            "2022-07-02T08:36:35.211",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0003.fits"
+            "2023-12-23T07:50:11.212",
+            "IMAGE_FOV_prealign_OB008_LEGACY_R_2023-12-23T07:23:57_0003.fits"
         ],
         [
             4,
-            "2022-07-02T08:41:49.426",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0004.fits"
-        ],
-        [
-            5,
-            "2022-07-02T08:50:25.376",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0005.fits"
-        ],
-        [
-            6,
-            "2022-07-02T08:55:39.384",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0006.fits"
-        ],
-        [
-            7,
-            "2022-07-02T09:00:53.649",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0007.fits"
-        ],
-        [
-            8,
-            "2022-07-02T09:06:10.648",
-            "IMAGE_FOV_prealign_OB008_WFI_BB_2022-07-02T08:21:59_0008.fits"
+            "2023-12-23T08:04:55.866",
+            "IMAGE_FOV_prealign_OB008_LEGACY_R_2023-12-23T07:23:57_0004.fits"
         ]
     ],
     "9": [
         [
             1,
-            "2022-07-04T09:14:35.064",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0001.fits"
+            "2024-01-17T05:50:28.129",
+            "IMAGE_FOV_prealign_OB009_LEGACY_R_2024-01-17T05:50:10_0001.fits"
         ],
         [
             2,
-            "2022-07-04T09:19:49.342",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0002.fits"
+            "2024-01-17T06:05:12.868",
+            "IMAGE_FOV_prealign_OB009_LEGACY_R_2024-01-17T05:50:10_0002.fits"
         ],
         [
             3,
-            "2022-07-04T09:25:03.329",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0003.fits"
+            "2024-01-17T06:16:17.865",
+            "IMAGE_FOV_prealign_OB009_LEGACY_R_2024-01-17T05:50:10_0003.fits"
         ],
         [
             4,
-            "2022-07-04T09:30:17.593",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0004.fits"
-        ],
-        [
-            5,
-            "2022-07-04T09:38:48.662",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0005.fits"
-        ],
-        [
-            6,
-            "2022-07-04T09:44:02.883",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0006.fits"
-        ],
-        [
-            7,
-            "2022-07-04T09:49:17.458",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0007.fits"
-        ],
-        [
-            8,
-            "2022-07-04T09:54:31.648",
-            "IMAGE_FOV_prealign_OB009_WFI_BB_2022-07-04T09:10:30_0008.fits"
+            "2024-01-17T06:31:02.600",
+            "IMAGE_FOV_prealign_OB009_LEGACY_R_2024-01-17T05:50:10_0004.fits"
         ]
     ],
     "10": [
         [
             1,
-            "2022-07-28T06:09:00.648",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-07-28T06:04:57_0001.fits"
-        ],
-        [
-            1,
-            "2022-08-20T06:07:50.001",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0001.fits"
+            "2024-01-17T07:13:27.624",
+            "IMAGE_FOV_prealign_OB010_LEGACY_R_2024-01-17T07:13:09_0001.fits"
         ],
         [
             2,
-            "2022-07-28T06:14:14.652",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-07-28T06:04:57_0002.fits"
-        ],
-        [
-            2,
-            "2022-08-20T06:13:04.094",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0002.fits"
+            "2024-01-17T07:28:12.570",
+            "IMAGE_FOV_prealign_OB010_LEGACY_R_2024-01-17T07:13:09_0002.fits"
         ],
         [
             3,
-            "2022-08-20T06:18:18.270",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0003.fits"
+            "2024-01-17T07:39:16.616",
+            "IMAGE_FOV_prealign_OB010_LEGACY_R_2024-01-17T07:13:09_0003.fits"
         ],
         [
             4,
-            "2022-08-20T06:23:32.443",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0004.fits"
-        ],
-        [
-            5,
-            "2022-08-20T06:32:01.121",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0005.fits"
-        ],
-        [
-            6,
-            "2022-08-20T06:37:15.501",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0006.fits"
-        ],
-        [
-            7,
-            "2022-08-20T06:42:29.725",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0007.fits"
-        ],
-        [
-            8,
-            "2022-08-20T06:47:43.832",
-            "IMAGE_FOV_prealign_OB010_WFI_BB_2022-08-20T06:03:40_0008.fits"
+            "2024-01-17T07:54:01.130",
+            "IMAGE_FOV_prealign_OB010_LEGACY_R_2024-01-17T07:13:09_0004.fits"
         ]
     ],
     "11": [
         [
             1,
-            "2022-08-27T04:54:06.096",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0001.fits"
+            "2024-03-05T03:39:11.333",
+            "IMAGE_FOV_prealign_OB011_LEGACY_R_2024-03-05T03:38:53_0001.fits"
         ],
         [
             2,
-            "2022-08-27T04:59:22.934",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0002.fits"
+            "2024-03-05T03:53:56.043",
+            "IMAGE_FOV_prealign_OB011_LEGACY_R_2024-03-05T03:38:53_0002.fits"
         ],
         [
             3,
-            "2022-08-27T05:04:39.807",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0003.fits"
+            "2024-03-05T04:04:59.279",
+            "IMAGE_FOV_prealign_OB011_LEGACY_R_2024-03-05T03:38:53_0003.fits"
         ],
         [
             4,
-            "2022-08-27T05:09:54.286",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0004.fits"
-        ],
-        [
-            5,
-            "2022-08-27T05:18:26.893",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0005.fits"
-        ],
-        [
-            6,
-            "2022-08-27T05:23:43.661",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0006.fits"
-        ],
-        [
-            7,
-            "2022-08-27T05:29:00.611",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0007.fits"
-        ],
-        [
-            8,
-            "2022-08-27T05:34:17.452",
-            "IMAGE_FOV_prealign_OB011_WFI_BB_2022-08-27T04:50:02_0008.fits"
+            "2024-03-05T04:19:42.774",
+            "IMAGE_FOV_prealign_OB011_LEGACY_R_2024-03-05T03:38:53_0004.fits"
         ]
     ],
     "12": [
         [
             1,
-            "2022-08-27T07:39:10.031",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0001.fits"
+            "2024-03-05T02:43:22.814",
+            "IMAGE_FOV_prealign_OB012_LEGACY_R_2024-03-05T02:43:05_0001.fits"
         ],
         [
             2,
-            "2022-08-27T07:44:27.074",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0002.fits"
+            "2024-03-05T02:58:07.067",
+            "IMAGE_FOV_prealign_OB012_LEGACY_R_2024-03-05T02:43:05_0002.fits"
         ],
         [
             3,
-            "2022-08-27T07:49:43.933",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0003.fits"
+            "2024-03-05T03:09:11.280",
+            "IMAGE_FOV_prealign_OB012_LEGACY_R_2024-03-05T02:43:05_0003.fits"
         ],
         [
             4,
-            "2022-08-27T07:55:00.801",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0004.fits"
-        ],
-        [
-            5,
-            "2022-08-27T08:03:41.648",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0005.fits"
-        ],
-        [
-            6,
-            "2022-08-27T08:08:58.648",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0006.fits"
-        ],
-        [
-            7,
-            "2022-08-27T08:14:15.647",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0007.fits"
-        ],
-        [
-            8,
-            "2022-08-27T08:19:32.813",
-            "IMAGE_FOV_prealign_OB012_WFI_BB_2022-08-27T07:34:53_0008.fits"
+            "2024-03-05T03:23:57.873",
+            "IMAGE_FOV_prealign_OB012_LEGACY_R_2024-03-05T02:43:05_0004.fits"
         ]
     ],
     "13": [
         [
             1,
-            "2022-08-27T08:38:31.434",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0001.fits"
+            "2024-01-22T07:34:15.712",
+            "IMAGE_FOV_prealign_OB013_LEGACY_R_2024-01-22T07:33:57_0001.fits"
         ],
         [
             2,
-            "2022-08-27T08:43:48.375",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0002.fits"
+            "2024-01-22T07:48:59.051",
+            "IMAGE_FOV_prealign_OB013_LEGACY_R_2024-01-22T07:33:57_0002.fits"
         ],
         [
             3,
-            "2022-08-27T08:49:05.263",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0003.fits"
+            "2024-01-22T08:00:03.868",
+            "IMAGE_FOV_prealign_OB013_LEGACY_R_2024-01-22T07:33:57_0003.fits"
         ],
         [
             4,
-            "2022-08-27T08:54:22.250",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0004.fits"
-        ],
-        [
-            5,
-            "2022-08-27T09:02:58.114",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0005.fits"
-        ],
-        [
-            6,
-            "2022-08-27T09:08:15.043",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0006.fits"
-        ],
-        [
-            7,
-            "2022-08-27T09:13:31.965",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0007.fits"
-        ],
-        [
-            8,
-            "2022-08-27T09:18:48.807",
-            "IMAGE_FOV_prealign_OB013_WFI_BB_2022-08-27T08:34:06_0008.fits"
+            "2024-01-22T08:14:49.191",
+            "IMAGE_FOV_prealign_OB013_LEGACY_R_2024-01-22T07:33:57_0004.fits"
         ]
     ],
     "14": [
         [
             1,
-            "2022-09-03T05:11:13.322",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0001.fits"
+            "2024-03-05T04:34:48.845",
+            "IMAGE_FOV_prealign_OB014_LEGACY_R_2024-03-05T04:34:31_0001.fits"
         ],
         [
             2,
-            "2022-09-03T05:16:27.799",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0002.fits"
+            "2024-03-05T04:50:02.068",
+            "IMAGE_FOV_prealign_OB014_LEGACY_R_2024-03-05T04:34:31_0002.fits"
         ],
         [
             3,
-            "2022-09-03T05:21:44.724",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0003.fits"
+            "2024-03-05T05:01:34.067",
+            "IMAGE_FOV_prealign_OB014_LEGACY_R_2024-03-05T04:34:31_0003.fits"
         ],
         [
             4,
-            "2022-09-03T05:27:01.532",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-03T05:35:34.223",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-03T05:40:50.891",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-03T05:46:07.795",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-03T05:51:22.108",
-            "IMAGE_FOV_prealign_OB014_WFI_BB_2022-09-03T05:07:09_0008.fits"
+            "2024-03-05T05:16:45.428",
+            "IMAGE_FOV_prealign_OB014_LEGACY_R_2024-03-05T04:34:31_0004.fits"
         ]
     ],
     "15": [
         [
             1,
-            "2022-09-03T07:13:17.623",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0001.fits"
+            "2024-01-12T06:54:36.159",
+            "IMAGE_FOV_prealign_OB015_LEGACY_R_2024-01-12T06:54:18_0001.fits"
         ],
         [
             2,
-            "2022-09-03T07:18:34.750",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0002.fits"
+            "2024-01-12T07:09:20.257",
+            "IMAGE_FOV_prealign_OB015_LEGACY_R_2024-01-12T06:54:18_0002.fits"
         ],
         [
             3,
-            "2022-09-03T07:23:51.614",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0003.fits"
+            "2024-01-12T07:20:25.162",
+            "IMAGE_FOV_prealign_OB015_LEGACY_R_2024-01-12T06:54:18_0003.fits"
         ],
         [
             4,
-            "2022-09-03T07:29:08.666",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-03T07:37:42.898",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-03T07:43:00.174",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-03T07:48:17.130",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-03T07:53:34.110",
-            "IMAGE_FOV_prealign_OB015_WFI_BB_2022-09-03T07:09:12_0008.fits"
+            "2024-01-12T07:35:11.242",
+            "IMAGE_FOV_prealign_OB015_LEGACY_R_2024-01-12T06:54:18_0004.fits"
         ]
     ],
     "16": [
         [
             1,
-            "2022-09-05T07:50:29.213",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0001.fits"
+            "2024-01-12T05:58:45.193",
+            "IMAGE_FOV_prealign_OB016_LEGACY_R_2024-01-12T05:58:27_0001.fits"
         ],
         [
             2,
-            "2022-09-05T07:55:46.135",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0002.fits"
+            "2024-01-12T06:13:30.815",
+            "IMAGE_FOV_prealign_OB016_LEGACY_R_2024-01-12T05:58:27_0002.fits"
         ],
         [
             3,
-            "2022-09-05T08:01:00.528",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0003.fits"
+            "2024-01-12T06:24:35.804",
+            "IMAGE_FOV_prealign_OB016_LEGACY_R_2024-01-12T05:58:27_0003.fits"
         ],
         [
             4,
-            "2022-09-05T08:06:17.495",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-05T08:14:51.382",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-05T08:20:08.272",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-05T08:25:25.218",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-05T08:30:42.118",
-            "IMAGE_FOV_prealign_OB016_WFI_BB_2022-09-05T07:46:22_0008.fits"
-        ]
-    ],
-    "17": [
-        [
-            1,
-            "2022-09-05T08:49:26.790",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-05T08:54:43.624",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-05T08:59:57.891",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-05T09:05:14.774",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-05T09:13:46.558",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-05T09:19:00.800",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-05T09:24:17.527",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-05T09:29:31.525",
-            "IMAGE_FOV_prealign_OB017_WFI_BB_2022-09-05T08:45:21_0008.fits"
-        ]
-    ],
-    "18": [
-        [
-            1,
-            "2022-09-06T08:40:11.898",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-06T08:45:26.305",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-06T08:50:43.248",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-06T08:56:00.050",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-06T09:04:30.891",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-06T09:09:45.414",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-06T09:15:02.324",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-06T09:20:19.239",
-            "IMAGE_FOV_prealign_OB018_WFI_BB_2022-09-06T08:36:08_0008.fits"
-        ]
-    ],
-    "19": [
-        [
-            1,
-            "2022-09-19T06:11:17.809",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-19T06:16:34.690",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-19T06:21:51.553",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-19T06:27:08.455",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-19T06:35:38.702",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-19T06:40:55.552",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-19T06:46:12.211",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-19T06:51:26.356",
-            "IMAGE_FOV_prealign_OB019_WFI_BB_2022-09-19T06:07:15_0008.fits"
-        ]
-    ],
-    "20": [
-        [
-            1,
-            "2022-09-19T07:11:02.139",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-19T07:16:18.892",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-19T07:21:33.364",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-19T07:26:50.218",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-19T07:35:23.668",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-19T07:40:40.639",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-19T07:45:57.680",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-19T07:51:14.570",
-            "IMAGE_FOV_prealign_OB020_WFI_BB_2022-09-19T07:04:39_0008.fits"
-        ]
-    ],
-    "21": [
-        [
-            1,
-            "2022-09-19T08:10:27.415",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-19T08:15:44.417",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-19T08:21:01.283",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-19T08:26:18.043",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-19T08:34:47.702",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-19T08:40:04.561",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-19T08:45:18.891",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-19T08:50:35.783",
-            "IMAGE_FOV_prealign_OB021_WFI_BB_2022-09-19T08:04:45_0008.fits"
-        ]
-    ],
-    "22": [
-        [
-            1,
-            "2022-09-20T04:09:04.164",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-20T04:14:21.056",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-20T04:19:37.891",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-20T04:24:54.770",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-20T04:33:45.551",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-20T04:39:02.303",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-20T04:44:19.372",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-20T04:49:36.086",
-            "IMAGE_FOV_prealign_OB022_WFI_BB_2022-09-20T04:03:38_0008.fits"
-        ]
-    ],
-    "23": [
-        [
-            1,
-            "2022-09-20T06:06:20.892",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-20T06:11:37.635",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-20T06:16:54.389",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-20T06:22:11.195",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-20T06:30:44.112",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-20T06:36:00.891",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-20T06:41:17.710",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-20T06:46:34.597",
-            "IMAGE_FOV_prealign_OB023_WFI_BB_2022-09-20T06:02:16_0008.fits"
-        ]
-    ],
-    "24": [
-        [
-            1,
-            "2022-09-21T06:54:50.294",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0001.fits"
-        ],
-        [
-            1,
-            "2022-09-22T03:45:22.606",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-21T07:00:07.157",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0002.fits"
-        ],
-        [
-            2,
-            "2022-09-22T03:50:39.482",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-21T07:05:23.891",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0003.fits"
-        ],
-        [
-            3,
-            "2022-09-22T03:55:56.379",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-21T07:10:40.793",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0004.fits"
-        ],
-        [
-            4,
-            "2022-09-22T04:01:13.183",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-21T07:19:11.188",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0005.fits"
-        ],
-        [
-            5,
-            "2022-09-22T04:09:43.900",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-21T07:24:27.899",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0006.fits"
-        ],
-        [
-            6,
-            "2022-09-22T04:15:00.891",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-21T07:29:44.839",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0007.fits"
-        ],
-        [
-            7,
-            "2022-09-22T04:20:17.690",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-21T07:35:01.604",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-21T06:50:47_0008.fits"
-        ],
-        [
-            8,
-            "2022-09-22T04:25:34.655",
-            "IMAGE_FOV_prealign_OB024_WFI_BB_2022-09-22T03:41:21_0008.fits"
-        ]
-    ],
-    "25": [
-        [
-            1,
-            "2022-09-22T02:46:43.169",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-22T02:52:00.097",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-22T02:57:16.892",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-22T03:02:33.870",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-22T03:11:04.756",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-22T03:16:21.519",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-22T03:21:38.485",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-22T03:26:55.303",
-            "IMAGE_FOV_prealign_OB025_WFI_BB_2022-09-22T02:41:25_0008.fits"
-        ]
-    ],
-    "26": [
-        [
-            1,
-            "2022-09-22T06:49:03.654",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-22T06:54:20.469",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-22T06:59:37.215",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-22T07:04:54.172",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-22T07:13:26.778",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-22T07:18:43.569",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-22T07:24:00.238",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-22T07:29:17.218",
-            "IMAGE_FOV_prealign_OB026_WFI_BB_2022-09-22T06:44:58_0008.fits"
-        ]
-    ],
-    "27": [
-        [
-            1,
-            "2022-09-23T01:58:12.899",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-23T02:03:29.867",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-23T02:08:46.571",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-23T02:14:03.521",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-23T02:22:38.834",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-23T02:27:55.563",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-23T02:33:12.355",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-23T02:38:29.277",
-            "IMAGE_FOV_prealign_OB027_WFI_BB_2022-09-23T01:54:05_0008.fits"
-        ]
-    ],
-    "28": [
-        [
-            1,
-            "2022-09-23T02:57:43.899",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-23T03:03:00.873",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-23T03:08:17.514",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-23T03:13:34.344",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-23T03:22:04.239",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-23T03:27:21.158",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-23T03:32:37.891",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-23T03:37:54.750",
-            "IMAGE_FOV_prealign_OB028_WFI_BB_2022-09-23T02:53:44_0008.fits"
-        ]
-    ],
-    "29": [
-        [
-            1,
-            "2022-09-23T03:57:57.883",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-23T04:03:15.157",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-23T04:08:31.653",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-23T04:13:48.387",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-23T04:22:16.642",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-23T04:27:33.466",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-23T04:32:50.351",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-23T04:38:07.256",
-            "IMAGE_FOV_prealign_OB029_WFI_BB_2022-09-23T03:52:51_0008.fits"
-        ]
-    ],
-    "30": [
-        [
-            1,
-            "2022-09-23T05:55:43.278",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-23T06:01:00.165",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-23T06:06:17.134",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-23T06:11:34.193",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-23T06:20:03.077",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-23T06:25:20.096",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-23T06:30:36.902",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-23T06:35:53.884",
-            "IMAGE_FOV_prealign_OB030_WFI_BB_2022-09-23T05:51:41_0008.fits"
-        ]
-    ],
-    "31": [
-        [
-            1,
-            "2022-09-24T02:19:55.371",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-24T02:25:12.165",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-24T02:30:28.890",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-24T02:35:45.814",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-24T02:44:18.891",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-24T02:49:35.796",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-24T02:54:52.681",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-24T03:00:09.366",
-            "IMAGE_FOV_prealign_OB031_WFI_BB_2022-09-24T02:15:50_0008.fits"
-        ]
-    ],
-    "32": [
-        [
-            1,
-            "2022-09-24T06:26:00.698",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-24T06:31:15.621",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-24T06:36:27.679",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-24T06:41:42.620",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-24T06:50:20.263",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-24T06:55:35.398",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-24T07:00:50.480",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-24T07:06:05.463",
-            "IMAGE_FOV_prealign_OB032_WFI_BB_2022-09-24T06:20:16_0008.fits"
-        ]
-    ],
-    "33": [
-        [
-            1,
-            "2022-09-24T07:26:53.173",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-24T07:32:10.201",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-24T07:37:27.292",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-24T07:42:44.219",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-24T07:51:19.901",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-24T07:56:37.106",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-24T08:01:53.894",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-24T08:07:10.771",
-            "IMAGE_FOV_prealign_OB033_WFI_BB_2022-09-24T07:21:06_0008.fits"
-        ]
-    ],
-    "34": [
-        [
-            1,
-            "2022-09-25T03:15:09.293",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-25T03:20:26.147",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-25T03:25:43.096",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-25T03:31:00.050",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-25T03:44:04.892",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-25T03:49:21.811",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-25T03:54:38.791",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-25T03:59:55.647",
-            "IMAGE_FOV_prealign_OB034_WFI_BB_2022-09-25T03:11:04_0008.fits"
-        ]
-    ],
-    "35": [
-        [
-            1,
-            "2022-09-25T05:52:03.056",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-25T05:57:19.901",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-25T06:02:37.087",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-25T06:07:53.892",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-25T06:16:38.103",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-25T06:21:55.087",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-25T06:27:11.890",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-25T06:32:28.888",
-            "IMAGE_FOV_prealign_OB035_WFI_BB_2022-09-25T05:47:49_0008.fits"
-        ]
-    ],
-    "36": [
-        [
-            1,
-            "2022-09-26T02:33:15.076",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-26T02:38:31.900",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-26T02:43:48.876",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-26T02:49:05.681",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-26T02:57:40.149",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-26T03:02:56.891",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-26T03:08:13.851",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-26T03:13:30.721",
-            "IMAGE_FOV_prealign_OB036_WFI_BB_2022-09-26T02:29:10_0008.fits"
-        ]
-    ],
-    "37": [
-        [
-            1,
-            "2022-09-26T03:38:30.137",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-26T03:43:47.058",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-26T03:49:03.842",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-26T03:54:20.704",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-26T04:02:55.749",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-26T04:08:12.653",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-26T04:13:29.529",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-26T04:18:46.592",
-            "IMAGE_FOV_prealign_OB037_WFI_BB_2022-09-26T03:34:22_0008.fits"
-        ]
-    ],
-    "38": [
-        [
-            1,
-            "2022-09-26T06:07:10.070",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-26T06:12:27.141",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-26T06:17:44.031",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-26T06:23:00.775",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-26T06:31:33.564",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-26T06:36:50.502",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-26T06:42:07.396",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-26T06:47:24.223",
-            "IMAGE_FOV_prealign_OB038_WFI_BB_2022-09-26T06:03:07_0008.fits"
-        ]
-    ],
-    "39": [
-        [
-            1,
-            "2022-09-29T03:36:38.651",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-29T03:41:55.347",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-29T03:47:12.210",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-29T03:52:28.998",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-29T04:01:15.534",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-29T04:06:32.337",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-29T04:11:49.217",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-29T04:17:06.538",
-            "IMAGE_FOV_prealign_OB039_WFI_BB_2022-09-29T03:31:19_0008.fits"
-        ]
-    ],
-    "40": [
-        [
-            1,
-            "2022-09-30T02:31:31.534",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-30T02:36:48.337",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-30T02:42:05.271",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-30T02:47:22.338",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-30T02:57:32.340",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-30T03:02:49.151",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-30T03:08:06.136",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-30T03:13:23.093",
-            "IMAGE_FOV_prealign_OB040_WFI_BB_2022-09-30T02:26:53_0008.fits"
-        ]
-    ],
-    "41": [
-        [
-            1,
-            "2022-09-30T03:34:10.518",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-30T03:39:27.346",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-30T03:44:44.338",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-30T03:50:01.111",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-30T03:58:36.706",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-30T04:03:53.622",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-30T04:09:10.346",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-30T04:14:27.352",
-            "IMAGE_FOV_prealign_OB041_WFI_BB_2022-09-30T03:29:26_0008.fits"
-        ]
-    ],
-    "42": [
-        [
-            1,
-            "2022-09-30T05:20:46.226",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-30T05:26:02.901",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-30T05:31:19.686",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-30T05:36:36.663",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-30T05:45:07.940",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-30T05:50:24.717",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-30T05:55:41.582",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-30T06:00:58.338",
-            "IMAGE_FOV_prealign_OB042_WFI_BB_2022-09-30T05:16:43_0008.fits"
-        ]
-    ],
-    "43": [
-        [
-            1,
-            "2022-10-28T01:25:41.024",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0001.fits"
-        ],
-        [
-            2,
-            "2022-10-28T01:30:58.000",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0002.fits"
-        ],
-        [
-            3,
-            "2022-10-28T01:36:14.935",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0003.fits"
-        ],
-        [
-            4,
-            "2022-10-28T01:41:32.389",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0004.fits"
-        ],
-        [
-            5,
-            "2022-10-28T01:50:05.627",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0005.fits"
-        ],
-        [
-            6,
-            "2022-10-28T01:55:22.494",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0006.fits"
-        ],
-        [
-            7,
-            "2022-10-28T02:00:39.400",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0007.fits"
-        ],
-        [
-            8,
-            "2022-10-28T02:05:56.270",
-            "IMAGE_FOV_prealign_OB043_WFI_BB_2022-10-28T01:19:20_0008.fits"
-        ]
-    ],
-    "44": [
-        [
-            1,
-            "2022-08-26T08:01:14.077",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0001.fits"
-        ],
-        [
-            2,
-            "2022-08-26T08:06:30.930",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0002.fits"
-        ],
-        [
-            3,
-            "2022-08-26T08:11:47.661",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0003.fits"
-        ],
-        [
-            4,
-            "2022-08-26T08:17:04.647",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0004.fits"
-        ],
-        [
-            5,
-            "2022-08-26T08:25:35.808",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0005.fits"
-        ],
-        [
-            6,
-            "2022-08-26T08:30:52.648",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0006.fits"
-        ],
-        [
-            7,
-            "2022-08-26T08:36:09.490",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0007.fits"
-        ],
-        [
-            8,
-            "2022-08-26T08:41:26.401",
-            "IMAGE_FOV_prealign_OB044_WFI_BB_2022-08-26T07:56:14_0008.fits"
-        ]
-    ],
-    "45": [
-        [
-            1,
-            "2022-01-04T01:18:13.224",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0001.fits"
-        ],
-        [
-            2,
-            "2022-01-04T01:23:27.046",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0002.fits"
-        ],
-        [
-            3,
-            "2022-01-04T01:28:41.047",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0003.fits"
-        ],
-        [
-            4,
-            "2022-01-04T01:33:55.041",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0004.fits"
-        ],
-        [
-            5,
-            "2022-01-04T01:42:20.663",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0005.fits"
-        ],
-        [
-            6,
-            "2022-01-04T01:47:34.617",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0006.fits"
-        ],
-        [
-            7,
-            "2022-01-04T01:52:48.509",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0007.fits"
-        ],
-        [
-            8,
-            "2022-01-04T01:58:02.565",
-            "IMAGE_FOV_prealign_OB045_WFI_BB_2022-01-04T01:13:48_0008.fits"
-        ]
-    ],
-    "46": [
-        [
-            1,
-            "2022-10-28T05:22:19.369",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0001.fits"
-        ],
-        [
-            2,
-            "2022-10-28T05:27:36.218",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0002.fits"
-        ],
-        [
-            3,
-            "2022-10-28T05:32:53.037",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0003.fits"
-        ],
-        [
-            4,
-            "2022-10-28T05:38:09.984",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0004.fits"
-        ],
-        [
-            5,
-            "2022-10-28T05:46:43.337",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0005.fits"
-        ],
-        [
-            6,
-            "2022-10-28T05:52:00.255",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0006.fits"
-        ],
-        [
-            7,
-            "2022-10-28T05:57:17.002",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0007.fits"
-        ],
-        [
-            8,
-            "2022-10-28T06:02:33.899",
-            "IMAGE_FOV_prealign_OB046_WFI_BB_2022-10-28T05:18:14_0008.fits"
-        ]
-    ],
-    "47": [
-        [
-            1,
-            "2022-10-30T01:39:39.075",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0001.fits"
-        ],
-        [
-            2,
-            "2022-10-30T01:44:52.653",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0002.fits"
-        ],
-        [
-            3,
-            "2022-10-30T01:50:06.357",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0003.fits"
-        ],
-        [
-            4,
-            "2022-10-30T01:55:20.239",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0004.fits"
-        ],
-        [
-            5,
-            "2022-10-30T02:03:51.256",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0005.fits"
-        ],
-        [
-            6,
-            "2022-10-30T02:09:04.927",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0006.fits"
-        ],
-        [
-            7,
-            "2022-10-30T02:14:18.297",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0007.fits"
-        ],
-        [
-            8,
-            "2022-10-30T02:19:32.262",
-            "IMAGE_FOV_prealign_OB047_WFI_BB_2022-10-30T01:35:30_0008.fits"
-        ]
-    ],
-    "48": [
-        [
-            1,
-            "2022-10-30T03:40:10.389",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0001.fits"
-        ],
-        [
-            2,
-            "2022-10-30T03:45:27.084",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0002.fits"
-        ],
-        [
-            3,
-            "2022-10-30T03:50:41.611",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0003.fits"
-        ],
-        [
-            4,
-            "2022-10-30T03:55:58.561",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0004.fits"
-        ],
-        [
-            5,
-            "2022-10-30T04:04:33.338",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0005.fits"
-        ],
-        [
-            6,
-            "2022-10-30T04:09:50.079",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0006.fits"
-        ],
-        [
-            7,
-            "2022-10-30T04:15:04.540",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0007.fits"
-        ],
-        [
-            8,
-            "2022-10-30T04:20:21.081",
-            "IMAGE_FOV_prealign_OB048_WFI_BB_2022-10-30T03:36:00_0008.fits"
-        ]
-    ],
-    "49": [
-        [
-            1,
-            "2022-10-30T04:38:06.244",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0001.fits"
-        ],
-        [
-            2,
-            "2022-10-30T04:43:23.320",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0002.fits"
-        ],
-        [
-            3,
-            "2022-10-30T04:48:40.089",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0003.fits"
-        ],
-        [
-            4,
-            "2022-10-30T04:53:57.023",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0004.fits"
-        ],
-        [
-            5,
-            "2022-10-30T05:02:28.445",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0005.fits"
-        ],
-        [
-            6,
-            "2022-10-30T05:07:45.257",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0006.fits"
-        ],
-        [
-            7,
-            "2022-10-30T05:13:02.034",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0007.fits"
-        ],
-        [
-            8,
-            "2022-10-30T05:18:18.855",
-            "IMAGE_FOV_prealign_OB049_WFI_BB_2022-10-30T04:34:04_0008.fits"
-        ]
-    ],
-    "50": [
-        [
-            1,
-            "2022-09-06T08:40:11.898",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0001.fits"
-        ],
-        [
-            1,
-            "2023-01-14T01:05:43.671",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0001.fits"
-        ],
-        [
-            1,
-            "2023-01-16T01:05:23.118",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0001.fits"
-        ],
-        [
-            2,
-            "2022-09-06T08:45:26.305",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0002.fits"
-        ],
-        [
-            2,
-            "2023-01-14T01:11:00.377",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0002.fits"
-        ],
-        [
-            2,
-            "2023-01-16T01:10:39.950",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0002.fits"
-        ],
-        [
-            3,
-            "2022-09-06T08:50:43.248",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0003.fits"
-        ],
-        [
-            3,
-            "2023-01-14T01:16:17.344",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0003.fits"
-        ],
-        [
-            3,
-            "2023-01-16T01:15:56.722",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0003.fits"
-        ],
-        [
-            4,
-            "2022-09-06T08:56:00.050",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0004.fits"
-        ],
-        [
-            4,
-            "2023-01-14T01:21:34.150",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0004.fits"
-        ],
-        [
-            4,
-            "2023-01-16T01:21:13.619",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0004.fits"
-        ],
-        [
-            5,
-            "2022-09-06T09:04:30.891",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0005.fits"
-        ],
-        [
-            5,
-            "2023-01-14T01:30:05.360",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0005.fits"
-        ],
-        [
-            5,
-            "2023-01-16T01:29:42.695",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0005.fits"
-        ],
-        [
-            6,
-            "2022-09-06T09:09:45.414",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0006.fits"
-        ],
-        [
-            6,
-            "2023-01-14T01:35:22.240",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0006.fits"
-        ],
-        [
-            6,
-            "2023-01-16T01:34:59.506",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0006.fits"
-        ],
-        [
-            7,
-            "2022-09-06T09:15:02.324",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0007.fits"
-        ],
-        [
-            7,
-            "2023-01-14T01:40:39.378",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0007.fits"
-        ],
-        [
-            7,
-            "2023-01-16T01:40:16.327",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0007.fits"
-        ],
-        [
-            8,
-            "2022-09-06T09:20:19.239",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2022-09-06T08:36:08_0008.fits"
-        ],
-        [
-            8,
-            "2023-01-14T01:45:56.255",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-14T01:01:38_0008.fits"
-        ],
-        [
-            8,
-            "2023-01-16T01:45:33.186",
-            "IMAGE_FOV_prealign_OB050_WFI_BB_2023-01-16T01:01:23_0008.fits"
-        ]
-    ],
-    "51": [
-        [
-            1,
-            "2023-05-30T09:34:46.507",
-            "IMAGE_FOV_prealign_OB051_WFI_BB_2023-05-30T09:30:10_0001.fits"
-        ],
-        [
-            2,
-            "2023-05-30T09:40:03.426",
-            "IMAGE_FOV_prealign_OB051_WFI_BB_2023-05-30T09:30:10_0002.fits"
-        ],
-        [
-            3,
-            "2023-05-30T09:45:20.170",
-            "IMAGE_FOV_prealign_OB051_WFI_BB_2023-05-30T09:30:10_0003.fits"
-        ],
-        [
-            4,
-            "2023-05-30T09:50:37.133",
-            "IMAGE_FOV_prealign_OB051_WFI_BB_2023-05-30T09:30:10_0004.fits"
-        ]
-    ],
-    "998": [
-        [
-            1,
-            "2019-07-29T07:12:16.983",
-            "IMAGE_FOV_prealign_OB998_WFI_BB_2019-07-29T07:11:59_0001.fits"
-        ],
-        [
-            2,
-            "2019-07-29T07:26:43.910",
-            "IMAGE_FOV_prealign_OB998_WFI_BB_2019-07-29T07:11:59_0002.fits"
-        ],
-        [
-            3,
-            "2019-07-29T07:37:10.615",
-            "IMAGE_FOV_prealign_OB998_WFI_BB_2019-07-29T07:11:59_0003.fits"
-        ],
-        [
-            4,
-            "2019-07-29T07:52:30.595",
-            "IMAGE_FOV_prealign_OB998_WFI_BB_2019-07-29T07:11:59_0004.fits"
-        ]
-    ],
-    "999": [
-        [
-            1,
-            "2018-11-07T03:31:24.000",
-            "IMAGE_FOV_prealign_OB999_WFI_BB_2018-11-07T03:31:07_0001.fits"
-        ],
-        [
-            2,
-            "2018-11-07T03:45:51.000",
-            "IMAGE_FOV_prealign_OB999_WFI_BB_2018-11-07T03:31:07_0002.fits"
-        ],
-        [
-            3,
-            "2018-11-07T03:56:16.000",
-            "IMAGE_FOV_prealign_OB999_WFI_BB_2018-11-07T03:31:07_0003.fits"
-        ],
-        [
-            4,
-            "2018-11-07T04:10:57.000",
-            "IMAGE_FOV_prealign_OB999_WFI_BB_2018-11-07T03:31:07_0004.fits"
+            "2024-01-12T06:39:19.508",
+            "IMAGE_FOV_prealign_OB016_LEGACY_R_2024-01-12T05:58:27_0004.fits"
         ]
     ],
     "headers": {
