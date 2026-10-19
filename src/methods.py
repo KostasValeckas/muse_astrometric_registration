@@ -1462,7 +1462,7 @@ class PointSources(AligmentMethod):
 
 class FFT(AligmentMethod):
 
-    def __init__(self, oversample_factor=1, extra_rotation = 6.0, control_tol = 0.03, snr_min = 10.0, sigma_start = 1.0, sigma_end = 4, sigma_num = 32, logger=None, QA_path=None):
+    def __init__(self, oversample_factor=1, extra_rotation = 6.0, control_tol = 0.03, snr_min = 10.0, sigma_start = 0.6, sigma_end = 16, sigma_num = 128, logger=None, QA_path=None):
 
         self.oversample_factor = oversample_factor
         self.extra_rotation = extra_rotation
@@ -1887,7 +1887,7 @@ class FFT(AligmentMethod):
         # from the rot dict, take all entries where: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min: 
 
         filtered_entries = rot_dict["table"][
-            (rot_dict["table"][:, 2] - np.abs(self.extra_rotation) <= self.control_tol) &
+            (np.abs(rot_dict["table"][:, 2] - self.extra_rotation) <= self.control_tol) &
             (rot_dict["table"][:, 4] > self.snr_min) &
             (rot_dict["table"][:, 5] > self.snr_min)
         ]
