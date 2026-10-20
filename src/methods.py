@@ -1950,7 +1950,7 @@ class FFT(AligmentMethod):
         trans_dict = self.estimate_translation(
             reference_frame,
             rotated_input_frame,
-            control_offset=(10.0, 10.0),
+            control_offset=(10.2, 10.2),
             sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
             ratio=1.6,
             gamma=0.0,
@@ -1966,17 +1966,40 @@ class FFT(AligmentMethod):
             "\nper-sigma table for last case: sigma, tx, ty, ctrl_x, ctrl_y, eps_x, eps_y, snr_main, snr_ctrl, ok\n" + str(trans_dict["table"])
         )
 
-        snr_main_array = trans_dict["table"][:, 7]
-        snr_ctrl_array = trans_dict["table"][:, 8]
         ctrl_x = trans_dict["table"][:, 3]
         ctrl_y = trans_dict["table"][:, 4]
 
         eps_x = trans_dict["table"][:, 5]
         eps_y = trans_dict["table"][:, 6]
 
+        # plot ctrl_x and control_y and show the target, as a function of sigma
+
+        plt.plot(trans_dict["table"][:, 0], ctrl_x, marker='o', linestyle='-', color='blue', label='ctrl_x')
+        plt.plot(trans_dict["table"][:, 0], ctrl_y, marker='o', linestyle='-', color='orange', label='ctrl_y')
+        plt.axhline(y=10.2, color='red', linestyle='--', label='Expected ctrl offset: 10.2')
+        plt.xlabel('sigma')
+        plt.ylabel('ctrl_x, ctrl_y')
+        plt.title(f'Control offsets vs sigma for {obs_name}')
+        plt.legend()
+        plt.grid()
+        if save_QA:
+            plt.savefig(f"{self.QA_path}/control_offsets_vs_sigma_{obs_name}.png")
+            if self.logger:
+                self.logger.info(
+                    f"Saved QA plot of control offsets vs sigma to "
+                    f"{self.QA_path}/control_offsets_vs_sigma_{obs_name}.png"
+                )
+        if show_QA:
+            plt.show()
+        else:
+            plt.close()
+
+        snr_main_array = trans_dict["table"][:, 7]
+        snr_ctrl_array = trans_dict["table"][:, 8]
+
         # same cut as before: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min
 
-        mask = (np.abs(trans_dict["table"][:, 3] - 10.0) < self.control_tol) & (np.abs(trans_dict["table"][:, 4] - 10.0) < self.control_tol) & (snr_main_array > self.snr_min) & (snr_ctrl_array > self.snr_min)    
+        mask = (np.abs(trans_dict["table"][:, 3] - 10.2) < self.control_tol) & (np.abs(trans_dict["table"][:, 4] - 10.2) < self.control_tol) & (snr_main_array > self.snr_min) & (snr_ctrl_array > self.snr_min)    
 
         clean_table = trans_dict["table"][mask]
 
