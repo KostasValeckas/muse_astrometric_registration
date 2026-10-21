@@ -23,6 +23,12 @@ from skimage.filters import window, difference_of_gaussians
 
 from scipy.fft import fft2, fftshift
 
+        
+import spacepylot.alignment as align
+
+import spacepylot.plotting as pl
+
+
 
 # plot styling
 plt.rcParams.update(
@@ -623,6 +629,11 @@ class PointSources(AligmentMethod):
         success : bool
             True if alignment was successful, False otherwise.
         """
+
+        # take copies to avoid modifying the original frames
+
+        reference_frame = reference_frame.copy()
+        input_frame = input_frame.copy()
 
         # set all nans zerous:
 
@@ -2060,3 +2071,110 @@ class FFT(AligmentMethod):
             success,
         )
         
+
+class OpticalFlow(AligmentMethod):
+    
+    def __init__(self, logger=None, QA_path=None):
+        super().__init__("OpticalFlow", "0.0.0", logger=logger, QA_path=QA_path)
+
+        if self.logger:
+            self.logger.info(
+                f"Initialized {self.name} alignment method, version {self.version}."
+            )
+
+    def run(
+        self,
+        reference_frame,
+        input_frame,
+        obs_name,
+        reference_wcs=None,
+        input_wcs=None,
+        initial_guess_translation=(None, None),
+        initial_guess_rotation=None,
+        save_QA=True,
+        show_QA=False,
+        **kwargs,
+    ):
+        """
+        Align the target image to the reference image.
+
+        Parameters
+        ----------
+
+        reference_frame : np.2darray
+            The reference image to which the target image will be aligned.
+            Must be the same shape and scale as the input_frame.
+
+        input_frame : np.2darray
+            The target image that needs to be aligned to the reference image.
+
+        obs_name: str
+            Name of the observation, used for saving QA plots and logging.
+
+        initial_guess_translation : tuple, optional
+            Initial guess for the translation (x, y) in pixels.
+
+        initial_guess_rotation : float, optional
+            Initial guess for the rotation in degrees.
+
+        **kwargs : dict
+            Additional keyword arguments specific to the alignment method.
+
+        Returns
+        -------
+        offsets: tuple
+            The calculated offsets (x_offset, y_offset) in pixels.
+
+        rotation: float
+            The calculated rotation in degrees.
+
+        sigma_translation: tuple
+            The uncertainty in the calculated translation (sigma_x, sigma_y) in pixels.
+
+        sigma_rotation: float
+            The uncertainty in the calculated rotation in degrees.
+
+        success: bool
+            True if the alignment was successful, False otherwise.
+        """
+
+        # take copies to avoid modifying the original frames
+        reference_frame = reference_frame.copy()
+        input_frame = input_frame.copy()
+
+        op = align.AlignOpticalFlow(input_frame, reference_frame)
+
+        #solution
+        
+        op.get_translation_rotation()
+
+        self.logger.info(f"Estimated translation: {op.translation}, Estimated rotation: {op.rotation_deg}")
+
+        ty, tx = op.translation
+
+        rot = op.rotation_deg
+
+        # plot difference image
+
+        self.plot_difference_image(
+            reference_frame, input_frame, tx, ty, rot, obs_name, show=False
+        )
+
+        # TODO: set error to 0 for now
+
+        tx_err, ty_err = 0.0, 0.0
+        rot_err = 0.0
+
+        success = True
+
+
+        return (
+            (tx, ty),
+            rot,
+            (tx_err, ty_err),
+            rot_err,
+            success,
+        )
+
+
+    
