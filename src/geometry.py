@@ -279,4 +279,33 @@ def detector_translation_to_sky_translation(wcs, dx, dy, logger=None):
 
     return dRA, dDec
 
+def compare_distance(tx, ty, rot, con_tx, con_ty, con_rot, point_from_center = (100,100)):
+    """
+    For the point `point_from_center` in the input frame, compute the distance between the transformed point using (tx, ty, rot) and (con_tx, con_ty, con_rot).
+
+    Rotates the point center, then translates it, and computes the distance between the two transformed points.
+    """
+
+    # Convert rotation from degrees to radians
+    theta = np.radians(rot)
+    con_theta = np.radians(con_rot)
+
+    # Rotation matrices
+    R = np.array([[np.cos(theta), -np.sin(theta)],
+                  [np.sin(theta),  np.cos(theta)]])
+    
+    con_R = np.array([[np.cos(con_theta), -np.sin(con_theta)],
+                      [np.sin(con_theta),  np.cos(con_theta)]])
+
+    # Transform the point using the first transformation
+    transformed_point = R @ point_from_center + np.array([tx, ty])
+
+    # Transform the point using the second transformation
+    con_transformed_point = con_R @ point_from_center + np.array([con_tx, con_ty])
+
+    # Compute the distance between the two transformed points
+    distance = np.linalg.norm(transformed_point - con_transformed_point)
+
+    return distance
+
 

@@ -12,7 +12,8 @@ from geometry import (
     matrix_to_parameters,
     inverse_transformation,
     detector_translation_to_sky_translation,
-    reproject_dithers
+    reproject_dithers,
+    compare_distance
 )
 
 import numpy as np
@@ -206,7 +207,54 @@ class AlignmentPipeline:
                 sucess_table[b, a] = 0.7
  
         return sucess_table, table
- 
+    
+    def _cross_ref_dither_table_displacement(
+        self, sucess_table, x_table, y_table, rotation_table, displacement_threshold=0.15, pixel_origin = (100,100)
+    ):
+        """
+        Same as `_cross_ref_dither_table` but checks the displacement between the two dithers instead of the individual x, y and rotation values.
+        """
+
+        # generic handling for all unique dither pairs (assumes square table)
+        n = sucess_table.shape[0]
+        pairs = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                pairs.append((i, j))
+
+        for a, b in pairs:
+
+            a_x = x_table[a, b]
+            a_y = y_table[a, b]
+            a_rot = rotation_table[a, b]
+
+            # negate the values for the opposite direction
+            b_x = -x_table[b, a]
+            b_y = -y_table[b, a]
+            b_rot = -rotation_table[b, a]
+
+            # now, for a point (100,100) from origin, first rotate and then 
+            # displace. Calculate the euclidean distance between the two points. 
+            # If it is larger than the threshold, then the alignment is inconsistent.
+
+            point = np.array([[pixel_origin[0]], [pixel_origin[1]]])
+
+            displacement = compare_distance(a_x, a_y, a_rot, b_x, b_y, b_rot, point_from_center= point)
+
+            if displacement > displacement_threshold:
+                self.logger.warning(
+                    f"Alignment between dither {a+1} and dither {b+1} is inconsistent (displacement: {displacement}). Replacing with NaN values."
+                )
+                sucess_table[a, b] = 0.7
+                sucess_table[b, a] = 0.7
+
+        return sucess_table
+
+
+
+
+
+
     def _plot_dither_alignment(
         self,
         dither_set,
@@ -388,22 +436,9 @@ class AlignmentPipeline:
  
         self.logger.info("Checking for consistency in x alignment ...")
  
-        succes_table, x_return_table = self._cross_ref_dither_table(
-            succes_table, x_return_table, threshold_frac=0.1
+        succes_table = self._cross_ref_dither_table_displacement(
+            succes_table, x_return_table, y_return_table, rotation_return_table
         )
- 
-        self.logger.info("Checking for consistency in y alignment ...")
- 
-        succes_table, y_return_table = self._cross_ref_dither_table(
-            succes_table, y_return_table, threshold_frac=0.1
-        )
- 
-        self.logger.info("Checking for consistency in rotation alignment ...")
- 
-        succes_table, rotation_return_table = self._cross_ref_dither_table(
-            succes_table, rotation_return_table, threshold_frac=0.1
-        )
- 
         self.logger.info("Consistency check complete.")
  
         # Now we try to map out any missed paths
@@ -632,20 +667,8 @@ class AlignmentPipeline:
  
         self.logger.info("Checking for consistency in x alignment ...")
  
-        succes_table, x_return_table = self._cross_ref_dither_table(
-            succes_table, x_return_table, threshold_frac=0.1
-        )
- 
-        self.logger.info("Checking for consistency in y alignment ...")
- 
-        succes_table, y_return_table = self._cross_ref_dither_table(
-            succes_table, y_return_table, threshold_frac=0.1
-        )
- 
-        self.logger.info("Checking for consistency in rotation alignment ...")
- 
-        succes_table, rotation_return_table = self._cross_ref_dither_table(
-            succes_table, rotation_return_table, threshold_frac=0.1
+        succes_table = self._cross_ref_dither_table_displacement(
+            succes_table, x_return_table, y_return_table, rotation_return_table
         )
  
         self.logger.info("Consistency check complete.")
@@ -1032,6 +1055,34 @@ class AlignmentPipeline:
                     input_wcs=dither_frame_wcs[i],
                     reference_wcs=reference_WCS_reprojected
                 )
+
+                # run it in reverse, to check for consistency
+                (
+                    (tx_rev, ty_rev),
+                    rotation_angle_rev,
+                    (tx_error_rev, ty_error_rev),
+                    rotation_error_rev,
+                    success_rev,
+                ) = self.aligner.run(
+                    dither_frame_arrays[i],
+                    reprojected_reference_frame,
+                    f"{pointing}_reference_to_dither_{i+1}",
+                    input_wcs=reference_WCS_reprojected,
+                    reference_wcs=dither_frame_wcs[i]
+                )
+
+                # check for consistency
+
+                distance = compare_distance(
+                    tx, ty, rotation_angle,
+                    -tx_rev, -ty_rev, -rotation_angle_rev
+                )
+
+                if distance > 0.15:
+                    self.logger.warning(
+                        f"Alignment for pointing {pointing}, dither {i+1} is inconsistent. Distance: {distance:.3f}. Marking as inconsistent."
+                    )
+                    success = 0.7
  
                 # put the results in the output table
                 science_tables[pointing][i] = (
@@ -1065,7 +1116,7 @@ class AlignmentPipeline:
                     _,
                 ) = science_tables[pointing][i]
  
-                if not success:
+                if not (success==1):
                     self.logger.warning(
                         f"Found failed case at pointing {pointing}, dither {i+1}. Attempting to recover..."
                     )
