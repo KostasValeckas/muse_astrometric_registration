@@ -180,7 +180,7 @@ def make_table_entry(
     return table_entry
 
 
-def write_final_results(output_table, path=".", logger=None):
+def write_final_results(output_table, method_name = "", path=".", logger=None):
     """
     Writes the final results to a FITS table file.
 
@@ -223,7 +223,7 @@ def write_final_results(output_table, path=".", logger=None):
     if logger:
         logger.info(f"Writing final results to {path}")
 
-    table.write(path + "/alignment_output_table.fits", format="fits", overwrite=True)
+    table.write(path + f"/{method_name}_alignment_output_table.fits", format="fits", overwrite=True)
 
     if logger:
         logger.info(f"Successfully wrote final results to {path}")

@@ -82,6 +82,7 @@ if __name__ == "__main__":
         "PointSources": PointSources,
         "FFT": FFT,
         "OpticalFlow": OpticalFlow,
+        "All": [PointSources, OpticalFlow, FFT],
     }
 
     if args.method in switcher:
@@ -92,15 +93,33 @@ if __name__ == "__main__":
             f"Invalid method: {args.method}. Choose from 'NoAlignment', 'PointSources', 'FFT', 'OpticalFlow'."
         )
 
+    
+    if args.method == "All":
+        # run the pipeline for each method in the list, this option mostly for testing
+        for method in switcher[args.method]:
+            # create the pipeline
+            pipeline = AlignmentPipeline(
+                config_dict=config,
+                input_dir=args.input_dir,
+                reference_file=args.ref_file_path,
+                output_dir=args.output_dir,
+                aligment_method=method,
+                distance_threshold=args.distance_threshold 
+            )
 
-    # create the pipeline
-    pipeline = AlignmentPipeline(
-        config_dict=config,
-        input_dir=args.input_dir,
-        reference_file=args.ref_file_path,
-        output_dir=args.output_dir,
-        aligment_method=method,
-        distance_threshold=args.distance_threshold
-    )
+            pipeline.run()
 
-    pipeline.run()
+    #singular cases
+    else:
+
+        # create the pipeline
+        pipeline = AlignmentPipeline(
+            config_dict=config,
+            input_dir=args.input_dir,
+            reference_file=args.ref_file_path,
+            output_dir=args.output_dir,
+            aligment_method=method,
+            distance_threshold=args.distance_threshold 
+        )
+
+        pipeline.run()

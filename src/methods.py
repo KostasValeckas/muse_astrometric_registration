@@ -17,7 +17,8 @@ from filters import remove_nans, remove_bright_sources_simple, estimate_nan_wind
 from numpy.fft import rfft, irfft, rfftfreq, fft2, ifft2, fftfreq
 from scipy.ndimage import shift as ndi_shift
 from scipy.optimize import minimize
-
+import sys
+from contextlib import contextmanager
 
 from skimage.filters import window, difference_of_gaussians
 
@@ -27,7 +28,7 @@ from scipy.fft import fft2, fftshift
 import spacepylot.alignment as align
 
 import spacepylot.plotting as pl
-
+import logging
 
 
 # plot styling
@@ -46,6 +47,26 @@ plt.rcParams.update(
         "savefig.edgecolor": "black",
     }
 )
+
+# this is used to redirect printing from external methods to the logger, so that we can capture all output in the log file
+@contextmanager
+def redirect_stdout_to_logger(logger, level=logging.INFO):
+    class LoggerWriter:
+        def write(self, message):
+            message = message.rstrip()
+            if message:
+                logger.log(level, message)
+
+        def flush(self):
+            pass
+
+    original_stdout = sys.stdout
+    sys.stdout = LoggerWriter()
+    try:
+        yield
+    finally:
+        sys.stdout = original_stdout
+
 
 
 class AligmentMethod(ABC):
@@ -292,17 +313,17 @@ class AligmentMethod(ABC):
         if custom_title is not None:
             plt.suptitle(
                 custom_title
-                + f"\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
+                + f"\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg, method: {self.name}"
             )
         else:
             plt.suptitle(
-                f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
+                f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg\n"
             )
-        plt.savefig(f"{self.QA_path}/difference_image_{obs_name}.png")
+        plt.savefig(f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png")
 
         if self.logger:
             self.logger.info(
-                f"Saved difference image to {self.QA_path}/difference_image_{obs_name}.png"
+                f"Saved difference image to {self.QA_path}/difference_image_{obs_name}_{self.name}.png"
             )
 
         if show:
@@ -310,6 +331,110 @@ class AligmentMethod(ABC):
         else:
             plt.close()
 
+
+    def plot_failed_aligment(
+        self,
+        reference_frame,
+        input_frame,
+        obs_name,
+        show=False,
+        v_lower_per = 15,
+        v_upper_per = 85
+    ):
+        """
+        Plot the images seperately and overlayed + the difference image for 
+        failed aligment.
+
+        Parameters
+        ----------
+        reference_frame : np.2darray
+            The reference image.
+
+        input_frame : np.2darray
+            The target image.
+
+
+        obs_name: str
+            Name of the observation, used for saving QA plots and logging.
+
+        show: bool, optional
+            If True, display the plot interactively. Default is False.
+
+        custom_title: str, optional
+            Custom title for the plot. If None, a default title will be used.
+        """
+
+        # normalize both images to unity
+
+        reference_frame = reference_frame / np.nanmax(reference_frame)
+        input_frame = input_frame / np.nanmax(input_frame)
+
+
+
+        diff_prior = reference_frame - input_frame
+
+
+        _, axes = plt.subplots(2, 2, figsize=(12, 12))
+
+        ref_vmin, ref_vmax = np.nanpercentile(
+            reference_frame, v_lower_per
+        ), np.nanpercentile(reference_frame, v_upper_per)
+        in_vmin, in_vmax = np.nanpercentile(input_frame, v_lower_per), np.nanpercentile(
+            input_frame, v_upper_per
+        )
+
+        axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
+        axes[0, 0].imshow(
+            input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
+        )
+        axes[0, 0].set_title("Overlayed (Red = Reference, Blue = Input)")
+        axes[0, 0].set_xlabel("X Pixel")
+        axes[0, 0].set_ylabel("Y Pixel")
+
+        axes[0, 1].imshow(diff_prior, cmap="gray", vmin=ref_vmin, vmax=ref_vmax)
+
+        axes[0, 1].set_title("Difference Image (Reference - Input)")
+        axes[0, 1].set_xlabel("X Pixel")
+        axes[0, 1].set_ylabel("Y Pixel")
+
+        axes[1, 0].imshow(
+            reference_frame,
+            cmap="gray",
+            vmin=np.nanpercentile(ref_vmin, v_lower_per),
+            vmax=np.nanpercentile(ref_vmax, v_upper_per),
+        )
+        axes[1, 0].set_title("Raw Reference Image")
+        axes[1, 0].set_xlabel("X Pixel")
+        axes[1, 0].set_ylabel("Y Pixel")
+
+        axes[1, 1].imshow(
+            input_frame,
+            cmap="gray",
+            vmin=np.nanpercentile(in_vmin, v_lower_per),
+            vmax=np.nanpercentile(in_vmax, v_upper_per),
+        )
+        axes[1, 1].set_title("Raw Input Image")
+        axes[1, 1].set_xlabel("X Pixel")
+        axes[1, 1].set_ylabel("Y Pixel")
+
+        for ax in axes.ravel():
+            ax.set_aspect("equal")
+
+
+        plt.suptitle( f"\n Failed aligment for {obs_name}, method: {self.name}"
+        )
+
+        plt.savefig(f"{self.QA_path}/failed_aligment_{obs_name}_{self.name}.png")
+
+        if self.logger:
+            self.logger.info(
+                f"Saved failed alignment image to {self.QA_path}/failed_aligment_{obs_name}_{self.name}.png"
+            )
+
+        if show:
+            plt.show()
+        else:
+            plt.close()
     @abstractmethod
     def run(
         self,
@@ -866,44 +991,12 @@ class PointSources(AligmentMethod):
                 if self.logger:
                     self.logger.error("astroalign failed.")
 
-                fig = plt.figure(figsize=(10, 5))
-
-                ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(
+                self.plot_failed_aligment(
                     reference_frame,
-                    cmap="gray",
-                    vmin=np.nanpercentile(reference_frame.compressed(), 5),
-                    vmax=np.nanpercentile(reference_frame.compressed(), 95),
-                )
-                ax1.set_title("Reference Frame")
-
-                ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(
                     input_frame,
-                    cmap="gray",
-                    vmin=np.nanpercentile(input_frame.compressed(), 5),
-                    vmax=np.nanpercentile(input_frame.compressed(), 95),
+                    obs_name,
+                    show=show_QA,
                 )
-                ax2.set_title("Input Frame")
-
-                fig.suptitle(
-                    f"Failed Alignment for {obs_name}: Could not find matching sources",
-                )
-
-                plt.savefig(
-                    f"{self.QA_path}/failed_alignment_{obs_name}.png",
-                )
-
-                if self.logger:
-                    self.logger.info(
-                        f"Saved QA plot of failed alignment to "
-                        f"{self.QA_path}/failed_alignment_{obs_name}.png"
-                    )
-
-                if show_QA:
-                    plt.show()
-                else:
-                    plt.close()
 
                 aa._np.random.default_rng = original
 
@@ -924,46 +1017,12 @@ class PointSources(AligmentMethod):
             if self.logger:
                 self.logger.error("Not enough matched sources for reliable alignment.")
 
-            # plot the images that failed for QA
-            if save_QA:
-                fig = plt.figure(figsize=(10, 5))
-
-                ax1 = plt.subplot(1, 2, 1)
-                ax1.imshow(
-                    reference_frame,
-                    cmap="gray",
-                    vmin=np.nanpercentile(reference_frame.compressed(), 5),
-                    vmax=np.nanpercentile(reference_frame.compressed(), 95),
-                )
-                ax1.set_title("Reference Frame")
-
-                ax2 = plt.subplot(1, 2, 2)
-                ax2.imshow(
-                    input_frame,
-                    cmap="gray",
-                    vmin=np.nanpercentile(input_frame.compressed(), 5),
-                    vmax=np.nanpercentile(input_frame.compressed(), 95),
-                )
-                ax2.set_title("Input Frame")
-
-                fig.suptitle(
-                    f"Failed Alignment for {obs_name}: Not enough matched sources",
-                )
-
-                plt.savefig(
-                    f"{self.QA_path}/failed_alignment_{obs_name}.png",
-                )
-
-                if self.logger:
-                    self.logger.info(
-                        f"Saved QA plot of failed alignment to "
-                        f"{self.QA_path}/failed_alignment_{obs_name}.png"
-                    )
-
-                if show_QA:
-                    plt.show()
-                else:
-                    plt.close()
+            self.plot_failed_aligment(
+                reference_frame,
+                input_frame,
+                obs_name,
+                show=show_QA,
+            )
 
             return self.FAILED_RETURN
 
@@ -1111,6 +1170,14 @@ class PointSources(AligmentMethod):
                     self.logger.error(
                         "Too few matched sources remain after " "outlier rejection."
                     )
+
+                self.plot_failed_aligment(
+                    reference_frame,
+                    input_frame,
+                    obs_name,
+                    show=show_QA,
+                )
+
                 return self.FAILED_RETURN
 
             if self.logger:
@@ -1130,6 +1197,13 @@ class PointSources(AligmentMethod):
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Failed to fit transformation: {e}")
+
+                self.plot_failed_aligment(
+                    reference_frame,
+                    input_frame,
+                    obs_name,
+                    show=show_QA,
+                )
                 return self.FAILED_RETURN
 
             tx, ty = offset
@@ -1237,6 +1311,14 @@ class PointSources(AligmentMethod):
                 self.logger.error(
                     "Too few matched sources remain for the final alignment."
                 )
+
+            self.plot_failed_aligment(
+                reference_frame,
+                input_frame,
+                obs_name,
+                show=show_QA,
+            )
+
             return self.FAILED_RETURN
 
         if self.logger:
@@ -1251,6 +1333,15 @@ class PointSources(AligmentMethod):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed final transformation fit: {e}")
+
+
+            self.plot_failed_aligment(
+                reference_frame,
+                input_frame,
+                obs_name,
+                show=show_QA,
+            )
+
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
@@ -1916,6 +2007,14 @@ class FFT(AligmentMethod):
             self.logger.warning(
                 "No valid entries found in the per-sigma table that satisfy the control tolerance and SNR thresholds. No rotation estimated - alignment failed."
             )
+
+            self.plot_failed_aligment(
+                reference_frame,
+                input_frame,
+                obs_name,
+                show = show_QA
+            )
+
             return self.FAILED_RETURN
 
         # QA for angles
@@ -2027,6 +2126,12 @@ class FFT(AligmentMethod):
         else:
             self.logger.warning(
                 "No valid entries found in the per-sigma table for translation that satisfy the control tolerance and SNR thresholds. No translation estimated - alignment failed."
+            )
+            self.plot_failed_aligment(
+                reference_frame,
+                rotated_input_frame,
+                obs_name,
+                show = show_QA
             )
             return self.FAILED_RETURN
 
@@ -2158,9 +2263,9 @@ class OpticalFlow(AligmentMethod):
 
         op = align.AlignOpticalFlow(input_frame, reference_frame)
 
-        #solution
-        
-        op.get_translation_rotation()
+        #solution (redirecy spacepylot prints to logger)
+        with redirect_stdout_to_logger(logger):
+            op.get_translation_rotation()
 
         self.logger.info(f"Estimated translation: {op.translation}, Estimated rotation: {op.rotation_deg}")
 
@@ -2168,14 +2273,15 @@ class OpticalFlow(AligmentMethod):
 
         rot = op.rotation_deg
 
-        if tx == 0 and ty == 0 and rot == 0:
+        if np.abs(tx - 0) < 1e-3 and np.abs(ty - 0) < 1e-3 and np.abs(rot - 0) < 1e-3:
             self.logger.warning("No offset or rotation detected in optical flow - setting aligment as failed.")
+            self.plot_failed_aligment(reference_frame, input_frame, obs_name, show=show_QA)
             return self.FAILED_RETURN
         
         # plot difference image
 
         self.plot_difference_image(
-            reference_frame, input_frame, tx, ty, rot, obs_name, show=False
+            reference_frame, input_frame, tx, ty, rot, obs_name, show=show_QA
         )
 
         # TODO: set error to 0 for now
