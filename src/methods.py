@@ -2138,9 +2138,23 @@ class OpticalFlow(AligmentMethod):
             True if the alignment was successful, False otherwise.
         """
 
+        # spacepylot implementation returns all 0's on failure. For identical 
+        # frames. we therefore check them manually and return success = True if they are identical.
+        # If frames are different,  we set detect 0,0,0 and set them as failed aligments
+
         # take copies to avoid modifying the original frames
         reference_frame = reference_frame.copy()
         input_frame = input_frame.copy()
+
+        if np.nansum(np.abs(reference_frame - input_frame)) < 1e-6:
+            self.logger.info("Reference and input frames have identical nansum = assuming this is identifal frames, skipping...")
+            return (
+                (0.0, 0.0),
+                0.0,
+                (0.0, 0.0),
+                0.0,
+                True,
+            )
 
         op = align.AlignOpticalFlow(input_frame, reference_frame)
 
@@ -2154,6 +2168,10 @@ class OpticalFlow(AligmentMethod):
 
         rot = op.rotation_deg
 
+        if tx == 0 and ty == 0 and rot == 0:
+            self.logger.warning("No offset or rotation detected in optical flow - setting aligment as failed.")
+            return self.FAILED_RETURN
+        
         # plot difference image
 
         self.plot_difference_image(

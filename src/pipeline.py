@@ -155,7 +155,18 @@ class AlignmentPipeline:
     Class to run the alignment pipeline.
     """
  
-    def __init__(self, config_dict, input_dir, reference_file, output_dir, aligment_method = NoAlignment):
+    def __init__(self, config_dict, input_dir, reference_file, output_dir, aligment_method = NoAlignment, distance_threshold = 0.10):
+        """
+        Initialize the AlignmentPipeline.
+ 
+        Args:
+            config_dict (dict): Configuration dictionary.
+            input_dir (str): Path to the input directory.
+            reference_file (str): Path to the reference file.
+            output_dir (str): Path to the output directory.
+            aligment_method (callable): The alignment method to use.
+            distance_threshold (float): The threshold for the distance between cross-alignments to consider them consistent. Default is 0.10.
+        """
  
         self.logger = get_logger(output_dir)
  
@@ -167,7 +178,7 @@ class AlignmentPipeline:
         self.output_table_entries = config_dict["headers"]
  
         self.method = aligment_method
- 
+        self.distance_threshold = distance_threshold    
     def _cross_ref_dither_table(
         self, sucess_table, table, threshold_frac=0.1, minimum_value=0.1
     ):
@@ -437,7 +448,7 @@ class AlignmentPipeline:
         self.logger.info("Checking for consistency in x alignment ...")
  
         succes_table = self._cross_ref_dither_table_displacement(
-            succes_table, x_return_table, y_return_table, rotation_return_table
+            succes_table, x_return_table, y_return_table, rotation_return_table, displacement_threshold=self.distance_threshold
         )
         self.logger.info("Consistency check complete.")
  
@@ -668,7 +679,7 @@ class AlignmentPipeline:
         self.logger.info("Checking for consistency in x alignment ...")
  
         succes_table = self._cross_ref_dither_table_displacement(
-            succes_table, x_return_table, y_return_table, rotation_return_table
+            succes_table, x_return_table, y_return_table, rotation_return_table, displacement_threshold=self.distance_threshold
         )
  
         self.logger.info("Consistency check complete.")
@@ -1078,7 +1089,7 @@ class AlignmentPipeline:
                     -tx_rev, -ty_rev, -rotation_angle_rev
                 )
 
-                if distance > 0.15:
+                if distance > self.distance_threshold:
                     self.logger.warning(
                         f"Alignment for pointing {pointing}, dither {i+1} is inconsistent. Distance: {distance:.3f}. Marking as inconsistent."
                     )

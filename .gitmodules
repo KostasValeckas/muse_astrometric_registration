@@ -1,3 +1,3 @@
 [submodule "spacepylot"]
 	path = spacepylot
-	url = git@github.com:KostasValeckas/spacepylot.git
+	url = https://github.com/KostasValeckas/spacepylot.git

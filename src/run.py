@@ -47,6 +47,13 @@ if __name__ == "__main__":
         help="The alignment method to use. Default is NoAlignment. Options are NoAlignment, PointSources.",
     )
 
+    parser.add_argument(
+        "--distance_threshold",
+        type=float,
+        default=0.10,
+        help="The distance threshold for consistency checks. Default is 0.10.",
+    )
+
     args = parser.parse_args()
 
 
@@ -93,6 +100,7 @@ if __name__ == "__main__":
         reference_file=args.ref_file_path,
         output_dir=args.output_dir,
         aligment_method=method,
+        distance_threshold=args.distance_threshold
     )
 
     pipeline.run()
