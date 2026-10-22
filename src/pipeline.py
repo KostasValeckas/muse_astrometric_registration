@@ -768,6 +768,60 @@ class AlignmentPipeline:
 
         self.logger.info("Consistency check complete.")
 
+        
+        x_table_filename = f"x_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        x_error_table_filename = f"x_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        y_table_filename = f"y_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        y_error_table_filename = f"y_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        rotation_table_filename = f"rotation_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        rotation_error_table_filename = f"rotation_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        success_table_filename = f"success_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+
+        np.savetxt(
+            pathlib.Path(self.output_dir) / x_table_filename,
+            x_return_table,
+            delimiter=",",
+            header="x_offset_table",
+        )
+
+        np.savetxt(
+            pathlib.Path(self.output_dir) / x_error_table_filename,
+            x_error_table,
+            delimiter=",",
+            header="x_error_table",
+        )
+
+        np.savetxt(
+            pathlib.Path(self.output_dir) / y_table_filename,
+            y_return_table,
+            delimiter=",",
+            header="y_offset_table",
+        )
+        np.savetxt(
+            pathlib.Path(self.output_dir) / y_error_table_filename,
+            y_error_table,
+            delimiter=",",
+            header="y_error_table",
+        )
+        np.savetxt(
+            pathlib.Path(self.output_dir) / rotation_table_filename,
+            rotation_return_table,
+            delimiter=",",
+            header="rotation_offset_table",
+        )
+        np.savetxt(
+            pathlib.Path(self.output_dir) / rotation_error_table_filename,
+            rotation_error_table,
+            delimiter=",",
+            header="rotation_error_table",
+        )
+        np.savetxt(
+            pathlib.Path(self.output_dir) / success_table_filename,
+            succes_table,
+            delimiter=",",
+            header="success_table",
+        )
+
         return (
             x_return_table,
             x_error_table,
@@ -1334,7 +1388,7 @@ class AlignmentPipeline:
                 dither_frame_arrays,
                 dither_frame_wcs,
                 self.aligner,
-                obs_name=pointing,
+                obs_name=pointing
             )
 
             dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
