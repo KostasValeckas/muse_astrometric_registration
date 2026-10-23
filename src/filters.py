@@ -74,7 +74,7 @@ def mask_zero_as_bpm(image, logger=None):
 
     return masked_image, bpm
 
-def _shrink(finite, window, min_run):
+def _shrink(finite, window, min_run, logger=None):
     """
     Shrink window = [top, bottom, left, right] (trims from each side) until
     every edge passes. min_run=None requires the whole edge to be finite.
@@ -93,7 +93,9 @@ def _shrink(finite, window, min_run):
         r0, r1 = top, nrows - bottom
         c0, c1 = left, ncols - right
         if r1 - r0 < 1 or c1 - c0 < 1:
-            raise ValueError("Window collapsed; no valid region found.")
+            if logger:
+                logger.warning("Window collapsed; no valid region found. Returning original window.")
+            return window
 
         if not ok(finite[r0, c0:c1]):      top += 1;    changed = True
         if not ok(finite[r1 - 1, c0:c1]):  bottom += 1; changed = True
@@ -111,12 +113,12 @@ def estimate_nan_window(image, min_run=100, logger= None):
     nrows, ncols = image.shape
 
     # Pass 1: each edge needs >= min_run consecutive finite pixels
-    w1 = _shrink(finite, [0, 0, 0, 0], min_run)
+    w1 = _shrink(finite, [0, 0, 0, 0], min_run, logger=logger)
     if logger:
         logger.info("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
 
     # Pass 2: continue from pass-1 window, each edge must contain no NaN at all
-    w2 = _shrink(finite, w1, None)
+    w2 = _shrink(finite, w1, None, logger=logger)
     if logger:
         logger.info("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
 

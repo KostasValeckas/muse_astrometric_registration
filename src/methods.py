@@ -383,6 +383,10 @@ class AligmentMethod(ABC):
             input_frame, v_upper_per
         )
 
+        diff_vmin, diff_vmax = np.nanpercentile(diff_prior, v_lower_per), np.nanpercentile(
+            diff_prior, v_upper_per
+        )
+
         axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 0].imshow(
             input_frame, cmap="Blues", vmin=in_vmin, vmax=in_vmax, alpha=0.5
@@ -391,7 +395,7 @@ class AligmentMethod(ABC):
         axes[0, 0].set_xlabel("X Pixel")
         axes[0, 0].set_ylabel("Y Pixel")
 
-        axes[0, 1].imshow(diff_prior, cmap="gray", vmin=ref_vmin, vmax=ref_vmax)
+        axes[0, 1].imshow(diff_prior, cmap="gray", vmin=diff_vmin, vmax=diff_vmax)
 
         axes[0, 1].set_title("Difference Image (Reference - Input)")
         axes[0, 1].set_xlabel("X Pixel")
@@ -1935,36 +1939,6 @@ class FFT(AligmentMethod):
         reference_frame = reference_frame.copy()
         input_frame = input_frame.copy()
         
-
-        window_clean_input, (height, width) = estimate_nan_window(input_frame, min_run=100, logger=self.logger)
-
-        window_clean_reference, (height_ref, width_ref) = estimate_nan_window(reference_frame, min_run=100)
-
-        # construct new, most conservative window that is the intersection of the two windows
-
-        window_clean = (max(window_clean_input[0], window_clean_reference[0]),
-                        min(window_clean_input[1], window_clean_reference[1]),
-                        max(window_clean_input[2], window_clean_reference[2]),
-                        min(window_clean_input[3], window_clean_reference[3])) 
-
-        target_wcs, shape_out = make_window_wcs(
-            input_wcs, input_frame.shape, window_clean, self.oversample_factor
-        )
-        
-
-        input_frame, _ = reproject_image_to_target_wcs(
-            input_frame, input_wcs, target_wcs, shape_out=shape_out
-        )
-
-        reference_frame, _ = reproject_image_to_target_wcs(
-            reference_frame, reference_wcs, target_wcs, shape_out=shape_out
-        )
-
-        if self.logger:
-            self.logger.info(
-                f"Reprojected input and reference frames to a common WCS and shape: {shape_out}"
-            )
-
         
         # first, we try to estimate rotation
 
@@ -2038,7 +2012,7 @@ class FFT(AligmentMethod):
             plt.close()
 
 
-        rot = best_eps
+        rot = -best_eps
 
         # TODO - estimation on rotation error based on neibhours
         rot_err = 0
@@ -2051,7 +2025,7 @@ class FFT(AligmentMethod):
         input_frame = remove_nans(input_frame, fill_value=median_input)
 
         rotated_input_frame = rotate(
-            input_frame, -rot, reshape=False, order=3, cval=0.0
+            input_frame, rot, reshape=False, order=3, cval=0.0
         )
 
 
@@ -2158,14 +2132,14 @@ class FFT(AligmentMethod):
         else:
             plt.close()
 
-        tx, ty = best_eps_x, best_eps_y
+        tx, ty = -best_eps_x, -best_eps_y
         tx_err, ty_err = 0.0, 0.0  # TODO - estimation on translation error based on neighbors
 
         success = True
 
     
         self.plot_difference_image(
-            reference_frame, input_frame, -tx, -ty, -rot, obs_name, show=False
+            reference_frame, input_frame, tx, ty, rot, obs_name, show=False
         )
 
         return (

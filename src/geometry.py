@@ -1,6 +1,7 @@
 import numpy as np
 from astropy.wcs import WCS
 from reproject import reproject_interp, reproject_exact, reproject_adaptive
+from filters import estimate_nan_window
 
 """
 Module for reprojections and WCS conversions.
@@ -128,7 +129,48 @@ def reproject_dithers(dither_set, wcs_set, logger = None, method = "interpolatio
 
     return dither_set, wcs_set
 
+def remove_nan_edges_dithers(dither_set, logger = None):
+    """
+    Estimates the NaN window for each dither, makes the most conservative window, 
+    applies to all dithers, and returns the cropped dither set and the cropping values
+    to be used for the reference later on.
+    """
 
+    tops = []
+    bottoms = []
+    lefts = []
+    rights = []
+
+    if logger:
+        logger.info("Estimating NaN windows for each dither...")
+
+    for i, dither in enumerate(dither_set):
+        all_edges, __ = estimate_nan_window(dither, logger=logger)
+
+        top, bottom, left, right = all_edges
+
+        tops.append(top)
+        bottoms.append(bottom)
+        lefts.append(left)
+        rights.append(right)
+
+    # find the max of all:
+
+    top = np.max(tops)
+    bottom = np.max(bottoms)
+    left = np.max(lefts)
+    right = np.max(rights)
+
+    total_max = np.max(np.array([top, bottom, left, right]))
+
+    if logger:
+        logger.info(f"Cropping a total of {total_max} pixels from each edge to remove NaN edges from all dithers.")
+
+    # crop all dithers to the same size
+    for i, dither in enumerate(dither_set):
+        dither_set[i] = dither[total_max : dither.shape[0] - total_max, total_max : dither.shape[1] - total_max]
+
+    return dither_set, total_max
 
 
 def transformation_matrix(tx, ty, rotation_deg, centre):

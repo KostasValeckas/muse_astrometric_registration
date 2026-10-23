@@ -13,6 +13,7 @@ from geometry import (
     inverse_transformation,
     detector_translation_to_sky_translation,
     reproject_dithers,
+    remove_nan_edges_dithers
 )
 
 import numpy as np
@@ -1375,6 +1376,16 @@ class AlignmentPipeline:
                 dither_frame_arrays, dither_frame_wcs, logger=self.logger, method="interpolation"
             )
 
+            # remove nan edge 
+
+            # TODO we keep this and use it for reprojection in a bit of a hack 
+
+            original_shape = dither_frame_arrays[0].shape
+
+            dither_frame_arrays, edge_cut_value = remove_nan_edges_dithers(
+                dither_frame_arrays, logger=self.logger
+            )
+
             # ... and run the dither aligment
             (
                 x_table,
@@ -1404,10 +1415,15 @@ class AlignmentPipeline:
                 reference_frame,
                 reference_WCS,
                 dither_frame_wcs[0],
-                shape_out=dither_frame_arrays[0].shape,
+                shape_out=original_shape,
             )
 
             reference_WCS_reprojected = dither_frame_wcs[0]  # update reference WCS to match the dither WCS
+
+            # also crop the same edges as the dither frames to ensure consistency
+            reprojected_reference_frame = reprojected_reference_frame[
+                edge_cut_value:reprojected_reference_frame.shape[0]-edge_cut_value, edge_cut_value:reprojected_reference_frame.shape[1]-edge_cut_value
+            ]
 
             # keep this for plotting later
             reprojected_reference_frames[pointing] = (
