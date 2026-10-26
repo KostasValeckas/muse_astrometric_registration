@@ -179,6 +179,6 @@ python run.py configuration_file reference_file --input_dir path_to_directory_wi
 
 ### Repository structure
 
-![Alignment Repository Sketch](./docs/alignment_repo_sketch.pdf)
+![Alignment Repository Sketch](./docs/alignment_repo_sketch.png)
 
 
