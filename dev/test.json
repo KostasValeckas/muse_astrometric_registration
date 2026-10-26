@@ -1,0 +1,9 @@
+{
+    "headers": {
+        "date_keyword": "DATE-OBS",
+        "mjd_keyword": "MJD-OBS",
+        "tpl_start_keyword": "HIERARCH ESO TPL START",
+        "exp_keyword": "HIERARCH MUSEPIPE_IEXPO",
+        "pointing_keyword": "HIERARCH MUSEPIPE_POINTING"
+    }
+}

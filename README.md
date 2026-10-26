@@ -6,14 +6,29 @@
 
 # Installation
 
-Tested on Python 3.12. Extra dependencies are in the ```requirements.txt``` file. Install them with:
+***Tested on Python 3.12.***
+
+### Spacepylot submodule 
+
+The repository relies on the ```spacepylot``` submodule, which is a [fork of the original ```spacepylot``` repository](https://github.com/KostasValeckas/spacepylot/tree/5dfca0975f47b163739fc1d551baf6f2da0d2b15).
+
+If you have cloned the code using git, you need to initialize the submodule with:
+
+```
+git submodule update --init --recursive
+```
+
+The submodule link is setup to use https, so if you want to use ssh instead, you can change the link in the ```.gitmodules``` file.
+-------------------------
+
+### Installing dependencies
+
+
+Extra dependencies are in the ```requirements.txt``` file. Install them with:
 
 ```
 pip install -r requirements.txt
 ```
-
-
-
 
 # Running the pipeline
 

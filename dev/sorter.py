@@ -90,6 +90,20 @@ if __name__ == "__main__":
             DATE_OBS = header.get(DATE_OBS_KEYWORD, None)
             TPL_START_OBS = header.get(TPL_START_OBS_KEYWORD, None)
 
+            # if any are None, print a warning and skip the file
+            if IEXPO_OBS is None:
+                print(f"Warning: {IEXPO_OBS_KEYWORD} not found in {file}. Skipping.")
+                continue
+            if POINTING_OBS is None:
+                print(f"Warning: {POINTING_OBS_KEYWORD} not found in {file}. Skipping.")
+                continue
+            if DATE_OBS is None:
+                print(f"Warning: {DATE_OBS_KEYWORD} not found in {file}. Skipping.")
+                continue
+            if TPL_START_OBS is None:
+                print(f"Warning: {TPL_START_OBS_KEYWORD} not found in {file}. Skipping.")
+                continue
+
             print(
                 f"File: {file}, IEXPO_OBS: {IEXPO_OBS}, POINTING_OBS: {POINTING_OBS}, DATE_OBS: {DATE_OBS}, TPL_START_OBS: {TPL_START_OBS}"
             )
