@@ -16,9 +16,11 @@ If you have cloned the code using git, you need to initialize the submodule with
 
 ```
 git submodule update --init --recursive
+
 ```
 
 The submodule link is setup to use https, so if you want to use ssh instead, you can change the link in the ```.gitmodules``` file.
+
 -------------------------
 
 ### Installing dependencies
