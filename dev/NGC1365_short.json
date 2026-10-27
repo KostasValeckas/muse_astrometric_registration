@@ -21,28 +21,6 @@
             "IMAGE_FOV_prealign_P01_WFI_BB_2018-01-10T02:49:23_0004.fits"
         ]
     ],
-    "4": [
-        [
-            1,
-            "2018-01-20T02:25:48.000",
-            "IMAGE_FOV_prealign_P04_WFI_BB_2018-01-20T02:25:06_0001.fits"
-        ],
-        [
-            2,
-            "2018-01-20T02:42:35.000",
-            "IMAGE_FOV_prealign_P04_WFI_BB_2018-01-20T02:25:06_0002.fits"
-        ],
-        [
-            3,
-            "2018-01-20T02:55:14.000",
-            "IMAGE_FOV_prealign_P04_WFI_BB_2018-01-20T02:25:06_0003.fits"
-        ],
-        [
-            4,
-            "2018-01-20T03:11:59.000",
-            "IMAGE_FOV_prealign_P04_WFI_BB_2018-01-20T02:25:06_0004.fits"
-        ]
-    ],
     "headers": {
         "date_keyword": "DATE-OBS",
         "mjd_keyword": "MJD-OBS",

@@ -54,6 +54,12 @@ if __name__ == "__main__":
         help="The distance threshold for consistency checks. Default is 0.10.",
     )
 
+    parser.add_argument(
+        "--skip_rotation_estimation",
+        action="store_true",
+        help="If set, rotation estimation will be skipped. Default is False.",
+    )
+
     args = parser.parse_args()
 
 
@@ -104,7 +110,8 @@ if __name__ == "__main__":
                 reference_file=args.ref_file_path,
                 output_dir=args.output_dir,
                 aligment_method=method,
-                distance_threshold=args.distance_threshold 
+                distance_threshold=args.distance_threshold,
+                skip_rotation_estimation=args.skip_rotation_estimation
             )
 
             pipeline.run()
@@ -119,7 +126,8 @@ if __name__ == "__main__":
             reference_file=args.ref_file_path,
             output_dir=args.output_dir,
             aligment_method=method,
-            distance_threshold=args.distance_threshold 
+            distance_threshold=args.distance_threshold,
+            skip_rotation_estimation=args.skip_rotation_estimation
         )
 
         pipeline.run()

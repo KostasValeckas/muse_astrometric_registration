@@ -225,6 +225,7 @@ class AlignmentPipeline:
         aligment_method=NoAlignment,
         distance_threshold=0.10,
         write_inconsistent=True,
+        skip_rotation_estimation=False
     ):
         """
         Initialize the AlignmentPipeline.
@@ -255,6 +256,7 @@ class AlignmentPipeline:
         self.method = aligment_method
         self.distance_threshold = distance_threshold
         self.write_inconsistent = write_inconsistent
+        self.skip_rotation_estimation = skip_rotation_estimation
 
     def _cross_ref_dither_table(
         self, sucess_table, table, threshold_frac=0.1, minimum_value=0.1
@@ -525,6 +527,7 @@ class AlignmentPipeline:
                     f"{obs_name}_dither_{i+1}_to_dither_{j+1}",
                     input_wcs=wcs_set[j],
                     reference_wcs=wcs_set[i],
+                    skip_rotation_estimation=self.skip_rotation_estimation
                 )
 
                 x_return_table[i, j] = tx
@@ -1092,6 +1095,7 @@ class AlignmentPipeline:
             f"{pointing}_dither_{i+1}_to_reference",
             input_wcs=dither_wcs,
             reference_wcs=reference_wcs,
+            skip_rotation_estimation=self.skip_rotation_estimation
         )
 
         (
@@ -1106,6 +1110,7 @@ class AlignmentPipeline:
             f"{pointing}_reference_to_dither_{i+1}",
             input_wcs=reference_wcs,
             reference_wcs=dither_wcs,
+            skip_rotation_estimation=self.skip_rotation_estimation
         )
 
         fwd_ok = success == 1

@@ -28,6 +28,7 @@ from scipy.fft import fft2, fftshift
 import spacepylot.alignment as align
 
 import spacepylot.plotting as pl
+from spacepylot.alignment_utilities import TranslationTransform
 import logging
 
 
@@ -451,6 +452,7 @@ class AligmentMethod(ABC):
         initial_guess_rotation=None,
         save_QA=True,
         show_QA=False,
+        skip_rotation_estimation = False,
         **kwargs,
     ):
         """
@@ -474,6 +476,9 @@ class AligmentMethod(ABC):
 
         initial_guess_rotation : float, optional
             Initial guess for the rotation in degrees.
+
+        skip_rotation_estimation : bool, optional
+            If True, the rotation estimation will be skipped.
 
         **kwargs : dict
             Additional keyword arguments specific to the alignment method.
@@ -530,6 +535,7 @@ class NoAlignment(AligmentMethod):
         input_wcs=None,
         initial_guess_translation=(None, None),
         initial_guess_rotation=None,
+        skip_rotation_estimation=False,
         save_QA=True,
         show_QA=False,
         **kwargs,
@@ -678,6 +684,103 @@ class PointSources(AligmentMethod):
             covariance,
         )
 
+    def fit_translation(self, source, target, p0=[0.0, 0.0]):
+        # TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
+        """
+        Fit translation (fixed rotation counterpart to `fit_euclidean_transform`).
+
+        Wrapper for least_squares to fit a 2D Euclidean transform to matched source and target coordinates with rotation fixed at 0.
+
+        Parameters
+        ----------
+        source : ndarray
+            Nx2 array of source coordinates.
+        target : ndarray
+            Nx2 array of target coordinates.
+
+        p0 : list, optional
+            Initial guess for the parameters [tx, ty].
+
+        Returns
+        -------
+        translation : ndarray
+            [tx, ty] in pixels.
+\
+        translation_err : ndarray
+            1-sigma uncertainties on tx, ty, pixels.
+        """
+
+        self.logger.warning("Skipping rotation estimation as per user request.")
+
+        source = np.asarray(source, dtype=float)
+        target = np.asarray(target, dtype=float)
+
+
+
+        def _residuals(p):
+            tx, ty = p
+
+            prediction = source + np.array([tx, ty])
+
+            return (prediction - target).ravel()
+
+        result = least_squares(
+            _residuals,
+            p0,
+            args=(),
+        )
+
+        tx, ty = result.x
+
+        # Residual variance
+        n = source.shape[0]
+        n_parameters = 2
+        dof = 2 * n - n_parameters
+
+        chi2 = np.sum(result.fun**2)
+        sigma2 = chi2 / dof
+
+        # Parameter covariance
+        covariance = sigma2 * np.linalg.inv(result.jac.T @ result.jac)
+
+        parameter_errors = np.sqrt(np.diag(covariance))
+
+        translation_err = parameter_errors[0:2]
+
+        return (
+            np.array([tx, ty]),
+            translation_err,
+            covariance,
+        )
+
+    def fit_points(self, source, target, centre, p0=[0.0, 0.0, 0.0], skip_rotation_estimation = False):
+
+        """
+        A wrapper function that calls either `fit_euclidean_transform` or `fit_translation` based on the `skip_rotation_estimation` flag.
+        """
+
+        if skip_rotation_estimation:
+            
+            offsets, translation_err, covariance = self.fit_translation(source, target, p0=p0[1:3])
+
+
+
+            theta= 0.0
+
+            theta_err = 0.0
+
+            return (
+                theta,
+                offsets,
+                theta_err,
+                translation_err,
+                covariance,
+            )
+
+
+        else:
+            return self.fit_euclidean_transform(source, target, centre, p0=p0)
+
     # quickfix to non-deterministic behavior of astroalign, which uses np.random.default_rng() internally
     _original_default_rng = (
         np.random.default_rng
@@ -697,6 +800,7 @@ class PointSources(AligmentMethod):
         show_QA=False,
         initial_guess_translation=(None, None),
         initial_guess_rotation=None,
+        skip_rotation_estimation=False,
         **kwargs,
     ):
         """
@@ -734,6 +838,9 @@ class PointSources(AligmentMethod):
         initial_guess_rotation : float, optional
             Initial guess for rotation. Currently not used directly by the
             Euclidean least-squares fitting.
+
+        skip_rotation_estimation : bool, optional
+            If True, the rotation estimation will be skipped.
 
         **kwargs
             max_iterations : int, optional
@@ -1196,7 +1303,7 @@ class PointSources(AligmentMethod):
 
             try:
                 (theta, offset, theta_err, offset_err, _) = (
-                    self.fit_euclidean_transform(source_fit, target_fit, centre, p0=p0)
+                    self.fit_points(source_fit, target_fit, centre, p0=p0, skip_rotation_estimation = skip_rotation_estimation)
                 )
             except Exception as e:
                 if self.logger:
@@ -1331,8 +1438,8 @@ class PointSources(AligmentMethod):
             )
 
         try:
-            (theta, offset, theta_err, offset_err, _) = self.fit_euclidean_transform(
-                source_fit, target_fit, centre, p0=p0
+            (theta, offset, theta_err, offset_err, _) = self.fit_points(
+                source_fit, target_fit, centre, p0=p0, skip_rotation_estimation = skip_rotation_estimation
             )
         except Exception as e:
             if self.logger:
@@ -1890,6 +1997,7 @@ class FFT(AligmentMethod):
         initial_guess_rotation=None,
         save_QA=True,
         show_QA=False,
+        skip_rotation_estimation=False,
         **kwargs,
     ):
         """
@@ -1942,93 +2050,102 @@ class FFT(AligmentMethod):
         
         # first, we try to estimate rotation
 
-        rot_dict = self.estimate_rotation_fixed_scale(
-            reference_frame,
-            input_frame,
-            extra_rotation=self.extra_rotation,
-            sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
-            ratio=1.6,
-            ctrl_tol=self.control_tol,
-            snr_min=10.0,
-            search_halfwidth=1.0,
-            min_ok=3,
-            pad=2,
-            upsample=64,
-        )
-        np.set_printoptions(precision=4, suppress=True)
-        self.logger.info(
-            "\nper-sigma table for last case: sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok\n" + str(rot_dict["table"])
-        )
-        
-        # from the rot dict, take all entries where: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min: 
+        if not skip_rotation_estimation:
 
-        filtered_entries = rot_dict["table"][
-            (np.abs(rot_dict["table"][:, 2] - self.extra_rotation) <= self.control_tol) &
-            (rot_dict["table"][:, 4] > self.snr_min) &
-            (rot_dict["table"][:, 5] > self.snr_min)
-        ]
-
-        # find the arg with highest snr_main
-
-        if len(filtered_entries) > 0:
-            best_entry = filtered_entries[np.argmax(filtered_entries[:, 4])]
-            best_sigma = best_entry[0]
-            best_eps = best_entry[3]
-            self.logger.info(
-                f"Best sigma: {best_sigma:.4f}, Best eps: {best_eps:.4f}"
-            )
-        else:
-            self.logger.warning(
-                "No valid entries found in the per-sigma table that satisfy the control tolerance and SNR thresholds. No rotation estimated - alignment failed."
-            )
-
-            self.plot_failed_aligment(
+            rot_dict = self.estimate_rotation_fixed_scale(
                 reference_frame,
                 input_frame,
-                obs_name,
-                show = show_QA
+                extra_rotation=self.extra_rotation,
+                sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
+                ratio=1.6,
+                ctrl_tol=self.control_tol,
+                snr_min=10.0,
+                search_halfwidth=1.0,
+                min_ok=3,
+                pad=2,
+                upsample=64,
+            )
+            np.set_printoptions(precision=4, suppress=True)
+            self.logger.info(
+                "\nper-sigma table for last case: sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok\n" + str(rot_dict["table"])
             )
 
-            return self.FAILED_RETURN
+            # from the rot dict, take all entries where: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min: 
 
-        # QA for angles
-        plt.plot(filtered_entries[:, 0], filtered_entries[:, 3], marker='o', linestyle='-', color='blue', label='eps')
-        plt.axvline(x=best_sigma, color='red', linestyle='--', label=f'Best sigma: {best_sigma:.4f}')
-        plt.xlabel('sigma')
-        plt.ylabel('eps')
-        plt.title(f'eps vs sigma for {obs_name}')
-        plt.legend()
-        plt.grid()
-        if save_QA:
-            plt.savefig(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
-            if self.logger:
+            filtered_entries = rot_dict["table"][
+                (np.abs(rot_dict["table"][:, 2] - self.extra_rotation) <= self.control_tol) &
+                (rot_dict["table"][:, 4] > self.snr_min) &
+                (rot_dict["table"][:, 5] > self.snr_min)
+            ]
+
+            # find the arg with highest snr_main
+
+            if len(filtered_entries) > 0:
+                best_entry = filtered_entries[np.argmax(filtered_entries[:, 4])]
+                best_sigma = best_entry[0]
+                best_eps = best_entry[3]
                 self.logger.info(
-                    f"Saved QA plot of eps vs sigma to "
-                    f"{self.QA_path}/eps_vs_sigma_{obs_name}.png"
+                    f"Best sigma: {best_sigma:.4f}, Best eps: {best_eps:.4f}"
                 )
-        if show_QA:
-            plt.show()
+            else:
+                self.logger.warning(
+                    "No valid entries found in the per-sigma table that satisfy the control tolerance and SNR thresholds. No rotation estimated - alignment failed."
+                )
+
+                self.plot_failed_aligment(
+                    reference_frame,
+                    input_frame,
+                    obs_name,
+                    show = show_QA
+                )
+
+                return self.FAILED_RETURN
+
+            # QA for angles
+            plt.plot(filtered_entries[:, 0], filtered_entries[:, 3], marker='o', linestyle='-', color='blue', label='eps')
+            plt.axvline(x=best_sigma, color='red', linestyle='--', label=f'Best sigma: {best_sigma:.4f}')
+            plt.xlabel('sigma')
+            plt.ylabel('eps')
+            plt.title(f'eps vs sigma for {obs_name}')
+            plt.legend()
+            plt.grid()
+            if save_QA:
+                plt.savefig(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
+                if self.logger:
+                    self.logger.info(
+                        f"Saved QA plot of eps vs sigma to "
+                        f"{self.QA_path}/eps_vs_sigma_{obs_name}.png"
+                    )
+            if show_QA:
+                plt.show()
+            else:
+                plt.close()
+
+
+            rot = -best_eps
+
+            # TODO - estimation on rotation error based on neibhours
+            rot_err = 0
+
         else:
-            plt.close()
 
+            self.logger.info("Skipping rotation estimation as per user request.")
 
-        rot = -best_eps
+            rot = 0.0
+            rot_err = 0.0
 
-        # TODO - estimation on rotation error based on neibhours
-        rot_err = 0
-
-        # now we rotate the input frame by the estimated rotation and then estimate translation
-
-
+        # now we rotate the input frame by the estimated rotation and 
+        # then estimate translation (we keep this part for no rotation estimation cases also for consistency)
         # remove NaNs from the input frame before rotation
+        
         median_input = np.nanmedian(input_frame)
+        
         input_frame = remove_nans(input_frame, fill_value=median_input)
-
+        
         rotated_input_frame = rotate(
             input_frame, rot, reshape=False, order=3, cval=0.0
         )
-
-
+    
 
 
         trans_dict = self.estimate_translation(
@@ -2172,6 +2289,7 @@ class OpticalFlow(AligmentMethod):
         initial_guess_rotation=None,
         save_QA=True,
         show_QA=False,
+        skip_rotation_estimation=False,
         **kwargs,
     ):
         """
@@ -2239,13 +2357,17 @@ class OpticalFlow(AligmentMethod):
 
         #solution (redirecy spacepylot prints to logger)
         with redirect_stdout_to_logger(logger):
-            op.get_translation_rotation()
+            if not skip_rotation_estimation:
+                op.get_translation_rotation()
+            else:
+                self.logger.warning("Skipping rotation estimation as per user request.")
+                op.get_translation_rotation(homography_method=TranslationTransform)
 
         self.logger.info(f"Estimated translation: {op.translation}, Estimated rotation: {op.rotation_deg}")
 
         ty, tx = op.translation
 
-        rot = op.rotation_deg
+        rot = op.rotation_deg if not skip_rotation_estimation else 0.0
 
         if np.abs(tx - 0) < 1e-3 and np.abs(ty - 0) < 1e-3 and np.abs(rot - 0) < 1e-3:
             self.logger.warning("No offset or rotation detected in optical flow - setting aligment as failed.")
