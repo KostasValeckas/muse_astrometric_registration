@@ -13,7 +13,16 @@ from scipy.ndimage import maximum_filter
 from geometry import reproject_image_to_target_wcs, make_window_wcs
 from skimage.transform import warp_polar
 from skimage.registration import phase_cross_correlation
-from filters import remove_nans, remove_bright_sources_simple, estimate_nan_window, dog_passband, dog, polar_rings, radial_window, tukey2d
+from filters import (
+    remove_nans,
+    remove_bright_sources_simple,
+    estimate_nan_window,
+    dog_passband,
+    dog,
+    polar_rings,
+    radial_window,
+    tukey2d,
+)
 from numpy.fft import rfft, irfft, rfftfreq, fft2, ifft2, fftfreq
 from scipy.ndimage import shift as ndi_shift
 from scipy.optimize import minimize
@@ -24,7 +33,7 @@ from skimage.filters import window, difference_of_gaussians
 
 from scipy.fft import fft2, fftshift
 
-        
+
 import spacepylot.alignment as align
 
 import spacepylot.plotting as pl
@@ -49,6 +58,7 @@ plt.rcParams.update(
     }
 )
 
+
 # this is used to redirect printing from external methods to the logger, so that we can capture all output in the log file
 @contextmanager
 def redirect_stdout_to_logger(logger, level=logging.INFO):
@@ -67,7 +77,6 @@ def redirect_stdout_to_logger(logger, level=logging.INFO):
         yield
     finally:
         sys.stdout = original_stdout
-
 
 
 class AligmentMethod(ABC):
@@ -207,6 +216,38 @@ class AligmentMethod(ABC):
 
         return rotated_image
 
+    def _plot_contour_overlay(
+        self,
+        ax,
+        reference_frame,
+        input_frame,
+        title,
+        n_levels=2,
+        lower_per=50,
+        upper_per=99,
+    ):
+        """
+        Overlay contour maps of two frames on a single axis.
+
+        Contour levels are set per image from percentiles of its own pixel
+        distribution, so the same structures are traced in both images.
+        Reference contours are red, input contours are blue.
+        """
+        for frame, color in ((reference_frame, "red"), (input_frame, "blue")):
+            levels = np.unique(
+                np.nanpercentile(frame, np.linspace(lower_per, upper_per, n_levels))
+            )
+            if len(levels) < 2:
+                # Flat or degenerate image, nothing sensible to contour
+                continue
+            ax.contour(frame, levels=levels, colors=color, linewidths=0.8)
+
+        # contour() uses a lower-left origin; flip to match imshow orientation
+        ax.invert_yaxis()
+        ax.set_title(title)
+        ax.set_xlabel("X Pixel")
+        ax.set_ylabel("Y Pixel")
+
     def plot_difference_image(
         self,
         reference_frame,
@@ -217,8 +258,8 @@ class AligmentMethod(ABC):
         obs_name,
         show=False,
         custom_title=None,
-        v_lower_per = 15,
-        v_upper_per = 85
+        v_lower_per=15,
+        v_upper_per=85,
     ):
         """
         Plot the difference image before and after alignment.
@@ -255,15 +296,12 @@ class AligmentMethod(ABC):
         reference_frame = reference_frame / np.nanmax(reference_frame)
         input_frame = input_frame / np.nanmax(input_frame)
 
-  
-
         aligned_frame = self.shift_image(input_frame, dx, dy, dtheta)
 
         diff_prior = reference_frame - input_frame
         diff_post = reference_frame - aligned_frame
 
-
-        _, axes = plt.subplots(2, 2, figsize=(12, 12))
+        _, axes = plt.subplots(2, 3, figsize=(18, 12))
 
         ref_vmin, ref_vmax = np.nanpercentile(
             reference_frame, v_lower_per
@@ -308,6 +346,20 @@ class AligmentMethod(ABC):
         axes[1, 1].set_xlabel("X Pixel")
         axes[1, 1].set_ylabel("Y Pixel")
 
+        # Third column: overlayed contour maps
+        self._plot_contour_overlay(
+            axes[0, 2],
+            reference_frame,
+            input_frame,
+            "Contours Before Alignment (Red = Reference, Blue = Input)",
+        )
+        self._plot_contour_overlay(
+            axes[1, 2],
+            reference_frame,
+            aligned_frame,
+            "Contours After Alignment (Red = Reference, Blue = Aligned)",
+        )
+
         for ax in axes.ravel():
             ax.set_aspect("equal")
 
@@ -332,19 +384,18 @@ class AligmentMethod(ABC):
         else:
             plt.close()
 
-
     def plot_failed_aligment(
         self,
         reference_frame,
         input_frame,
         obs_name,
         show=False,
-        v_lower_per = 15,
-        v_upper_per = 85
+        v_lower_per=15,
+        v_upper_per=85,
     ):
         """
-        Plot the images seperately and overlayed + the difference image for 
-        failed aligment.
+        Plot the images separately and overlayed + the difference image and
+        contour overlay for a failed alignment.
 
         Parameters
         ----------
@@ -354,15 +405,11 @@ class AligmentMethod(ABC):
         input_frame : np.2darray
             The target image.
 
-
         obs_name: str
             Name of the observation, used for saving QA plots and logging.
 
         show: bool, optional
             If True, display the plot interactively. Default is False.
-
-        custom_title: str, optional
-            Custom title for the plot. If None, a default title will be used.
         """
 
         # normalize both images to unity
@@ -370,12 +417,9 @@ class AligmentMethod(ABC):
         reference_frame = reference_frame / np.nanmax(reference_frame)
         input_frame = input_frame / np.nanmax(input_frame)
 
-
-
         diff_prior = reference_frame - input_frame
 
-
-        _, axes = plt.subplots(2, 2, figsize=(12, 12))
+        _, axes = plt.subplots(2, 3, figsize=(18, 12))
 
         ref_vmin, ref_vmax = np.nanpercentile(
             reference_frame, v_lower_per
@@ -384,9 +428,9 @@ class AligmentMethod(ABC):
             input_frame, v_upper_per
         )
 
-        diff_vmin, diff_vmax = np.nanpercentile(diff_prior, v_lower_per), np.nanpercentile(
-            diff_prior, v_upper_per
-        )
+        diff_vmin, diff_vmax = np.nanpercentile(
+            diff_prior, v_lower_per
+        ), np.nanpercentile(diff_prior, v_upper_per)
 
         axes[0, 0].imshow(reference_frame, cmap="Reds", vmin=ref_vmin, vmax=ref_vmax)
         axes[0, 0].imshow(
@@ -397,37 +441,44 @@ class AligmentMethod(ABC):
         axes[0, 0].set_ylabel("Y Pixel")
 
         axes[0, 1].imshow(diff_prior, cmap="gray", vmin=diff_vmin, vmax=diff_vmax)
-
         axes[0, 1].set_title("Difference Image (Reference - Input)")
         axes[0, 1].set_xlabel("X Pixel")
         axes[0, 1].set_ylabel("Y Pixel")
 
-        axes[1, 0].imshow(
-            reference_frame,
-            cmap="gray",
-            vmin=np.nanpercentile(ref_vmin, v_lower_per),
-            vmax=np.nanpercentile(ref_vmax, v_upper_per),
-        )
+        # vmin/vmax are already percentile values, so pass them directly
+        axes[1, 0].imshow(reference_frame, cmap="gray", vmin=ref_vmin, vmax=ref_vmax)
         axes[1, 0].set_title("Raw Reference Image")
         axes[1, 0].set_xlabel("X Pixel")
         axes[1, 0].set_ylabel("Y Pixel")
 
-        axes[1, 1].imshow(
-            input_frame,
-            cmap="gray",
-            vmin=np.nanpercentile(in_vmin, v_lower_per),
-            vmax=np.nanpercentile(in_vmax, v_upper_per),
-        )
+        axes[1, 1].imshow(input_frame, cmap="gray", vmin=in_vmin, vmax=in_vmax)
         axes[1, 1].set_title("Raw Input Image")
         axes[1, 1].set_xlabel("X Pixel")
         axes[1, 1].set_ylabel("Y Pixel")
 
+        # Third column: overlayed contour maps
+        # Top: contours of both frames on a blank background
+        self._plot_contour_overlay(
+            axes[0, 2],
+            reference_frame,
+            input_frame,
+            "Contours (Red = Reference, Blue = Input)",
+        )
+
+        # Bottom: same contours drawn on top of the raw reference image
+        axes[1, 2].imshow(reference_frame, cmap="gray", vmin=ref_vmin, vmax=ref_vmax)
+        for frame, color in ((reference_frame, "red"), (input_frame, "blue")):
+            levels = np.unique(np.nanpercentile(frame, np.linspace(50, 99, 6)))
+            if len(levels) >= 2:
+                axes[1, 2].contour(frame, levels=levels, colors=color, linewidths=0.8)
+        axes[1, 2].set_title("Contours on Reference Image")
+        axes[1, 2].set_xlabel("X Pixel")
+        axes[1, 2].set_ylabel("Y Pixel")
+
         for ax in axes.ravel():
             ax.set_aspect("equal")
 
-
-        plt.suptitle( f"\n Failed aligment for {obs_name}, method: {self.name}"
-        )
+        plt.suptitle(f"\n Failed aligment for {obs_name}, method: {self.name}")
 
         plt.savefig(f"{self.QA_path}/failed_aligment_{obs_name}_{self.name}.png")
 
@@ -440,6 +491,7 @@ class AligmentMethod(ABC):
             plt.show()
         else:
             plt.close()
+
     @abstractmethod
     def run(
         self,
@@ -452,7 +504,7 @@ class AligmentMethod(ABC):
         initial_guess_rotation=None,
         save_QA=True,
         show_QA=False,
-        skip_rotation_estimation = False,
+        skip_rotation_estimation=False,
         **kwargs,
     ):
         """
@@ -512,6 +564,7 @@ class AligmentMethod(ABC):
             rot_err,
             success,
         )
+
 
 class NoAlignment(AligmentMethod):
     """
@@ -715,8 +768,6 @@ class PointSources(AligmentMethod):
         source = np.asarray(source, dtype=float)
         target = np.asarray(target, dtype=float)
 
-
-
         def _residuals(p):
             tx, ty = p
 
@@ -753,19 +804,20 @@ class PointSources(AligmentMethod):
             covariance,
         )
 
-    def fit_points(self, source, target, centre, p0=[0.0, 0.0, 0.0], skip_rotation_estimation = False):
-
+    def fit_points(
+        self, source, target, centre, p0=[0.0, 0.0, 0.0], skip_rotation_estimation=False
+    ):
         """
         A wrapper function that calls either `fit_euclidean_transform` or `fit_translation` based on the `skip_rotation_estimation` flag.
         """
 
         if skip_rotation_estimation:
-            
-            offsets, translation_err, covariance = self.fit_translation(source, target, p0=p0[1:3])
 
+            offsets, translation_err, covariance = self.fit_translation(
+                source, target, p0=p0[1:3]
+            )
 
-
-            theta= 0.0
+            theta = 0.0
 
             theta_err = 0.0
 
@@ -776,7 +828,6 @@ class PointSources(AligmentMethod):
                 translation_err,
                 covariance,
             )
-
 
         else:
             return self.fit_euclidean_transform(source, target, centre, p0=p0)
@@ -881,11 +932,11 @@ class PointSources(AligmentMethod):
 
         good_data = self.check_input(reference_frame, input_frame)
 
-
         # remove bright sources from both:
 
-        reference_frame, _ = remove_bright_sources_simple(reference_frame, logger=self.logger)
-
+        reference_frame, _ = remove_bright_sources_simple(
+            reference_frame, logger=self.logger
+        )
 
         input_frame, _ = remove_bright_sources_simple(input_frame, logger=self.logger)
 
@@ -899,7 +950,7 @@ class PointSources(AligmentMethod):
 
         input_copy = np.copy(input_frame)
         reference_copy = np.copy(reference_frame)
-        
+
         reference_frame = np.ma.masked_array(reference_copy, mask=mask)
         input_frame = np.ma.masked_array(input_copy, mask=mask)
 
@@ -1302,8 +1353,12 @@ class PointSources(AligmentMethod):
             # --------------------------------------------------------------
 
             try:
-                (theta, offset, theta_err, offset_err, _) = (
-                    self.fit_points(source_fit, target_fit, centre, p0=p0, skip_rotation_estimation = skip_rotation_estimation)
+                (theta, offset, theta_err, offset_err, _) = self.fit_points(
+                    source_fit,
+                    target_fit,
+                    centre,
+                    p0=p0,
+                    skip_rotation_estimation=skip_rotation_estimation,
                 )
             except Exception as e:
                 if self.logger:
@@ -1439,12 +1494,15 @@ class PointSources(AligmentMethod):
 
         try:
             (theta, offset, theta_err, offset_err, _) = self.fit_points(
-                source_fit, target_fit, centre, p0=p0, skip_rotation_estimation = skip_rotation_estimation
+                source_fit,
+                target_fit,
+                centre,
+                p0=p0,
+                skip_rotation_estimation=skip_rotation_estimation,
             )
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed final transformation fit: {e}")
-
 
             self.plot_failed_aligment(
                 reference_frame,
@@ -1675,7 +1733,22 @@ class PointSources(AligmentMethod):
 
 class FFT(AligmentMethod):
 
-    def __init__(self, oversample_factor=1, extra_rotation = 6.0, control_tol = 0.03, snr_min = 10.0, sigma_start = 0.6, sigma_end = 16, sigma_num = 128, logger=None, QA_path=None):
+    def __init__(
+        self,
+        oversample_factor=1,
+        extra_rotation=6.0,
+        control_tol=0.03,
+        snr_min=10.0,
+        sigma_start=0.6,
+        sigma_end=16,
+        sigma_num=126,
+        angle_scan_start = -1,
+        angle_scan_end = 1,
+        angle_scan_steps = 100,
+        window_compare_size = 100,
+        logger=None,
+        QA_path=None,
+    ):
 
         self.oversample_factor = oversample_factor
         self.extra_rotation = extra_rotation
@@ -1684,6 +1757,14 @@ class FFT(AligmentMethod):
         self.sigma_start = sigma_start
         self.sigma_end = sigma_end
         self.sigma_num = sigma_num
+
+        self.angle_scan_start = angle_scan_start
+        self.angle_scan_end = angle_scan_end
+        self.angle_scan_steps = angle_scan_steps
+
+        self.window_compare_size = window_compare_size
+
+        self.angle_scan_array = np.linspace(self.angle_scan_start, self.angle_scan_end, self.angle_scan_steps)
 
         super().__init__("FFT", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -1714,7 +1795,6 @@ class FFT(AligmentMethod):
         med = np.median(c)
         mad = 1.4826 * np.median(np.abs(c - med))
         return ang[k], (c[k] - med) / mad
-
 
     def estimate_rotation_fixed_scale(
         self,
@@ -1751,8 +1831,6 @@ class FFT(AligmentMethod):
         median_ref = np.nanmedian(reference)
         median_img = np.nanmedian(image)
 
-
-
         reference = remove_nans(reference, fill_value=median_ref)
         image = remove_nans(image, fill_value=median_img)
 
@@ -1770,8 +1848,7 @@ class FFT(AligmentMethod):
             image, extra_rotation, reshape=False, order=3, mode="constant", cval=0.0
         )
 
-        
-        # TODO: figure out what this does, for now just leave it 
+        # TODO: figure out what this does, for now just leave it
         if sigmas is None:  # geometric: band centre ~ 1/sigma
             sigmas = np.geomspace(1.0, 16.0, 32)
 
@@ -1779,7 +1856,7 @@ class FFT(AligmentMethod):
         S = -1.0
         rows, ok_eps = [], []
         for s in sigmas:
-            f_lo, f_hi = dog_passband(s, ratio) # dog - difference of Gaussians
+            f_lo, f_hi = dog_passband(s, ratio)  # dog - difference of Gaussians
             n_theta = max(128, 2 * int(2 * np.pi * f_hi * L))  # even
             rings = {}
             for name, im in (("ref", reference), ("img", image), ("rot", img_rot)):
@@ -1834,13 +1911,12 @@ class FFT(AligmentMethod):
             mag = np.abs(X)
             X = X / (mag + 1e-8 * mag.max()) ** gamma
         return X
-    
 
     def integer_peak(self, X, expected, halfwidth):
         """
-        
+
         Helper for translation estimation.
-        
+
         Integer-lag peak of ifft2(X) inside |lag - expected| <= halfwidth.
         Returns (tx, ty) integer start point and a peak SNR (peak vs MAD)."""
         Ny, Nx = X.shape
@@ -1877,6 +1953,173 @@ class FFT(AligmentMethod):
         )
         return res.x, bool(res.success) and np.all(np.abs(res.x - t0) < 1.0)
 
+    def plot_translation_progression(
+        self,
+        result,
+        obs_name,
+        agree_tol=0.1,
+        show=False,
+    ):
+        """
+        Plot how the tx and ty estimates evolve as the sigma loop progresses.
+
+        Parameters
+        ----------
+        result : dict
+            Output of `estimate_translation`.
+
+        obs_name : str
+            Name of the observation, used for saving QA plots and logging.
+
+        agree_tol : float, optional
+            The agreement threshold used in the estimation. Only used to draw
+            the tolerance band around the final estimate. Default is 0.1.
+
+        show : bool, optional
+            If True, display the plot interactively. Default is False.
+        """
+        table = result["table"]
+        sigma = table[:, 0]
+        ok = table[:, 9] == 1
+        in_group = np.isin(sigma, np.asarray(result["sigmas_used"], float))
+
+        est = result["shift"]
+        err = result["shift_err"]
+
+        fig, axes = plt.subplots(2, 1, figsize=(9, 8), sharex=True)
+
+        for ax, col, label, k in ((axes[0], 5, "tx", 0), (axes[1], 6, "ty", 1)):
+            eps = table[:, col]
+
+            # rejected sigmas (failed control / SNR / refinement checks)
+            ax.scatter(
+                sigma[~ok],
+                eps[~ok],
+                marker="x",
+                color="gray",
+                label="Rejected",
+                zorder=2,
+            )
+
+            # accepted sigmas
+            ax.scatter(
+                sigma[ok],
+                eps[ok],
+                color="C0",
+                label="Accepted",
+                zorder=3,
+            )
+
+            # running mean of the accepted points
+            if ok.any():
+                running = np.cumsum(eps[ok]) / np.arange(1, ok.sum() + 1)
+                ax.plot(
+                    sigma[ok],
+                    running,
+                    color="C0",
+                    ls="--",
+                    lw=1,
+                    label="Running mean (accepted)",
+                    zorder=2,
+                )
+
+            # the points that formed the agreeing group
+            if in_group.any():
+                ax.scatter(
+                    sigma[in_group],
+                    eps[in_group],
+                    s=160,
+                    facecolors="none",
+                    edgecolors="red",
+                    linewidths=1.5,
+                    label="Agreeing group",
+                    zorder=4,
+                )
+
+            # final estimate with its error and the agreement tolerance
+            if result["success"] and np.isfinite(est[k]):
+                ax.axhline(est[k], color="red", lw=1, label="Final estimate")
+                ax.axhspan(
+                    est[k] - err[k],
+                    est[k] + err[k],
+                    color="red",
+                    alpha=0.25,
+                    label="Error of the mean",
+                )
+                ax.axhspan(
+                    est[k] - agree_tol / 2,
+                    est[k] + agree_tol / 2,
+                    color="red",
+                    alpha=0.07,
+                    label=f"Agreement tol ({agree_tol})",
+                )
+                ax.set_title(f"{label} = {est[k]:.3f} ± {err[k]:.3f} px")
+            else:
+                ax.set_title(f"{label}: no agreement reached")
+
+            ax.set_ylabel(f"{label} residual (px)")
+            ax.grid(alpha=0.3)
+
+        axes[1].set_xlabel("DoG sigma (px)")
+        axes[0].set_xscale("log")  # axes are shared, so this applies to both
+        axes[0].legend(fontsize=8, loc="best")
+
+        status = "success" if result["success"] else "FAILED"
+        fig.suptitle(
+            f"Translation estimate progression for {obs_name}, method: {self.name} ({status})"
+        )
+        fig.tight_layout()
+
+        plt.savefig(
+            f"{self.QA_path}/translation_progression_{obs_name}_{self.name}.png"
+        )
+
+        if self.logger:
+            self.logger.info(
+                f"Saved translation progression plot to {self.QA_path}/translation_progression_{obs_name}_{self.name}.png"
+            )
+
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+    @staticmethod
+    def _find_agreeing_points(eps_list, n_agree, tol):
+        """
+        Find a group of at least `n_agree` points whose x values span <= tol
+        and whose y values span <= tol (i.e. they fit in a tol x tol box).
+
+        Parameters
+        ----------
+        eps_list : list of (ex, ey)
+            Residual offsets of the accepted sigmas so far.
+
+        Returns
+        -------
+        np.ndarray of int, or None
+            Indices of the largest agreeing group, or None if no group of
+            size >= n_agree exists.
+        """
+        pts = np.asarray(eps_list, float)
+        if len(pts) < n_agree:
+            return None
+
+        best = None
+        # The optimal box can always be shifted so its lower-left edges touch
+        # a point's x and a point's y (not necessarily the same point).
+        for x0 in pts[:, 0]:
+            for y0 in pts[:, 1]:
+                inside = np.where(
+                    (pts[:, 0] >= x0 - 1e-12)
+                    & (pts[:, 0] <= x0 + tol + 1e-12)
+                    & (pts[:, 1] >= y0 - 1e-12)
+                    & (pts[:, 1] <= y0 + tol + 1e-12)
+                )[0]
+                if len(inside) >= n_agree and (best is None or len(inside) > len(best)):
+                    best = inside
+        return best
+
     def estimate_translation(
         self,
         reference,
@@ -1889,18 +2132,29 @@ class FFT(AligmentMethod):
         ctrl_tol=0.02,
         snr_min=20.0,
         search_halfwidth=5.0,
-        min_ok=3,
+        n_agree=3,
+        agree_tol=0.1,
         window_iters=2,
     ):
         """
-        Returns dict(shift=(tx, ty), shift_err=(sx, sy), success, table, raw).
+        Returns dict(shift=(tx, ty), shift_err=(sx, sy), success, table, raw, n_used,
+        sigmas_used).
+
+        Loops over `sigmas` in order and stops as soon as `n_agree` accepted
+        measurements agree to within `agree_tol` pixels in BOTH x and y. The
+        returned shift is the mean of those agreeing measurements and
+        shift_err is the standard error of that mean (std, ddof=1, / sqrt(n)).
 
         control_offset  : known (dx, dy) applied to `image` for the control pair.
                           Must exceed search_halfwidth + peak width so the dx=dy=0
                           artefacts (window, DFT edge effects) stay outside the search.
                           Use dx != dy: equal offsets cannot reveal an x/y swap.
         search_halfwidth: largest |residual| (px) you are willing to accept.
+        n_agree         : number of accepted sigmas that must agree (default 3).
+        agree_tol       : max spread (px) allowed in x and in y among those
+                          points (default 0.1).
         table columns   : sigma, tx, ty, ctrl_x, ctrl_y, eps_x, eps_y, snr_main, snr_ctrl, ok
+                          (only the sigmas processed before stopping)
         raw             : median uncorrected shift (main - nominal offset), for comparison.
         window_iters    : after the first estimate the reference window is moved onto the
                           same sky area as the image window and the estimate is redone.
@@ -1917,12 +2171,9 @@ class FFT(AligmentMethod):
         median_ref = np.nanmedian(reference)
         median_img = np.nanmedian(image)
 
-
-
         reference = remove_nans(reference, fill_value=median_ref)
         image = remove_nans(image, fill_value=median_img)
         cx, cy = control_offset
-
 
         win = tukey2d(reference.shape, taper)
         # zero-pad so the known shift never crops content and the correlation never wraps
@@ -1932,13 +2183,18 @@ class FFT(AligmentMethod):
             sigmas = np.geomspace(1.0, 4.0, 10)
 
         rows = []
+        good_rows = []  # rows that passed all quality checks
+        agree_idx = None
+
         for s in sigmas:
             # DoG -> window -> pad, all in each image's OWN frame.  The window must
             # travel with the content: windowing *after* a shift pulls the estimate
             # toward zero by tens of milli-pixels.
             Dref, Dimg = dog(reference, s, ratio), dog(image, s, ratio)
             U = np.pad(Dimg * win, pad)  # unshifted image
-            A = ndi_shift(U, (cy, cx), order=3, mode="constant", cval=0.0)  # shifted image
+            A = ndi_shift(
+                U, (cy, cx), order=3, mode="constant", cval=0.0
+            )  # shifted image
 
             # control: A is an exact shifted copy of U -> truth is (cx, cy)
             Xc = self.cross_spectrum(A, U, gamma)
@@ -1954,7 +2210,9 @@ class FFT(AligmentMethod):
                 t0m, snr_m, pk_m = self.integer_peak(Xm, (cx, cy), search_halfwidth)
                 tm, ok_m = self.refine_peak(Xm, t0m, pk_m * Xm.size)
                 e = tm - (cx, cy)
-                w_ref = ndi_shift(win, (-e[1], -e[0]), order=3, mode="constant", cval=0.0)
+                w_ref = ndi_shift(
+                    win, (-e[1], -e[0]), order=3, mode="constant", cval=0.0
+                )
             eps = tm - tc  # bias-cancelled residual
             ok = (
                 ok_m
@@ -1963,20 +2221,34 @@ class FFT(AligmentMethod):
                 and snr_m > snr_min
                 and snr_c > snr_min
             )
-            rows.append((s, *tm, *tc, *eps, snr_m, snr_c, float(ok)))
+            row = (s, *tm, *tc, *eps, snr_m, snr_c, float(ok))
+            rows.append(row)
+
+            if ok:
+                good_rows.append(row)
+                agree_idx = self._find_agreeing_points(
+                    [(r[5], r[6]) for r in good_rows], n_agree, agree_tol
+                )
+                if agree_idx is not None:
+                    break  # enough accepted sigmas agree, no need to go further
 
         table = np.array(rows, float)
-        good = table[table[:, -1] == 1]
         raw = np.median(table[:, 1:3], axis=0) - (cx, cy)
-        if len(good) >= min_ok:
-            est = np.median(good[:, 5:7], axis=0)
-            err = good[:, 5:7].std(axis=0, ddof=1)  # conservative: sigmas are correlated
+
+        if agree_idx is not None:
+            group = np.array(good_rows, float)[agree_idx]
+            eps_group = group[:, 5:7]
+            n = len(group)
+            est = eps_group.mean(axis=0)
+            err = eps_group.std(axis=0, ddof=1) / np.sqrt(n)  # error of the mean
             return dict(
                 shift=tuple(est),
                 shift_err=tuple(err),
                 success=True,
                 table=table,
                 raw=tuple(raw),
+                n_used=n,
+                sigmas_used=tuple(group[:, 0]),
             )
         return dict(
             shift=(np.nan, np.nan),
@@ -1984,7 +2256,9 @@ class FFT(AligmentMethod):
             success=False,
             table=table,
             raw=tuple(raw),
-    )
+            n_used=0,
+            sigmas_used=(),
+        )
 
     def run(
         self,
@@ -2044,111 +2318,155 @@ class FFT(AligmentMethod):
         """
 
         # take a copy of the input frames to avoid modifying the originals
-        reference_frame = reference_frame.copy()
-        input_frame = input_frame.copy()
-        
-        
-        # first, we try to estimate rotation
+        reference_frame_backup = reference_frame.copy()
+        input_frame_backup = input_frame.copy()
 
-        if not skip_rotation_estimation:
+        # median used for filling out values in corners
 
-            rot_dict = self.estimate_rotation_fixed_scale(
+        median = np.nanmedian(input_frame)
+
+        ref_median = np.nanmedian(reference_frame)
+
+        # we use this for estimating the best angle from a scan
+        diffs = []
+
+        for angle in self.angle_scan_array:
+
+            reference_frame = reference_frame_backup
+            input_frame = input_frame_backup
+
+            # mask to track valid pixels for later diff image:
+
+            valid = np.ones_like(input_frame, dtype=float)
+
+            rotated_input_frame = rotate(
+                            input_frame, angle, reshape=False, order=3, cval=median
+                        )
+            
+            valid = (
+                rotate(valid, angle, reshape=False, order=0, cval=0) > 0.5
+            )
+
+            result = self.estimate_translation(
                 reference_frame,
-                input_frame,
-                extra_rotation=self.extra_rotation,
+                rotated_input_frame,
+                control_offset=(10.2, 10.2),
                 sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
                 ratio=1.6,
+                gamma=0.0,
+                taper=0.25,
                 ctrl_tol=self.control_tol,
                 snr_min=10.0,
-                search_halfwidth=1.0,
-                min_ok=3,
-                pad=2,
-                upsample=64,
-            )
-            np.set_printoptions(precision=4, suppress=True)
-            self.logger.info(
-                "\nper-sigma table for last case: sigma, a_main, a_ctrl, eps, snr_main, snr_ctrl, ok\n" + str(rot_dict["table"])
+                search_halfwidth=20.0,
             )
 
-            # from the rot dict, take all entries where: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min: 
+            if  not result["success"]:
 
-            filtered_entries = rot_dict["table"][
-                (np.abs(rot_dict["table"][:, 2] - self.extra_rotation) <= self.control_tol) &
-                (rot_dict["table"][:, 4] > self.snr_min) &
-                (rot_dict["table"][:, 5] > self.snr_min)
+                self.logger.warning(f"Failed to estimate translation for {angle} degrees")
+
+                diffs.append(np.nan)
+
+                continue
+
+            tx, ty = result["shift"]
+            tx = -tx
+            ty = -ty
+            tx_err, ty_err = result["shift_err"]
+
+            self.logger.info(f"Estimated translation: ({tx:.2f}, {ty:.2f}) +/- ({tx_err:.2f}, {ty_err:.2f}) for {angle} degrees")
+
+            valid = (
+                shift(
+                    valid,
+                    shift=(ty, tx),
+                    order=0,
+                    mode="constant",
+                    cval=0,
+                )
+                > 0.5
+            )
+
+            shifted_input = shift(
+                rotated_input_frame,
+                shift=(ty, tx),
+                order=3,
+                mode="constant",
+                cval=median,
+            )
+            
+
+            center = np.array(reference_frame.shape) // 2
+            reference_frame = reference_frame[
+                center[0] - self.window_compare_size : center[0] + self.window_compare_size,
+                center[1] - self.window_compare_size : center[1] + self.window_compare_size,
+            ]
+            shifted_input = shifted_input[
+                center[0] - self.window_compare_size : center[0] + self.window_compare_size,
+                center[1] - self.window_compare_size : center[1] + self.window_compare_size,
+            ]
+            valid = valid[
+                center[0] - self.window_compare_size : center[0] + self.window_compare_size,
+                center[1] - self.window_compare_size : center[1] + self.window_compare_size,
             ]
 
-            # find the arg with highest snr_main
-
-            if len(filtered_entries) > 0:
-                best_entry = filtered_entries[np.argmax(filtered_entries[:, 4])]
-                best_sigma = best_entry[0]
-                best_eps = best_entry[3]
-                self.logger.info(
-                    f"Best sigma: {best_sigma:.4f}, Best eps: {best_eps:.4f}"
-                )
-            else:
-                self.logger.warning(
-                    "No valid entries found in the per-sigma table that satisfy the control tolerance and SNR thresholds. No rotation estimated - alignment failed."
-                )
-
-                self.plot_failed_aligment(
-                    reference_frame,
-                    input_frame,
-                    obs_name,
-                    show = show_QA
-                )
-
-                return self.FAILED_RETURN
-
-            # QA for angles
-            plt.plot(filtered_entries[:, 0], filtered_entries[:, 3], marker='o', linestyle='-', color='blue', label='eps')
-            plt.axvline(x=best_sigma, color='red', linestyle='--', label=f'Best sigma: {best_sigma:.4f}')
-            plt.xlabel('sigma')
-            plt.ylabel('eps')
-            plt.title(f'eps vs sigma for {obs_name}')
-            plt.legend()
-            plt.grid()
-            if save_QA:
-                plt.savefig(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
-                if self.logger:
-                    self.logger.info(
-                        f"Saved QA plot of eps vs sigma to "
-                        f"{self.QA_path}/eps_vs_sigma_{obs_name}.png"
-                    )
-            if show_QA:
-                plt.show()
-            else:
-                plt.close()
+            mean_diff = np.mean(np.abs(((reference_frame/ref_median) - (shifted_input/median))[valid]))
+            
+            diffs.append(mean_diff)
 
 
-            rot = -best_eps
 
-            # TODO - estimation on rotation error based on neibhours
-            rot_err = 0
 
+        # now fit for minimum angle
+
+        # fit a second order polynomial +/5 5 points from numerical minimum and calculate the minimum analycitacl
+        min_angle_index = np.argmin(diffs)
+
+        min_angle_left = max(0, min_angle_index - 5)
+        min_angle_right = min(len(diffs), min_angle_index + 5)
+
+        angle_fit_x = self.angle_scan_array[min_angle_left:min_angle_right]
+        
+        diff_array_y = diffs[min_angle_left:min_angle_right]
+
+        p = np.polyfit(angle_fit_x, diff_array_y, 2)
+
+        min_angle = -p[1] / (2 * p[0])
+
+        # plot the diffs vs angles, the fit, and save/show
+
+        plt.plot(self.angle_scan_array, diffs, "o", label = "Average difference image pixel value")
+        plt.plot(self.angle_scan_array, np.polyval(p, self.angle_scan_array), "r--", label = "Model around minimum")
+        plt.axvline(min_angle, color="red", linestyle="--", label=f"Estimated minimum: {min_angle:.2f}°")
+        plt.xlabel("Rotation Angle (degrees)")
+        plt.ylabel("Average pixel value of difference image")
+        plt.title(f"Rotation angle scan for {obs_name}")
+        plt.legend()
+
+        if save_QA:
+            plt.savefig(f"{self.QA_path}/angle_scan_model_{obs_name}.png")
+
+        if show_QA:
+            plt.show()
         else:
+            plt.close()
 
-            self.logger.info("Skipping rotation estimation as per user request.")
 
-            rot = 0.0
-            rot_err = 0.0
+        rot = min_angle
 
-        # now we rotate the input frame by the estimated rotation and 
-        # then estimate translation (we keep this part for no rotation estimation cases also for consistency)
-        # remove NaNs from the input frame before rotation
-        
-        median_input = np.nanmedian(input_frame)
-        
-        input_frame = remove_nans(input_frame, fill_value=median_input)
-        
+        rot_err = 0 # TODO: calculate this
+
+        # final pass - shift by the modelled angle and estimate tx and ty
+
+        # reset frames
+        reference_frame = reference_frame_backup
+        input_frame = input_frame_backup
+
         rotated_input_frame = rotate(
-            input_frame, rot, reshape=False, order=3, cval=0.0
-        )
-    
+                        input_frame, rot, reshape=False, order=3, cval=median
+                    )
+        
 
-
-        trans_dict = self.estimate_translation(
+        result = self.estimate_translation(
             reference_frame,
             rotated_input_frame,
             control_offset=(10.2, 10.2),
@@ -2159,102 +2477,24 @@ class FFT(AligmentMethod):
             ctrl_tol=self.control_tol,
             snr_min=10.0,
             search_halfwidth=20.0,
-            min_ok=3,
-            window_iters=2,
         )
+        if  not result["success"]:
+            self.logger.warning(f"Failed FFT aligment for {obs_name}")
 
-        self.logger.info(
-            "\nper-sigma table for last case: sigma, tx, ty, ctrl_x, ctrl_y, eps_x, eps_y, snr_main, snr_ctrl, ok\n" + str(trans_dict["table"])
-        )
-
-        ctrl_x = trans_dict["table"][:, 3]
-        ctrl_y = trans_dict["table"][:, 4]
-
-        eps_x = trans_dict["table"][:, 5]
-        eps_y = trans_dict["table"][:, 6]
-
-        # plot ctrl_x and control_y and show the target, as a function of sigma
-
-        plt.plot(trans_dict["table"][:, 0], ctrl_x, marker='o', linestyle='-', color='blue', label='ctrl_x')
-        plt.plot(trans_dict["table"][:, 0], ctrl_y, marker='o', linestyle='-', color='orange', label='ctrl_y')
-        plt.axhline(y=10.2, color='red', linestyle='--', label='Expected ctrl offset: 10.2')
-        plt.xlabel('sigma')
-        plt.ylabel('ctrl_x, ctrl_y')
-        plt.title(f'Control offsets vs sigma for {obs_name}')
-        plt.legend()
-        plt.grid()
-        if save_QA:
-            plt.savefig(f"{self.QA_path}/control_offsets_vs_sigma_{obs_name}.png")
-            if self.logger:
-                self.logger.info(
-                    f"Saved QA plot of control offsets vs sigma to "
-                    f"{self.QA_path}/control_offsets_vs_sigma_{obs_name}.png"
-                )
-        if show_QA:
-            plt.show()
-        else:
-            plt.close()
-
-        snr_main_array = trans_dict["table"][:, 7]
-        snr_ctrl_array = trans_dict["table"][:, 8]
-
-        # same cut as before: control_tol is satisfied, snr_main > snr_min, snr_ctrl > snr_min
-
-        mask = (np.abs(trans_dict["table"][:, 3] - 10.2) < self.control_tol) & (np.abs(trans_dict["table"][:, 4] - 10.2) < self.control_tol) & (snr_main_array > self.snr_min) & (snr_ctrl_array > self.snr_min)    
-
-        clean_table = trans_dict["table"][mask]
-
-        # best snr: 
-
-        if len(clean_table) > 0:
-            best_entry = clean_table[np.argmax(clean_table[:, 7])]
-            best_sigma_trans = best_entry[0]
-            best_eps_x = best_entry[5]
-            best_eps_y = best_entry[6]
-            self.logger.info(
-                f"Best sigma for translation: {best_sigma_trans:.4f}, Best eps_x: {best_eps_x:.4f}, Best eps_y: {best_eps_y:.4f}"
-            )
-        else:
-            self.logger.warning(
-                "No valid entries found in the per-sigma table for translation that satisfy the control tolerance and SNR thresholds. No translation estimated - alignment failed."
-            )
-            self.plot_failed_aligment(
-                reference_frame,
-                rotated_input_frame,
-                obs_name,
-                show = show_QA
-            )
+            self.plot_failed_aligment(reference_frame, input_frame, obs_name)
+            
             return self.FAILED_RETURN
 
-        # QA plot for translation
+        self.plot_translation_progression(result, obs_name, show = show_QA)
 
-        plt.figure(figsize=(8, 6))
-        plt.plot(clean_table[:, 0], clean_table[:, 5], marker='o', linestyle='-', color='blue', label='eps_x')
-        plt.plot(clean_table[:, 0], clean_table[:, 6], marker='o', linestyle='-', color='orange', label='eps_y')
-        plt.axvline(x=best_sigma_trans, color='red', linestyle='--', label=f'Best sigma: {best_sigma_trans:.4f}')
-        plt.xlabel('sigma')
-        plt.ylabel('eps_x, eps_y')
-        plt.title(f'eps_x and eps_y vs sigma for {obs_name}')
-        plt.legend()
-        plt.grid()
-        if save_QA:
-            plt.savefig(f"{self.QA_path}/eps_xy_vs_sigma_{obs_name}.png")
-            if self.logger:
-                self.logger.info(
-                    f"Saved QA plot of eps_x and eps_y vs sigma to "
-                    f"{self.QA_path}/eps_xy_vs_sigma_{obs_name}.png"
-                )
-        if show_QA:
-            plt.show()
-        else:
-            plt.close()
+        tx, ty = result["shift"]
+        tx_err, ty_err = result["shift_err"]
 
-        tx, ty = -best_eps_x, -best_eps_y
-        tx_err, ty_err = 0.0, 0.0  # TODO - estimation on translation error based on neighbors
-
+        tx = -tx
+        ty = -ty
+        
         success = True
 
-    
         self.plot_difference_image(
             reference_frame, input_frame, tx, ty, rot, obs_name, show=False
         )
@@ -2266,10 +2506,10 @@ class FFT(AligmentMethod):
             rot_err,
             success,
         )
-        
+
 
 class OpticalFlow(AligmentMethod):
-    
+
     def __init__(self, logger=None, QA_path=None):
         super().__init__("OpticalFlow", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -2335,7 +2575,7 @@ class OpticalFlow(AligmentMethod):
             True if the alignment was successful, False otherwise.
         """
 
-        # spacepylot implementation returns all 0's on failure. For identical 
+        # spacepylot implementation returns all 0's on failure. For identical
         # frames. we therefore check them manually and return success = True if they are identical.
         # If frames are different,  we set detect 0,0,0 and set them as failed aligments
 
@@ -2344,7 +2584,9 @@ class OpticalFlow(AligmentMethod):
         input_frame = input_frame.copy()
 
         if np.nansum(np.abs(reference_frame - input_frame)) < 1e-6:
-            self.logger.info("Reference and input frames have identical nansum = assuming this is identifal frames, skipping...")
+            self.logger.info(
+                "Reference and input frames have identical nansum = assuming this is identifal frames, skipping..."
+            )
             return (
                 (0.0, 0.0),
                 0.0,
@@ -2355,7 +2597,7 @@ class OpticalFlow(AligmentMethod):
 
         op = align.AlignOpticalFlow(input_frame, reference_frame)
 
-        #solution (redirecy spacepylot prints to logger)
+        # solution (redirecy spacepylot prints to logger)
         with redirect_stdout_to_logger(logger):
             if not skip_rotation_estimation:
                 op.get_translation_rotation()
@@ -2363,17 +2605,23 @@ class OpticalFlow(AligmentMethod):
                 self.logger.warning("Skipping rotation estimation as per user request.")
                 op.get_translation_rotation(homography_method=TranslationTransform)
 
-        self.logger.info(f"Estimated translation: {op.translation}, Estimated rotation: {op.rotation_deg}")
+        self.logger.info(
+            f"Estimated translation: {op.translation}, Estimated rotation: {op.rotation_deg}"
+        )
 
         ty, tx = op.translation
 
         rot = op.rotation_deg if not skip_rotation_estimation else 0.0
 
         if np.abs(tx - 0) < 1e-3 and np.abs(ty - 0) < 1e-3 and np.abs(rot - 0) < 1e-3:
-            self.logger.warning("No offset or rotation detected in optical flow - setting aligment as failed.")
-            self.plot_failed_aligment(reference_frame, input_frame, obs_name, show=show_QA)
+            self.logger.warning(
+                "No offset or rotation detected in optical flow - setting aligment as failed."
+            )
+            self.plot_failed_aligment(
+                reference_frame, input_frame, obs_name, show=show_QA
+            )
             return self.FAILED_RETURN
-        
+
         # plot difference image
 
         self.plot_difference_image(
@@ -2387,7 +2635,6 @@ class OpticalFlow(AligmentMethod):
 
         success = True
 
-
         return (
             (tx, ty),
             rot,
@@ -2395,6 +2642,3 @@ class OpticalFlow(AligmentMethod):
             rot_err,
             success,
         )
-
-
-    

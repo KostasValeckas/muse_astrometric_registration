@@ -74,6 +74,7 @@ def mask_zero_as_bpm(image, logger=None):
 
     return masked_image, bpm
 
+
 def _shrink(finite, window, min_run, logger=None):
     """
     Shrink window = [top, bottom, left, right] (trims from each side) until
@@ -94,20 +95,33 @@ def _shrink(finite, window, min_run, logger=None):
         c0, c1 = left, ncols - right
         if r1 - r0 < 1 or c1 - c0 < 1:
             if logger:
-                logger.warning("Window collapsed; no valid region found. Returning original window.")
+                logger.warning(
+                    "Window collapsed; no valid region found. Returning original window."
+                )
             return window
 
-        if not ok(finite[r0, c0:c1]):      top += 1;    changed = True
-        if not ok(finite[r1 - 1, c0:c1]):  bottom += 1; changed = True
-        if not ok(finite[r0:r1, c0]):      left += 1;   changed = True
-        if not ok(finite[r0:r1, c1 - 1]):  right += 1;  changed = True
+        if not ok(finite[r0, c0:c1]):
+            top += 1
+            changed = True
+        if not ok(finite[r1 - 1, c0:c1]):
+            bottom += 1
+            changed = True
+        if not ok(finite[r0:r1, c0]):
+            left += 1
+            changed = True
+        if not ok(finite[r0:r1, c1 - 1]):
+            right += 1
+            changed = True
 
     return [top, bottom, left, right]
 
-def estimate_nan_window(image, min_run=100, logger= None):
+
+def estimate_nan_window(image, min_run=100, logger=None):
 
     if logger:
-        logger.info(f"Estimating window of finite pixels with minimum finite array size: {min_run}")
+        logger.info(
+            f"Estimating window of finite pixels with minimum finite array size: {min_run}"
+        )
 
     finite = np.isfinite(image)
     nrows, ncols = image.shape
@@ -115,12 +129,16 @@ def estimate_nan_window(image, min_run=100, logger= None):
     # Pass 1: each edge needs >= min_run consecutive finite pixels
     w1 = _shrink(finite, [0, 0, 0, 0], min_run, logger=logger)
     if logger:
-        logger.info("Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1))
+        logger.info(
+            "Pass 1 (run criterion): top=%d, bottom=%d, left=%d, right=%d" % tuple(w1)
+        )
 
     # Pass 2: continue from pass-1 window, each edge must contain no NaN at all
     w2 = _shrink(finite, w1, None, logger=logger)
     if logger:
-        logger.info("Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2))
+        logger.info(
+            "Pass 2 (no NaN on edges): top=%d, bottom=%d, left=%d, right=%d" % tuple(w2)
+        )
 
     top, bottom, left, right = w2
     height = nrows - top - bottom
@@ -129,6 +147,7 @@ def estimate_nan_window(image, min_run=100, logger= None):
         logger.info(f"Final window: height={height}, width={width}")
 
     return (top, bottom, left, right), (height, width)
+
 
 def dog_passband(sigma, ratio=1.6, level=0.2):
     """Frequency range (cycles/pixel) where the DoG response >= level * peak."""
@@ -139,12 +158,14 @@ def dog_passband(sigma, ratio=1.6, level=0.2):
     keep = f[h >= level * h.max()]
     return keep[0], keep[-1]
 
+
 def dog(img, sigma, ratio=1.6):
     """DoG with a fixed sigma *ratio*: sigma sets the band centre, ratio the
     (fractional) bandwidth.  Absolute sigma differences only scale amplitude."""
     return gaussian_filter(img, sigma, mode="nearest") - gaussian_filter(
         img, ratio * sigma, mode="nearest"
     )
+
 
 # --------------------------------------------------------------------------
 # spectrum -> rings -> angular correlation
@@ -176,6 +197,7 @@ def polar_rings(img, f_lo, f_hi, n_theta, pad=2):
     ring /= np.where(sd > 0, sd, 1.0)
     return ring, f
 
+
 def radial_window(shape, taper=0.4):
     """Rotation-invariant (disk) Tukey window, centred on (N-1)/2 like
     scipy.ndimage.rotate.  Unlike a separable Hann it has no frame-fixed
@@ -191,6 +213,7 @@ def radial_window(shape, taper=0.4):
     w[ramp] = 0.5 * (1 + np.cos(np.pi * (r[ramp] - r_in) / (r_out - r_in)))
     w[r >= r_out] = 0.0
     return w
+
 
 def tukey2d(shape, taper=0.25):
     return np.outer(tukey(shape[0], taper), tukey(shape[1], taper))

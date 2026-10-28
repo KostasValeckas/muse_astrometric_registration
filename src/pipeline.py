@@ -13,14 +13,17 @@ from geometry import (
     inverse_transformation,
     detector_translation_to_sky_translation,
     reproject_dithers,
-    remove_nan_edges_dithers
+    remove_nan_edges_dithers,
 )
+
+from stats import masked_ncc
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.patches import Patch
+from scipy.ndimage import shift, rotate
 
 
 # ============================================================================
@@ -29,8 +32,8 @@ from matplotlib.patches import Patch
 
 # Points (measured from the rotation centre) at which two transformations are
 # compared in the consistency checks.
-CHECK_POINT = (100.0, 100.0)      # the single fixed point used so far
-CHECK_ON_FRAME_CORNERS = False    # True: use the 4 frame corners + centre instead.
+CHECK_POINT = (100.0, 100.0)  # the single fixed point used so far
+CHECK_ON_FRAME_CORNERS = False  # True: use the 4 frame corners + centre instead.
 #                                   This measures the worst-case error over the
 #                                   whole frame (stricter on large detectors), so
 #                                   the distance threshold may need retuning.
@@ -126,9 +129,13 @@ norm = BoundaryNorm([0, 0.5, 0.7, 1, 1.5], cmap.N)
 #  * Cell-text font size is fitted to the panel width and n; above MAX_ANNOTATED
 #    dithers the per-cell text is replaced by a colorbar / colour legend.
 # ============================================================================
-MAX_PANEL_COLS = 5       # panels per row before wrapping (4 dithers + reference = old layout)
-N_SUMMARY_PANELS = 4     # status / x offsets / y offsets / rotation
-MAX_ANNOTATED = 12       # above this many dithers: no per-cell text (colorbar / legend instead)
+MAX_PANEL_COLS = (
+    5  # panels per row before wrapping (4 dithers + reference = old layout)
+)
+N_SUMMARY_PANELS = 4  # status / x offsets / y offsets / rotation
+MAX_ANNOTATED = (
+    12  # above this many dithers: no per-cell text (colorbar / legend instead)
+)
 
 
 def _science_grid_shape(n_dithers, max_cols=MAX_PANEL_COLS):
@@ -182,11 +189,13 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
     ax.set_xlabel("Dither Index")
     ax.set_ylabel("Dither Index")
 
-    step = max(1, int(np.ceil(n / 12)))               # thin the ticks for large n
+    step = max(1, int(np.ceil(n / 12)))  # thin the ticks for large n
     ticks = list(range(0, n, step))
     labels = _dither_tick_labels(n)
-    for setter, labsetter in ((ax.set_xticks, ax.set_xticklabels),
-                              (ax.set_yticks, ax.set_yticklabels)):
+    for setter, labsetter in (
+        (ax.set_xticks, ax.set_xticklabels),
+        (ax.set_yticks, ax.set_yticklabels),
+    ):
         setter(ticks)
         labsetter([labels[t] for t in ticks])
     if n > 4:
@@ -199,13 +208,26 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
         fs = _fit_fontsize(ax, n, [t for row in texts for t in row])
         for i in range(n):
             for j in range(n):
-                ax.text(j, i, texts[i][j], ha="center", va="center",
-                        color="black", fontsize=fs)
+                ax.text(
+                    j,
+                    i,
+                    texts[i][j],
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=fs,
+                )
     elif status:
         names = {0: "failed", 0.5: "composed", 0.7: "inconsistent", 1: "ok"}
         ax.legend(
-            handles=[Patch(facecolor=STATUS_COLORS[k], label=names[k]) for k in (1, 0.5, 0.7, 0)],
-            loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=2, fontsize=8,
+            handles=[
+                Patch(facecolor=STATUS_COLORS[k], label=names[k])
+                for k in (1, 0.5, 0.7, 0)
+            ],
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.32),
+            ncol=2,
+            fontsize=8,
         )
     else:
         ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -225,7 +247,7 @@ class AlignmentPipeline:
         aligment_method=NoAlignment,
         distance_threshold=0.10,
         write_inconsistent=True,
-        skip_rotation_estimation=False
+        skip_rotation_estimation=False,
     ):
         """
         Initialize the AlignmentPipeline.
@@ -400,7 +422,7 @@ class AlignmentPipeline:
 
         if axes.ndim == 2:
             fig = axes[0, 0].figure
-            image_axes = list(axes[:-1].ravel())          # every row but the last
+            image_axes = list(axes[:-1].ravel())  # every row but the last
             summary_axes = axes[-1, :N_SUMMARY_PANELS]
         else:
             fig = axes[0].figure
@@ -420,12 +442,16 @@ class AlignmentPipeline:
             )
         for k, ax in enumerate(image_axes):
             if k >= n_dithers:
-                ax.axis("off")                            # unused cell in the grid
+                ax.axis("off")  # unused cell in the grid
                 continue
             vmin, vmax = _display_limits(dither_set[k])
             ax.imshow(
-                dither_set[k], cmap="gray", origin="lower",
-                interpolation="nearest", vmin=vmin, vmax=vmax,
+                dither_set[k],
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=vmin,
+                vmax=vmax,
             )
             ax.set_title(f"Dither {k + 1}")
             ax.set_xlabel("x")
@@ -446,18 +472,40 @@ class AlignmentPipeline:
         def number(v):
             return f"{v:.3f}"
 
-        _draw_dither_matrix(summary_axes[0], succes_table,
-                            "Alignment Status Between Dithers", n_dithers,
-                            status_text, status=True, cmap=cmap, norm=norm)
-        _draw_dither_matrix(summary_axes[1], x_return_table,
-                            "X Offsets Between Dithers", n_dithers,
-                            number, cmap="Set1")
-        _draw_dither_matrix(summary_axes[2], y_return_table,
-                            "Y Offsets Between Dithers", n_dithers,
-                            number, cmap="Set1")
-        _draw_dither_matrix(summary_axes[3], rotation_return_table,
-                            "Rotation Angles Between Dithers", n_dithers,
-                            number, cmap="Set1")
+        _draw_dither_matrix(
+            summary_axes[0],
+            succes_table,
+            "Alignment Status Between Dithers",
+            n_dithers,
+            status_text,
+            status=True,
+            cmap=cmap,
+            norm=norm,
+        )
+        _draw_dither_matrix(
+            summary_axes[1],
+            x_return_table,
+            "X Offsets Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
+        _draw_dither_matrix(
+            summary_axes[2],
+            y_return_table,
+            "Y Offsets Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
+        _draw_dither_matrix(
+            summary_axes[3],
+            rotation_return_table,
+            "Rotation Angles Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
 
         # ---- layout / save / show: only when we own the figure ----------------
         if owns_figure:
@@ -508,13 +556,14 @@ class AlignmentPipeline:
         # and the tables are populated
 
         for i, dither_1 in enumerate(dither_set):
-
+            
             for j, dither_2 in enumerate(dither_set):
 
                 # Same WCS convention as the science alignment: the first image
                 # is the "reference", so reference_wcs belongs to the first image
                 # and input_wcs to the second.  (All WCSs are identical after
                 # reproject_dithers, so this only matters for correctness.)
+
                 (
                     (tx, ty),
                     rotation_angle,
@@ -527,7 +576,7 @@ class AlignmentPipeline:
                     f"{obs_name}_dither_{i+1}_to_dither_{j+1}",
                     input_wcs=wcs_set[j],
                     reference_wcs=wcs_set[i],
-                    skip_rotation_estimation=self.skip_rotation_estimation
+                    skip_rotation_estimation=self.skip_rotation_estimation,
                 )
 
                 x_return_table[i, j] = tx
@@ -772,14 +821,23 @@ class AlignmentPipeline:
 
         self.logger.info("Consistency check complete.")
 
-        
         x_table_filename = f"x_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        x_error_table_filename = f"x_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        x_error_table_filename = (
+            f"x_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        )
         y_table_filename = f"y_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        y_error_table_filename = f"y_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        rotation_table_filename = f"rotation_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        rotation_error_table_filename = f"rotation_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        success_table_filename = f"success_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        y_error_table_filename = (
+            f"y_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        )
+        rotation_table_filename = (
+            f"rotation_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        )
+        rotation_error_table_filename = (
+            f"rotation_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        )
+        success_table_filename = (
+            f"success_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+        )
 
         np.savetxt(
             pathlib.Path(self.output_dir) / x_table_filename,
@@ -862,7 +920,7 @@ class AlignmentPipeline:
         #TODO a hard copy and carries too much info in the parameters, needs refactor
         """
         n_dithers = len(dither_frames)
-        n_items = n_dithers + 1                           # + reference panel
+        n_items = n_dithers + 1  # + reference panel
         owns_figure = axes is None
 
         if owns_figure:
@@ -896,8 +954,12 @@ class AlignmentPipeline:
             image = dither_frame_arrays[i]
             vmin, vmax = _display_limits(image)
             ax_img.imshow(
-                image, cmap="gray", origin="lower", interpolation="nearest",
-                vmin=vmin, vmax=vmax,
+                image,
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=vmin,
+                vmax=vmax,
             )
             ax_img.set_title(f"Dither {i + 1}")
             ax_img.set_xlabel("x")
@@ -907,19 +969,41 @@ class AlignmentPipeline:
             ax.axis("off")
 
             (
-                tx, ty, rotation_angle,
-                tx_error, ty_error, rotation_error,
-                success, composed, composed_from,
+                tx,
+                ty,
+                rotation_angle,
+                tx_error,
+                ty_error,
+                rotation_error,
+                success,
+                composed,
+                composed_from,
             ) = science_tables[pointing][i]
 
-            status_text, status_color = _science_status(success, composed, composed_from)
+            status_text, status_color = _science_status(
+                success, composed, composed_from
+            )
 
             if success is None or tx is None or ty is None or rotation_angle is None:
-                ax.text(0.05, 0.5, f"Dither {i + 1}\nNo result",
-                        ha="left", va="center", fontsize=11, color="white")
-                ax.text(0.05, 0.18, f"Status: {status_text}",
-                        ha="left", va="center", fontsize=10,
-                        color=status_color, fontweight="bold")
+                ax.text(
+                    0.05,
+                    0.5,
+                    f"Dither {i + 1}\nNo result",
+                    ha="left",
+                    va="center",
+                    fontsize=11,
+                    color="white",
+                )
+                ax.text(
+                    0.05,
+                    0.18,
+                    f"Status: {status_text}",
+                    ha="left",
+                    va="center",
+                    fontsize=10,
+                    color=status_color,
+                    fontweight="bold",
+                )
                 continue
 
             main_text = (
@@ -931,10 +1015,26 @@ class AlignmentPipeline:
                 f"ty_err = {ty_error:.3f}\n"
                 f"rot_err = {rotation_error:.3f}"
             )
-            ax.text(0.05, 0.95, main_text, ha="left", va="top", fontsize=9,
-                    color="white", linespacing=1.4)
-            ax.text(0.05, 0.18, f"Status: {status_text}", ha="left", va="center",
-                    fontsize=10, color=status_color, fontweight="bold")
+            ax.text(
+                0.05,
+                0.95,
+                main_text,
+                ha="left",
+                va="top",
+                fontsize=9,
+                color="white",
+                linespacing=1.4,
+            )
+            ax.text(
+                0.05,
+                0.18,
+                f"Status: {status_text}",
+                ha="left",
+                va="center",
+                fontsize=10,
+                color=status_color,
+                fontweight="bold",
+            )
             ax.axvspan(0.0, 1.0, ymin=0.0, ymax=1.0, facecolor="white", alpha=0.0)
             ax.set_facecolor("white")
             for spine in ax.spines.values():
@@ -943,15 +1043,21 @@ class AlignmentPipeline:
         # ---- reference panel (the item after the last dither) -----------------
         # reprojected_reference_frames is filled per pointing in run(); accept the
         # (pointing, k) key form too so either convention works.
-        ref_key = pointing if pointing in reprojected_reference_frames else (pointing, 0)
+        ref_key = (
+            pointing if pointing in reprojected_reference_frames else (pointing, 0)
+        )
         reference_frame_pointing = reprojected_reference_frames[ref_key]
         v_med = np.nanmedian(reference_frame_pointing)
         v_std = np.nanstd(reference_frame_pointing)
 
         ref_ax, summary_ax = panel_axes(n_dithers)
         ref_ax.imshow(
-            reference_frame_pointing, cmap="gray", origin="lower",
-            interpolation="nearest", vmin=v_med - 3 * v_std, vmax=v_med + 3 * v_std,
+            reference_frame_pointing,
+            cmap="gray",
+            origin="lower",
+            interpolation="nearest",
+            vmin=v_med - 3 * v_std,
+            vmax=v_med + 3 * v_std,
         )
         ref_ax.set_title("Reference")
         ref_ax.set_xlabel("x")
@@ -969,20 +1075,27 @@ class AlignmentPipeline:
 
         summary_ax.axis("off")
         summary_ax.text(
-            0.05, 0.9,
+            0.05,
+            0.9,
             f"Reference alignment\nPointing {pointing}\n"
             f"{n_dithers} dithers\n"
             f"Reference file:\n{self.reference_file}",
-            ha="left", va="top", fontsize=10, linespacing=1.5,
+            ha="left",
+            va="top",
+            fontsize=10,
+            linespacing=1.5,
         )
         summary_ax.text(
-            0.05, 0.45,
+            0.05,
+            0.45,
             "Status summary:\n"
             + "\n".join(
                 f"D{i + 1}: {_short_status(science_tables[pointing][i][6])}"
                 for i in range(n_dithers)
             ),
-            ha="left", va="top", fontsize=9 if n_dithers <= 8 else 6,
+            ha="left",
+            va="top",
+            fontsize=9 if n_dithers <= 8 else 6,
             linespacing=1.4,
         )
 
@@ -1034,16 +1147,24 @@ class AlignmentPipeline:
         fig.suptitle(f"Pointing {pointing} alignment QA report", fontsize=16)
 
         self._plot_science_alignment(
-            pointing, dither_frames, dither_frame_arrays,
-            reprojected_reference_frames, science_tables, QA_dir_science,
+            pointing,
+            dither_frames,
+            dither_frame_arrays,
+            reprojected_reference_frames,
+            science_tables,
+            QA_dir_science,
             axes=axes[:sci_rows, :],
         )
 
         # a single row of axes -> summary panels only (thumbnails are already
         # shown in the science block above)
         self._plot_dither_alignment(
-            dither_frame_arrays, n_dithers, success_table,
-            x_table, y_table, rotation_table,
+            dither_frame_arrays,
+            n_dithers,
+            success_table,
+            x_table,
+            y_table,
+            rotation_table,
             obs_title=pointing + "_after_compositions_",
             axes=axes[-1, :N_SUMMARY_PANELS],
         )
@@ -1053,11 +1174,15 @@ class AlignmentPipeline:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         if save:
             pathlib.Path(QA_dir_combined).mkdir(parents=True, exist_ok=True)
-            fig.savefig(QA_dir_combined / f"{pointing}_combined_QA_{self.aligner.name}.png", dpi=200, bbox_inches="tight")
+            fig.savefig(
+                QA_dir_combined / f"{pointing}_combined_QA_{self.aligner.name}.png",
+                dpi=200,
+                bbox_inches="tight",
+            )
         if show:
             plt.show()
         else:
-            plt.close(fig)          # run() never closed these -> figure leak per pointing
+            plt.close(fig)  # run() never closed these -> figure leak per pointing
 
         return fig, axes
 
@@ -1095,7 +1220,7 @@ class AlignmentPipeline:
             f"{pointing}_dither_{i+1}_to_reference",
             input_wcs=dither_wcs,
             reference_wcs=reference_wcs,
-            skip_rotation_estimation=self.skip_rotation_estimation
+            skip_rotation_estimation=self.skip_rotation_estimation,
         )
 
         (
@@ -1110,7 +1235,7 @@ class AlignmentPipeline:
             f"{pointing}_reference_to_dither_{i+1}",
             input_wcs=reference_wcs,
             reference_wcs=dither_wcs,
-            skip_rotation_estimation=self.skip_rotation_estimation
+            skip_rotation_estimation=self.skip_rotation_estimation,
         )
 
         fwd_ok = success == 1
@@ -1224,8 +1349,7 @@ class AlignmentPipeline:
                 centre = _image_centre(dither_frame_arrays[i].shape)
 
                 anchors = [
-                    k for k in range(n)
-                    if k != i and _is_usable_alignment(st[k][6])
+                    k for k in range(n) if k != i and _is_usable_alignment(st[k][6])
                 ]
 
                 # candidate chains (anchor k, hops ending at i), shortest first
@@ -1257,14 +1381,18 @@ class AlignmentPipeline:
                             centre,
                         ),
                     )
-                    var = var + np.array(
-                        [
-                            x_error_table[prev, nxt],
-                            y_error_table[prev, nxt],
-                            rotation_error_table[prev, nxt],
-                        ],
-                        dtype=float,
-                    ) ** 2
+                    var = (
+                        var
+                        + np.array(
+                            [
+                                x_error_table[prev, nxt],
+                                y_error_table[prev, nxt],
+                                rotation_error_table[prev, nxt],
+                            ],
+                            dtype=float,
+                        )
+                        ** 2
+                    )
                     prev = nxt
 
                 tx_c, ty_c, rot_c = matrix_to_parameters(T, centre)
@@ -1327,9 +1455,7 @@ class AlignmentPipeline:
         QA_dir_combined.mkdir(parents=True, exist_ok=True)
 
         # make an aligner with dither QA path
-        self.aligner = self.method(
-            QA_path=QA_dir_dithers, logger=self.logger
-        )
+        self.aligner = self.method(QA_path=QA_dir_dithers, logger=self.logger)
 
         # prepare the reference frame and its WCS
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
@@ -1378,12 +1504,15 @@ class AlignmentPipeline:
 
             # bring dithers to the same WCS and shape using reprojection
             dither_frame_arrays, dither_frame_wcs = reproject_dithers(
-                dither_frame_arrays, dither_frame_wcs, logger=self.logger, method="interpolation"
+                dither_frame_arrays,
+                dither_frame_wcs,
+                logger=self.logger,
+                method="interpolation",
             )
 
-            # remove nan edge 
+            # remove nan edge
 
-            # TODO we keep this and use it for reprojection in a bit of a hack 
+            # TODO we keep this and use it for reprojection in a bit of a hack
 
             original_shape = dither_frame_arrays[0].shape
 
@@ -1401,10 +1530,7 @@ class AlignmentPipeline:
                 rotation_error_table,
                 success_table,
             ) = self.align_dithers(
-                dither_frame_arrays,
-                dither_frame_wcs,
-                self.aligner,
-                obs_name=pointing
+                dither_frame_arrays, dither_frame_wcs, self.aligner, obs_name=pointing
             )
 
             dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
@@ -1423,17 +1549,18 @@ class AlignmentPipeline:
                 shape_out=original_shape,
             )
 
-            reference_WCS_reprojected = dither_frame_wcs[0]  # update reference WCS to match the dither WCS
+            reference_WCS_reprojected = dither_frame_wcs[
+                0
+            ]  # update reference WCS to match the dither WCS
 
             # also crop the same edges as the dither frames to ensure consistency
             reprojected_reference_frame = reprojected_reference_frame[
-                edge_cut_value:reprojected_reference_frame.shape[0]-edge_cut_value, edge_cut_value:reprojected_reference_frame.shape[1]-edge_cut_value
+                edge_cut_value : reprojected_reference_frame.shape[0] - edge_cut_value,
+                edge_cut_value : reprojected_reference_frame.shape[1] - edge_cut_value,
             ]
 
             # keep this for plotting later
-            reprojected_reference_frames[pointing] = (
-                reprojected_reference_frame
-            )
+            reprojected_reference_frames[pointing] = reprojected_reference_frame
 
             # 1) align every dither to the reference both ways and check consistency
             for i in range(len(dither_frame_arrays)):
@@ -1505,7 +1632,14 @@ class AlignmentPipeline:
                 )
                 has_values = all(
                     v is not None and np.isfinite(v)
-                    for v in (tx, ty, rotation_angle, tx_error, ty_error, rotation_error)
+                    for v in (
+                        tx,
+                        ty,
+                        rotation_angle,
+                        tx_error,
+                        ty_error,
+                        rotation_error,
+                    )
                 )
 
                 if not (writable and has_values):
@@ -1551,4 +1685,6 @@ class AlignmentPipeline:
                 output_table.append(tuple(value for _, value in table_entry.items()))
 
         # write the final results to a FITS table
-        write_final_results(output_table, self.aligner.name, self.output_dir, logger=self.logger)
+        write_final_results(
+            output_table, self.aligner.name, self.output_dir, logger=self.logger
+        )

@@ -6,6 +6,8 @@ from filters import estimate_nan_window
 """
 Module for reprojections and WCS conversions.
 """
+
+
 def make_window_wcs(wcs, shape, window, oversample_factor=1):
     """
     Slice `wcs` (for an image of `shape`) to the window (top, bottom, left, right),
@@ -22,7 +24,9 @@ def make_window_wcs(wcs, shape, window, oversample_factor=1):
             wcs_out.wcs.cd = wcs_out.wcs.cd / oversample_factor
         else:
             wcs_out.wcs.cdelt = wcs_out.wcs.cdelt / oversample_factor
-        wcs_out.wcs.crpix = (np.array(wcs_out.wcs.crpix) - 0.5) * oversample_factor + 0.5
+        wcs_out.wcs.crpix = (
+            np.array(wcs_out.wcs.crpix) - 0.5
+        ) * oversample_factor + 0.5
         shape_out = (shape_out[0] * oversample_factor, shape_out[1] * oversample_factor)
 
     wcs_out.array_shape = shape_out
@@ -95,18 +99,19 @@ def reproject_image_to_target_wcs(
     if logger:
         logger.info("Reprojection completed successfully.")
 
-
     return reprojected_image, footprint
 
 
-def reproject_dithers(dither_set, wcs_set, logger = None, method = "interpolation"):
+def reproject_dithers(dither_set, wcs_set, logger=None, method="interpolation"):
     """
     Reprojects a stack of frames to the referrence frame of the first frame in the stack.
 
     Keeps the minimum width and height from all frames as the shape.
     """
     if logger:
-        logger.info(f"Reprojecting dithered frames to the reference frame of the first frame using method '{method}'...")
+        logger.info(
+            f"Reprojecting dithered frames to the reference frame of the first frame using method '{method}'..."
+        )
 
         min_height = min([dither.shape[0] for dither in dither_set])
         min_width = min([dither.shape[1] for dither in dither_set])
@@ -116,9 +121,12 @@ def reproject_dithers(dither_set, wcs_set, logger = None, method = "interpolatio
 
         for i, dither in enumerate(dither_set):
             reprojected_dither, _ = reproject_image_to_target_wcs(
-                dither, wcs_set[i], target_wcs, shape_out=(min_height, min_width), method=method
+                dither,
+                wcs_set[i],
+                target_wcs,
+                shape_out=(min_height, min_width),
+                method=method,
             )
-
 
             dither_set[i] = reprojected_dither
 
@@ -129,9 +137,10 @@ def reproject_dithers(dither_set, wcs_set, logger = None, method = "interpolatio
 
     return dither_set, wcs_set
 
-def remove_nan_edges_dithers(dither_set, logger = None):
+
+def remove_nan_edges_dithers(dither_set, logger=None):
     """
-    Estimates the NaN window for each dither, makes the most conservative window, 
+    Estimates the NaN window for each dither, makes the most conservative window,
     applies to all dithers, and returns the cropped dither set and the cropping values
     to be used for the reference later on.
     """
@@ -164,11 +173,16 @@ def remove_nan_edges_dithers(dither_set, logger = None):
     total_max = np.max(np.array([top, bottom, left, right]))
 
     if logger:
-        logger.info(f"Cropping a total of {total_max} pixels from each edge to remove NaN edges from all dithers.")
+        logger.info(
+            f"Cropping a total of {total_max} pixels from each edge to remove NaN edges from all dithers."
+        )
 
     # crop all dithers to the same size
     for i, dither in enumerate(dither_set):
-        dither_set[i] = dither[total_max : dither.shape[0] - total_max, total_max : dither.shape[1] - total_max]
+        dither_set[i] = dither[
+            total_max : dither.shape[0] - total_max,
+            total_max : dither.shape[1] - total_max,
+        ]
 
     return dither_set, total_max
 
@@ -321,7 +335,10 @@ def detector_translation_to_sky_translation(wcs, dx, dy, logger=None):
 
     return dRA, dDec
 
-def compare_distance(tx, ty, rot, con_tx, con_ty, con_rot, point_from_center = (100,100)):
+
+def compare_distance(
+    tx, ty, rot, con_tx, con_ty, con_rot, point_from_center=(100, 100)
+):
     """
     For the point `point_from_center` in the input frame, compute the distance between the transformed point using (tx, ty, rot) and (con_tx, con_ty, con_rot).
 
@@ -333,11 +350,14 @@ def compare_distance(tx, ty, rot, con_tx, con_ty, con_rot, point_from_center = (
     con_theta = np.radians(con_rot)
 
     # Rotation matrices
-    R = np.array([[np.cos(theta), -np.sin(theta)],
-                  [np.sin(theta),  np.cos(theta)]])
-    
-    con_R = np.array([[np.cos(con_theta), -np.sin(con_theta)],
-                      [np.sin(con_theta),  np.cos(con_theta)]])
+    R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+
+    con_R = np.array(
+        [
+            [np.cos(con_theta), -np.sin(con_theta)],
+            [np.sin(con_theta), np.cos(con_theta)],
+        ]
+    )
 
     # Transform the point using the first transformation
     transformed_point = R @ point_from_center + np.array([tx, ty])
@@ -349,5 +369,3 @@ def compare_distance(tx, ty, rot, con_tx, con_ty, con_rot, point_from_center = (
     distance = np.linalg.norm(transformed_point - con_transformed_point)
 
     return distance
-
-
