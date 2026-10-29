@@ -40,6 +40,8 @@ import spacepylot.plotting as pl
 from spacepylot.alignment_utilities import TranslationTransform
 import logging
 
+from stats import ternary_search
+
 
 # plot styling
 plt.rcParams.update(
@@ -2330,7 +2332,10 @@ class FFT(AligmentMethod):
         # we use this for estimating the best angle from a scan
         diffs = []
 
-        for angle in self.angle_scan_array:
+        # for the scan we need a ternary serach, so we defined a helper function 
+        # to minimize
+
+        def _rotate_diff(angle):
 
             reference_frame = reference_frame_backup
             input_frame = input_frame_backup
@@ -2364,9 +2369,7 @@ class FFT(AligmentMethod):
 
                 self.logger.warning(f"Failed to estimate translation for {angle} degrees")
 
-                diffs.append(np.nan)
-
-                continue
+                return np.nan
 
             tx, ty = result["shift"]
             tx = -tx
@@ -2411,31 +2414,26 @@ class FFT(AligmentMethod):
 
             mean_diff = np.mean(np.abs(((reference_frame/ref_median) - (shifted_input/median))[valid]))
             
-            diffs.append(mean_diff)
+            return mean_diff
+
+        min_angle, _, tried = ternary_search(
+            _rotate_diff,
+            self.angle_scan_start,
+            self.angle_scan_end,
+        )
+
+        if min_angle is None:
+            self.logger.warning(f"Failed to find minimum angle for {obs_name}")
+            return self.FAILED_RETURN
+
+        self.angle_scan_array, diffs = zip(*tried)
 
 
 
 
-        # now fit for minimum angle
 
-        # fit a second order polynomial +/5 5 points from numerical minimum and calculate the minimum analycitacl
-        min_angle_index = np.argmin(diffs)
-
-        min_angle_left = max(0, min_angle_index - 5)
-        min_angle_right = min(len(diffs), min_angle_index + 5)
-
-        angle_fit_x = self.angle_scan_array[min_angle_left:min_angle_right]
-        
-        diff_array_y = diffs[min_angle_left:min_angle_right]
-
-        p = np.polyfit(angle_fit_x, diff_array_y, 2)
-
-        min_angle = -p[1] / (2 * p[0])
-
-        # plot the diffs vs angles, the fit, and save/show
 
         plt.plot(self.angle_scan_array, diffs, "o", label = "Average difference image pixel value")
-        plt.plot(self.angle_scan_array, np.polyval(p, self.angle_scan_array), "r--", label = "Model around minimum")
         plt.axvline(min_angle, color="red", linestyle="--", label=f"Estimated minimum: {min_angle:.2f}°")
         plt.xlabel("Rotation Angle (degrees)")
         plt.ylabel("Average pixel value of difference image")
