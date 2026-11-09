@@ -1,0 +1,16 @@
+{
+    "2": [
+        [
+            1,
+            "2018-10-17T07:20:06.000",
+            "IMAGE_FOV_prealign_P02_WFI_BB_2018-10-17T07:19:24_0001.fits"
+        ]
+    ],
+    "headers": {
+        "date_keyword": "DATE-OBS",
+        "mjd_keyword": "MJD-OBS",
+        "tpl_start_keyword": "HIERARCH ESO TPL START",
+        "exp_keyword": "HIERARCH MUSEPIPE_IEXPO",
+        "pointing_keyword": "HIERARCH MUSEPIPE_POINTING"
+    }
+}

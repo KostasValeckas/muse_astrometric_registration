@@ -1,6 +1,7 @@
 from logger import get_logger
 
 import pathlib
+from collections import deque
 
 from methods import NoAlignment
 
@@ -12,15 +13,22 @@ from geometry import (
     matrix_to_parameters,
     inverse_transformation,
     detector_translation_to_sky_translation,
+    detector_errors_to_sky_errors,
+    sky_translation_to_detector_translation,
     reproject_dithers,
-    remove_nan_edges_dithers
+    remove_nan_edges_dithers,
 )
+
+from astropy.table import Table
+
+from stats import masked_ncc
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.patches import Patch
+from scipy.ndimage import shift, rotate
 
 
 # ============================================================================
@@ -29,8 +37,8 @@ from matplotlib.patches import Patch
 
 # Points (measured from the rotation centre) at which two transformations are
 # compared in the consistency checks.
-CHECK_POINT = (100.0, 100.0)      # the single fixed point used so far
-CHECK_ON_FRAME_CORNERS = False    # True: use the 4 frame corners + centre instead.
+CHECK_POINT = (100.0, 100.0)  # the single fixed point used so far
+CHECK_ON_FRAME_CORNERS = False  # True: use the 4 frame corners + centre instead.
 #                                   This measures the worst-case error over the
 #                                   whole frame (stricter on large detectors), so
 #                                   the distance threshold may need retuning.
@@ -40,10 +48,12 @@ def _image_centre(shape):
     """
     Rotation centre in (x, y) order for an array of `shape` = (ny, nx).
     `transformation_matrix` / `matrix_to_parameters` treat points as [x, y],
-    so the centre must be (nx // 2, ny // 2), not (ny // 2, nx // 2).
-    (Identical for square frames.)
+    so the centre is given in (x, y) order, not (y, x).
+
+    This is the centre scipy.ndimage.rotate rotates about ((n - 1) / 2 along
+    each axis), which is what the alignment methods use to apply rotations.
     """
-    return (shape[1] // 2, shape[0] // 2)
+    return ((shape[1] - 1) / 2.0, (shape[0] - 1) / 2.0)
 
 
 def _is_usable_alignment(status):
@@ -67,9 +77,13 @@ def _check_points(shape):
 
 def _apply_params(tx, ty, rot_deg, pts):
     """Rotate (about the centre, i.e. points are centre-relative) and then
-    translate an (N, 2) array of points.  Same convention as the old
-    `compare_distance`: x -> R(rot) x + t."""
-    th = np.radians(rot_deg)
+    translate an (N, 2) array of (x, y) points, with the same convention as
+    `transformation_matrix`: x -> R(-rot) x + t.
+
+    rot_deg is positive counter-clockwise as the frame is displayed with
+    origin upper (numpy array as read by astropy.io.fits), which is the
+    scipy.ndimage.rotate convention, i.e. a clockwise R(-rot) in (x, y)."""
+    th = np.radians(-rot_deg)
     c, s = np.cos(th), np.sin(th)
     R = np.array([[c, -s], [s, c]])
     return pts @ R.T + np.array([tx, ty])
@@ -90,6 +104,49 @@ def _roundtrip_distance(forward, reverse, points):
     return float(np.max(np.linalg.norm(back - pts, axis=1)))
 
 
+def _shortest_direct_path(sources, goal, n, is_link):
+    """
+    Breadth-first search for the shortest path from any of `sources` to `goal`
+    over the dithers 0 .. n-1, using the links a -> b for which
+    `is_link(a, b)` is True.
+
+    Every link is one direct measurement (or its exact inverse), so this is the
+    path built from the fewest direct measurements. A path through a composed
+    entry is the same as the chain of direct links it was built from, so
+    composed entries never need to be used as links themselves. Ties are broken
+    by the lowest dither index (sources and neighbours are visited in
+    ascending order).
+
+    Returns the list of dithers [source, ..., goal], or None if there is no path.
+    """
+    parent = {}
+    queue = deque()
+
+    for source in sorted(sources):
+        if source == goal:
+            return [source]
+        parent[source] = None
+        queue.append(source)
+
+    while queue:
+        a = queue.popleft()
+        for b in range(n):
+            if b in parent or not is_link(a, b):
+                continue
+
+            parent[b] = a
+
+            if b == goal:
+                path = [b]
+                while parent[path[-1]] is not None:
+                    path.append(parent[path[-1]])
+                return path[::-1]
+
+            queue.append(b)
+
+    return None
+
+
 def _science_status(success, composed, composed_from):
     """(label, colour) for the science-vs-reference QA panels."""
     if composed:
@@ -102,18 +159,29 @@ def _science_status(success, composed, composed_from):
 
 
 # for plotting
+# status of a dither pair that was never aligned (targeted dither mode:
+# only the links needed to recover failed science alignments are computed)
+NOT_ATTEMPTED = -1.0
+
 STATUS_COLORS = {
+    NOT_ATTEMPTED: "lightgray",
     0: "red",
     1: "green",
     0.5: "yellow",
     0.7: "orange",
-}  # failed  # success  # composed # inconsistent
+}  # not attempted # failed  # success  # composed # inconsistent
 
 
 cmap = ListedColormap(
-    [STATUS_COLORS[0], STATUS_COLORS[0.5], STATUS_COLORS[0.7], STATUS_COLORS[1]]
+    [
+        STATUS_COLORS[NOT_ATTEMPTED],
+        STATUS_COLORS[0],
+        STATUS_COLORS[0.5],
+        STATUS_COLORS[0.7],
+        STATUS_COLORS[1],
+    ]
 )
-norm = BoundaryNorm([0, 0.5, 0.7, 1, 1.5], cmap.N)
+norm = BoundaryNorm([-1.5, 0, 0.5, 0.7, 1, 1.5], cmap.N)
 
 
 # ============================================================================
@@ -126,9 +194,13 @@ norm = BoundaryNorm([0, 0.5, 0.7, 1, 1.5], cmap.N)
 #  * Cell-text font size is fitted to the panel width and n; above MAX_ANNOTATED
 #    dithers the per-cell text is replaced by a colorbar / colour legend.
 # ============================================================================
-MAX_PANEL_COLS = 5       # panels per row before wrapping (4 dithers + reference = old layout)
-N_SUMMARY_PANELS = 4     # status / x offsets / y offsets / rotation
-MAX_ANNOTATED = 12       # above this many dithers: no per-cell text (colorbar / legend instead)
+MAX_PANEL_COLS = (
+    5  # panels per row before wrapping (4 dithers + reference = old layout)
+)
+N_SUMMARY_PANELS = 4  # status / x offsets / y offsets / rotation
+MAX_ANNOTATED = (
+    12  # above this many dithers: no per-cell text (colorbar / legend instead)
+)
 
 
 def _science_grid_shape(n_dithers, max_cols=MAX_PANEL_COLS):
@@ -182,11 +254,13 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
     ax.set_xlabel("Dither Index")
     ax.set_ylabel("Dither Index")
 
-    step = max(1, int(np.ceil(n / 12)))               # thin the ticks for large n
+    step = max(1, int(np.ceil(n / 12)))  # thin the ticks for large n
     ticks = list(range(0, n, step))
     labels = _dither_tick_labels(n)
-    for setter, labsetter in ((ax.set_xticks, ax.set_xticklabels),
-                              (ax.set_yticks, ax.set_yticklabels)):
+    for setter, labsetter in (
+        (ax.set_xticks, ax.set_xticklabels),
+        (ax.set_yticks, ax.set_yticklabels),
+    ):
         setter(ticks)
         labsetter([labels[t] for t in ticks])
     if n > 4:
@@ -199,13 +273,32 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
         fs = _fit_fontsize(ax, n, [t for row in texts for t in row])
         for i in range(n):
             for j in range(n):
-                ax.text(j, i, texts[i][j], ha="center", va="center",
-                        color="black", fontsize=fs)
+                ax.text(
+                    j,
+                    i,
+                    texts[i][j],
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=fs,
+                )
     elif status:
-        names = {0: "failed", 0.5: "composed", 0.7: "inconsistent", 1: "ok"}
+        names = {
+            0: "failed",
+            0.5: "composed",
+            0.7: "inconsistent",
+            1: "ok",
+            NOT_ATTEMPTED: "not attempted",
+        }
         ax.legend(
-            handles=[Patch(facecolor=STATUS_COLORS[k], label=names[k]) for k in (1, 0.5, 0.7, 0)],
-            loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=2, fontsize=8,
+            handles=[
+                Patch(facecolor=STATUS_COLORS[k], label=names[k])
+                for k in (1, 0.5, 0.7, 0, NOT_ATTEMPTED)
+            ],
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.32),
+            ncol=2,
+            fontsize=8,
         )
     else:
         ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -224,8 +317,11 @@ class AlignmentPipeline:
         output_dir,
         aligment_method=NoAlignment,
         distance_threshold=0.10,
-        write_inconsistent=True,
-        skip_rotation_estimation=False
+        write_inconsistent=False,
+        skip_rotation_estimation=False,
+        scan_for_angles=False,
+        initial_guess_sources=None,
+        dither_mode="full",
     ):
         """
         Initialize the AlignmentPipeline.
@@ -241,8 +337,31 @@ class AlignmentPipeline:
                 them consistent. Default is 0.10.
             write_inconsistent (bool): If a science alignment is still flagged
                 inconsistent (0.7) after recovery was attempted, write its direct
-                measurement to the output table (True) or write None values (False).
+                measurement to the output table (True) or write None values
+                (False, default). An inconsistent alignment is not a result, so
+                by default it is written as null; True is only for debugging.
+            skip_rotation_estimation (bool): Passed to every alignment method.
+                Takes precedence over `scan_for_angles`.
+            scan_for_angles (bool): Passed to every alignment method. If True,
+                use the shared angle scan. If False (default), use each
+                method's own direct rotation estimator.
+            initial_guess_sources (list): Optional list of (results_dir, method_name)
+                tuples, in priority order, pointing to the output of earlier pipeline
+                runs on the same data. For every alignment, the first source that
+                holds a usable result is passed to the method as initial guess.
+                Default None (no initial guesses).
+            dither_mode (str): "full" (default) aligns every dither pair before
+                the science alignment. "targeted" aligns the science frames first
+                and then only the dither pairs needed to recover the science
+                alignments that are not clean, searching for the shortest
+                composition one path length at a time. Pairs that are never
+                aligned get status NOT_ATTEMPTED (-1) in the dither tables.
         """
+
+        if dither_mode not in ("full", "targeted"):
+            raise ValueError(
+                f"dither_mode must be 'full' or 'targeted', got {dither_mode!r}"
+            )
 
         self.logger = get_logger(output_dir)
 
@@ -257,6 +376,219 @@ class AlignmentPipeline:
         self.distance_threshold = distance_threshold
         self.write_inconsistent = write_inconsistent
         self.skip_rotation_estimation = skip_rotation_estimation
+        self.scan_for_angles = scan_for_angles
+        self.dither_mode = dither_mode
+
+        self.initial_guess_sources = (
+            list(initial_guess_sources) if initial_guess_sources is not None else []
+        )
+
+        # cache for the tables read from disk for the initial guesses
+        self._guess_cache = {}
+
+        # which direction of the science alignment the reported result comes
+        # from, per (pointing, dither): "forward", "reverse" or None (failed)
+        self.science_directions = {}
+
+        # difference image that corresponds to every reported science result,
+        # per (pointing, dither): path, or None if no result is reported
+        self.reported_science_images = {}
+
+    # ------------------------------------------------------------------
+    # Initial guesses from earlier pipeline runs (read from disk)
+    # ------------------------------------------------------------------
+
+    def _load_dither_guess_tables(self, results_dir, method_name, pointing):
+        """
+        Read the dither tables written by `align_dithers` of an earlier run.
+
+        Returns (x_table, y_table, rotation_table, success_table), or None if
+        the files do not exist.
+        """
+
+        key = ("dither", str(results_dir), method_name, pointing)
+
+        if key in self._guess_cache:
+            return self._guess_cache[key]
+
+        tables = []
+
+        for prefix in ("x", "y", "rotation", "success"):
+            filename = (
+                pathlib.Path(results_dir)
+                / f"{prefix}_dither_table_{str(pointing)}_{method_name}.csv"
+            )
+
+            if not filename.exists():
+                self.logger.warning(
+                    f"No dither table {filename} found, no {method_name} dither "
+                    f"guesses for pointing {pointing}."
+                )
+                self._guess_cache[key] = None
+                return None
+
+            tables.append(np.atleast_2d(np.loadtxt(filename, delimiter=",")))
+
+        self._guess_cache[key] = tuple(tables)
+
+        return self._guess_cache[key]
+
+    def _load_science_guess_table(self, results_dir, method_name):
+        """
+        Read the final output table written by `run` of an earlier run.
+
+        Returns the astropy Table, or None if the file does not exist or does
+        not match the configuration.
+        """
+
+        key = ("science", str(results_dir), method_name)
+
+        if key in self._guess_cache:
+            return self._guess_cache[key]
+
+        filename = (
+            pathlib.Path(results_dir) / f"{method_name}_alignment_output_table.fits"
+        )
+
+        table = None
+
+        if not filename.exists():
+            self.logger.warning(
+                f"No output table {filename} found, no {method_name} science guesses."
+            )
+
+        else:
+            table = Table.read(filename, mask_invalid=False)
+
+            # rows are written in configuration order, one per exposure
+            n_expected = sum(
+                len(exposures)
+                for pointing, exposures in self.config_dict.items()
+                if pointing != "headers"
+            )
+
+            if len(table) != n_expected:
+                self.logger.warning(
+                    f"Output table {filename} has {len(table)} rows, expected "
+                    f"{n_expected}. Not using it for initial guesses."
+                )
+                table = None
+
+        self._guess_cache[key] = table
+
+        return table
+
+    def _science_row_index(self, pointing, i):
+        """
+        Row index of dither `i` of `pointing` in the output table (rows are
+        written in configuration order).
+        """
+
+        index = 0
+
+        for config_pointing, exposures in self.config_dict.items():
+            if config_pointing == "headers":
+                continue
+
+            if config_pointing == pointing:
+                return index + i
+
+            index += len(exposures)
+
+        return None
+
+    def _get_initial_guess(self, kind, pointing, i, j=None, shape=None, wcs=None):
+        """
+        Initial guess for one alignment, from the first source in
+        `initial_guess_sources` that holds a usable result.
+
+        Parameters
+        ----------
+        kind : str
+            "dither" (dither i -> dither j), "science_forward"
+            (reference -> dither i) or "science_reverse" (dither i -> reference).
+
+        pointing : str
+            Pointing name.
+
+        i, j : int
+            Dither indices (j only for "dither").
+
+        shape : tuple
+            Frame shape, needed to invert the transformation for
+            "science_reverse".
+
+        wcs : astropy.wcs.WCS
+            WCS of dither i, needed to convert sky offsets back to pixels for
+            the science guesses.
+
+        Returns
+        -------
+        (tx, ty), rot, source : the guess and the name of the method it came
+        from, or (None, None), None, None if no guess is available.
+        """
+
+        no_guess = (None, None), None, None
+
+        for results_dir, method_name in self.initial_guess_sources:
+
+            if kind == "dither":
+
+                tables = self._load_dither_guess_tables(
+                    results_dir, method_name, pointing
+                )
+
+                if tables is None:
+                    continue
+
+                x_table, y_table, rotation_table, success_table = tables
+
+                if not _is_usable_alignment(success_table[i, j]):
+                    continue
+
+                tx, ty, rot = x_table[i, j], y_table[i, j], rotation_table[i, j]
+
+            else:
+
+                table = self._load_science_guess_table(results_dir, method_name)
+
+                if table is None:
+                    continue
+
+                row = table[self._science_row_index(pointing, i)]
+
+                dRA, dDEC, rot = row["RA_OFFSET"], row["DEC_OFFSET"], row["ROTANGLE"]
+
+                if not np.all(np.isfinite([dRA, dDEC, rot])):
+                    continue
+
+                # the output table is always in the reference -> dither convention
+                tx, ty = sky_translation_to_detector_translation(wcs, dRA, dDEC)
+
+                if kind == "science_reverse":
+                    # the inverse of a rotation about the centre is not (-tx, -ty, -rot)
+                    centre = _image_centre(shape)
+                    T = transformation_matrix(tx, ty, rot, centre)
+                    tx, ty, rot = matrix_to_parameters(inverse_transformation(T), centre)
+
+            if not np.all(np.isfinite([tx, ty, rot])):
+                continue
+
+            self.logger.info(
+                f"Initial guess for {kind} alignment (pointing {pointing}, dither {i+1}"
+                + (f" to dither {j+1}" if j is not None else "")
+                + f") from {method_name}: tx = {tx:.3f}, ty = {ty:.3f}, rot = {rot:.4f}"
+            )
+
+            return (float(tx), float(ty)), float(rot), method_name
+
+        if self.initial_guess_sources:
+            self.logger.warning(
+                f"No initial guess available for {kind} alignment (pointing {pointing}, "
+                f"dither {i+1}" + (f" to dither {j+1}" if j is not None else "") + ")."
+            )
+
+        return no_guess
 
     def _cross_ref_dither_table(
         self, sucess_table, table, threshold_frac=0.1, minimum_value=0.1
@@ -400,7 +732,7 @@ class AlignmentPipeline:
 
         if axes.ndim == 2:
             fig = axes[0, 0].figure
-            image_axes = list(axes[:-1].ravel())          # every row but the last
+            image_axes = list(axes[:-1].ravel())  # every row but the last
             summary_axes = axes[-1, :N_SUMMARY_PANELS]
         else:
             fig = axes[0].figure
@@ -420,12 +752,16 @@ class AlignmentPipeline:
             )
         for k, ax in enumerate(image_axes):
             if k >= n_dithers:
-                ax.axis("off")                            # unused cell in the grid
+                ax.axis("off")  # unused cell in the grid
                 continue
             vmin, vmax = _display_limits(dither_set[k])
             ax.imshow(
-                dither_set[k], cmap="gray", origin="lower",
-                interpolation="nearest", vmin=vmin, vmax=vmax,
+                dither_set[k],
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=vmin,
+                vmax=vmax,
             )
             ax.set_title(f"Dither {k + 1}")
             ax.set_xlabel("x")
@@ -435,6 +771,8 @@ class AlignmentPipeline:
         long_labels = n_dithers <= 8
 
         def status_text(v):
+            if v == NOT_ATTEMPTED:
+                return "NOT RUN" if long_labels else "-"
             if v == 0:
                 return "FAILED" if long_labels else "FAIL"
             if v == 0.7:
@@ -446,18 +784,40 @@ class AlignmentPipeline:
         def number(v):
             return f"{v:.3f}"
 
-        _draw_dither_matrix(summary_axes[0], succes_table,
-                            "Alignment Status Between Dithers", n_dithers,
-                            status_text, status=True, cmap=cmap, norm=norm)
-        _draw_dither_matrix(summary_axes[1], x_return_table,
-                            "X Offsets Between Dithers", n_dithers,
-                            number, cmap="Set1")
-        _draw_dither_matrix(summary_axes[2], y_return_table,
-                            "Y Offsets Between Dithers", n_dithers,
-                            number, cmap="Set1")
-        _draw_dither_matrix(summary_axes[3], rotation_return_table,
-                            "Rotation Angles Between Dithers", n_dithers,
-                            number, cmap="Set1")
+        _draw_dither_matrix(
+            summary_axes[0],
+            succes_table,
+            "Alignment Status Between Dithers",
+            n_dithers,
+            status_text,
+            status=True,
+            cmap=cmap,
+            norm=norm,
+        )
+        _draw_dither_matrix(
+            summary_axes[1],
+            x_return_table,
+            "X Offsets Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
+        _draw_dither_matrix(
+            summary_axes[2],
+            y_return_table,
+            "Y Offsets Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
+        _draw_dither_matrix(
+            summary_axes[3],
+            rotation_return_table,
+            "Rotation Angles Between Dithers",
+            n_dithers,
+            number,
+            cmap="Set1",
+        )
 
         # ---- layout / save / show: only when we own the figure ----------------
         if owns_figure:
@@ -478,6 +838,345 @@ class AlignmentPipeline:
 
         return fig, axes
 
+    @staticmethod
+    def _is_direct_dither_link(success_table, a, b):
+        """
+        True if a -> b is a direct measurement (status 1), or the exact inverse
+        of one (b -> a has status 1, i.e. a mirrored alignment).
+        """
+        return success_table[a, b] == 1 or success_table[b, a] == 1
+
+    @staticmethod
+    def _direct_dither_link(
+        a,
+        b,
+        success_table,
+        x_table,
+        y_table,
+        rotation_table,
+        x_error_table,
+        y_error_table,
+        rotation_error_table,
+        centre,
+    ):
+        """
+        Transformation matrix and variances (x, y, rotation) of the direct link
+        a -> b: the measurement itself if a -> b has status 1, otherwise the
+        inverse of b -> a (with the same errors).
+        """
+        if success_table[a, b] == 1:
+            first, second = a, b
+        else:
+            first, second = b, a
+
+        T = transformation_matrix(
+            x_table[first, second],
+            y_table[first, second],
+            rotation_table[first, second],
+            centre,
+        )
+
+        if first != a:
+            # the inverse of a rotation about the centre is NOT (-tx, -ty, -rot)
+            # unless rot == 0, so invert the matrix
+            T = inverse_transformation(T)
+
+        var = (
+            np.array(
+                [
+                    x_error_table[first, second],
+                    y_error_table[first, second],
+                    rotation_error_table[first, second],
+                ],
+                dtype=float,
+            )
+            ** 2
+        )
+
+        return T, var
+
+    @staticmethod
+    def _empty_dither_tables(n_dithers, status=0.0):
+        """
+        Empty dither tables, in the order returned by `align_dithers`:
+        (x, x_error, y, y_error, rotation, rotation_error, success).
+        Values are NaN, the success table is filled with `status`.
+        """
+        tables = [np.full((n_dithers, n_dithers), np.nan) for _ in range(6)]
+        tables.append(np.full((n_dithers, n_dithers), status, dtype=float))
+
+        return tuple(tables)
+
+    def _align_dither_pair(self, i, j, dither_set, wcs_set, method, obs_name, tables):
+        """
+        Align dither i -> dither j (run(dither_i, dither_j)) and store the
+        result in entry [i, j] of `tables` (as given by `_empty_dither_tables`).
+
+        Returns True if the alignment succeeded.
+        """
+
+        (
+            x_return_table,
+            x_error_table,
+            y_return_table,
+            y_error_table,
+            rotation_return_table,
+            rotation_error_table,
+            succes_table,
+        ) = tables
+
+        # Same WCS convention as the science alignment: the first image
+        # is the "reference", so reference_wcs belongs to the first image
+        # and input_wcs to the second.  (All WCSs are identical after
+        # reproject_dithers, so this only matters for correctness.)
+
+        # initial guess from earlier runs (if any sources are given)
+        guess_translation, guess_rotation, _ = self._get_initial_guess(
+            "dither", obs_name, i, j=j
+        )
+
+        (
+            (tx, ty),
+            rotation_angle,
+            (tx_error, ty_error),
+            rotation_error,
+            success,
+        ) = method.run(
+            dither_set[i],
+            dither_set[j],
+            f"{obs_name}_dither_{i+1}_to_dither_{j+1}",
+            input_wcs=wcs_set[j],
+            reference_wcs=wcs_set[i],
+            initial_guess_translation=guess_translation,
+            initial_guess_rotation=guess_rotation,
+            skip_rotation_estimation=self.skip_rotation_estimation,
+            scan_for_angles=self.scan_for_angles,
+        )
+
+        x_return_table[i, j] = tx
+        y_return_table[i, j] = ty
+        rotation_return_table[i, j] = rotation_angle
+
+        x_error_table[i, j] = tx_error
+        y_error_table[i, j] = ty_error
+        rotation_error_table[i, j] = rotation_error
+
+        succes_table[i, j] = success
+
+        return succes_table[i, j] == 1
+
+    def _save_dither_tables(self, obs_name, tables):
+        """
+        Write the dither tables (as given by `_empty_dither_tables`) to csv in
+        the output directory.
+        """
+
+        prefixes = (
+            "x",
+            "x_error",
+            "y",
+            "y_error",
+            "rotation",
+            "rotation_error",
+            "success",
+        )
+        headers = (
+            "x_offset_table",
+            "x_error_table",
+            "y_offset_table",
+            "y_error_table",
+            "rotation_offset_table",
+            "rotation_error_table",
+            "success_table",
+        )
+
+        for prefix, header, table in zip(prefixes, headers, tables):
+            filename = (
+                f"{prefix}_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
+            )
+            np.savetxt(
+                pathlib.Path(self.output_dir) / filename,
+                table,
+                delimiter=",",
+                header=header,
+            )
+
+    def _guess_link_score(self, pointing, a, b):
+        """
+        How promising the dither link a <-> b is, from the dither tables of the
+        initial guess sources: 2 if any source measured it directly (status 1 in
+        either direction), 1 if any source has a composed value, 0 otherwise.
+        Only used to order the attempts in the targeted dither mode.
+        """
+
+        score = 0
+
+        for results_dir, method_name in self.initial_guess_sources:
+            tables = self._load_dither_guess_tables(results_dir, method_name, pointing)
+
+            if tables is None:
+                continue
+
+            success_table = tables[3]
+
+            if success_table.shape[0] <= max(a, b):
+                continue
+
+            statuses = (success_table[a, b], success_table[b, a])
+
+            if 1 in statuses:
+                return 2
+
+            if 0.5 in statuses:
+                score = 1
+
+        return score
+
+    def align_dithers_targeted(
+        self, dither_set, wcs_set, method, science_table, obs_name=None
+    ):
+        """
+        Align only the dither pairs needed to recover the science alignments
+        that are not clean (status != 1), instead of all pairs.
+
+        The anchors are the dithers with a clean science alignment. For every
+        non-clean dither the shortest composition anchor -> ... -> dither is
+        searched one path length at a time, and every dither link is aligned
+        only when the search needs it:
+
+            length 1: anchor -> dither
+            length 2: anchor -> m -> dither (m reached from an anchor), ...
+
+        At every length the links into the target dither are tried first. A link
+        a <-> b is first aligned as a -> b; if that fails, b -> a is tried (a
+        mirrored measurement counts as direct). Every link is aligned at most
+        once and reused for the other dithers. Within one length the candidates
+        are ordered by `_guess_link_score` (links the guess sources measured
+        first), then by dither index.
+
+        The path length is the same as with the full table (the shortest
+        composition through direct links); only the tie between equally short
+        paths may be broken differently. No forward/reverse consistency check
+        is done for the links, since only one direction is aligned.
+
+        Returns the tables in the same order as `align_dithers`; pairs that were
+        not aligned have status NOT_ATTEMPTED.
+        """
+
+        n_dithers = len(dither_set)
+
+        tables = self._empty_dither_tables(n_dithers, status=NOT_ATTEMPTED)
+
+        anchors = [k for k in range(n_dithers) if science_table[k][6] == 1]
+        pending = [k for k in range(n_dithers) if science_table[k][6] != 1]
+
+        if not pending:
+            self.logger.info(
+                f"Pointing {obs_name}: all science alignments are clean, "
+                f"no dither alignments needed."
+            )
+
+        elif not anchors:
+            self.logger.warning(
+                f"Pointing {obs_name}: no clean science alignment to compose from, "
+                f"no dither alignments done."
+            )
+
+        else:
+            self.logger.info(
+                f"Pointing {obs_name}: targeted dither alignment for dither(s) "
+                f"{', '.join(str(k + 1) for k in pending)} from clean dither(s) "
+                f"{', '.join(str(k + 1) for k in anchors)}."
+            )
+
+            # (min, max) -> True / False, every link is aligned at most once
+            links = {}
+
+            def link(a, b):
+                key = (min(a, b), max(a, b))
+
+                if key not in links:
+                    ok = self._align_dither_pair(
+                        a, b, dither_set, wcs_set, method, obs_name, tables
+                    )
+
+                    if not ok:
+                        self.logger.info(
+                            f"Dither {a+1} -> dither {b+1} failed, trying "
+                            f"dither {b+1} -> dither {a+1}."
+                        )
+                        ok = self._align_dither_pair(
+                            b, a, dither_set, wcs_set, method, obs_name, tables
+                        )
+
+                    links[key] = ok
+
+                return links[key]
+
+            def ordered(pairs):
+                return sorted(
+                    pairs,
+                    key=lambda ab: (-self._guess_link_score(obs_name, *ab), ab),
+                )
+
+            for goal in pending:
+
+                reached = set(anchors)
+                frontier = list(anchors)
+                length = 1
+                found = False
+
+                while frontier and not found:
+
+                    # one link longer: try the links into the goal first
+                    for a, _ in ordered([(a, goal) for a in frontier]):
+                        if link(a, goal):
+                            found = True
+                            break
+
+                    if found:
+                        break
+
+                    # no path of this length: grow the reached set by one link
+                    next_frontier = []
+
+                    candidates = [
+                        (a, b)
+                        for a in frontier
+                        for b in range(n_dithers)
+                        if b not in reached and b != goal
+                    ]
+
+                    for a, b in ordered(candidates):
+                        if b in reached:
+                            continue
+                        if link(a, b):
+                            reached.add(b)
+                            next_frontier.append(b)
+
+                    frontier = next_frontier
+                    length += 1
+
+                if found:
+                    self.logger.info(
+                        f"Pointing {obs_name}: dither {goal+1} can be composed "
+                        f"with {length} dither link(s)."
+                    )
+                else:
+                    self.logger.warning(
+                        f"Pointing {obs_name}: no dither path to dither {goal+1}."
+                    )
+
+            self.logger.info(
+                f"Pointing {obs_name}: {int(np.sum(tables[6] != NOT_ATTEMPTED))} "
+                f"dither alignment(s) run, instead of {n_dithers * n_dithers} "
+                f"for the full table."
+            )
+
+        self._save_dither_tables(obs_name, tables)
+
+        return tables
+
     def align_dithers(self, dither_set, wcs_set, method, obs_name=None):
         """
         Aligning all dithers relative to each other (all combinations).
@@ -491,13 +1190,16 @@ class AlignmentPipeline:
         n_dithers = len(dither_set)
 
         # initialize tables to store the results
-        x_return_table = np.full((n_dithers, n_dithers), np.nan)
-        x_error_table = np.full((n_dithers, n_dithers), np.nan)
-        y_return_table = np.full((n_dithers, n_dithers), np.nan)
-        y_error_table = np.full((n_dithers, n_dithers), np.nan)
-        rotation_return_table = np.full((n_dithers, n_dithers), np.nan)
-        rotation_error_table = np.full((n_dithers, n_dithers), np.nan)
-        succes_table = np.full((n_dithers, n_dithers), 0, dtype=float)
+        tables = self._empty_dither_tables(n_dithers, status=0.0)
+        (
+            x_return_table,
+            x_error_table,
+            y_return_table,
+            y_error_table,
+            rotation_return_table,
+            rotation_error_table,
+            succes_table,
+        ) = tables
 
         min_height = min([dither.shape[0] for dither in dither_set])
         min_width = min([dither.shape[1] for dither in dither_set])
@@ -507,38 +1209,11 @@ class AlignmentPipeline:
         # first aligment, all pairs of dithers are aligned to each other,
         # and the tables are populated
 
-        for i, dither_1 in enumerate(dither_set):
-
-            for j, dither_2 in enumerate(dither_set):
-
-                # Same WCS convention as the science alignment: the first image
-                # is the "reference", so reference_wcs belongs to the first image
-                # and input_wcs to the second.  (All WCSs are identical after
-                # reproject_dithers, so this only matters for correctness.)
-                (
-                    (tx, ty),
-                    rotation_angle,
-                    (tx_error, ty_error),
-                    rotation_error,
-                    success,
-                ) = method.run(
-                    dither_1,
-                    dither_2,
-                    f"{obs_name}_dither_{i+1}_to_dither_{j+1}",
-                    input_wcs=wcs_set[j],
-                    reference_wcs=wcs_set[i],
-                    skip_rotation_estimation=self.skip_rotation_estimation
+        for i in range(n_dithers):
+            for j in range(n_dithers):
+                self._align_dither_pair(
+                    i, j, dither_set, wcs_set, method, obs_name, tables
                 )
-
-                x_return_table[i, j] = tx
-                y_return_table[i, j] = ty
-                rotation_return_table[i, j] = rotation_angle
-
-                x_error_table[i, j] = tx_error
-                y_error_table[i, j] = ty_error
-                rotation_error_table[i, j] = rotation_error
-
-                succes_table[i, j] = success
 
         # check for consistency back and forth between all pairs of dithers,
         # and flag any inconsistent pairs
@@ -555,205 +1230,95 @@ class AlignmentPipeline:
         )
         self.logger.info("Consistency check complete.")
 
-        # Now we try to map out any missed paths
+        # Now we try to map out any missed paths: every pair that is not a clean
+        # direct measurement is replaced by the shortest path through the direct
+        # measurements (a mirrored direct measurement is a path of length one)
+
+        def is_link(a, b):
+            return self._is_direct_dither_link(succes_table, a, b)
+
         for i in range(n_dithers):
             for j in range(n_dithers):
-                if i == j:
+                if i == j or succes_table[i, j] == 1:
                     continue
 
-                # this bool is used to break out of the loop if a path is found
-                success = False
-                if not succes_table[i, j] == 1:
-                    # direct path does not exist, look for intermediate frames
+                path = _shortest_direct_path([i], j, n_dithers, is_link)
 
-                    # first check if opposite pair exists - if so, replace with its inverse:
-                    if succes_table[j, i] == 1:
-                        # The inverse of a rotation about the centre is NOT
-                        # (-tx, -ty, -rot) unless rot == 0, so invert the matrix.
-                        T_j_i = transformation_matrix(
-                            x_return_table[j, i],
-                            y_return_table[j, i],
-                            rotation_return_table[j, i],
-                            centre,
-                        )
+                if path is None:
+                    self.logger.warning(
+                        f"No path found from dither {i+1} to dither {j+1}."
+                    )
+                    continue
 
-                        (
-                            x_return_table[i, j],
-                            y_return_table[i, j],
-                            rotation_return_table[i, j],
-                        ) = matrix_to_parameters(inverse_transformation(T_j_i), centre)
+                T = np.eye(3)
+                # TODO: check if quadrature is the correct way to propagate errors for composed transformations
+                var = np.zeros(3)
 
-                        x_error_table[i, j] = x_error_table[j, i]
-                        y_error_table[i, j] = y_error_table[j, i]
-                        rotation_error_table[i, j] = rotation_error_table[j, i]
-                        succes_table[i, j] = 0.5
-                        success = True
+                for a, b in zip(path[:-1], path[1:]):
+                    T_link, var_link = self._direct_dither_link(
+                        a,
+                        b,
+                        succes_table,
+                        x_return_table,
+                        y_return_table,
+                        rotation_return_table,
+                        x_error_table,
+                        y_error_table,
+                        rotation_error_table,
+                        centre,
+                    )
+                    T = compose_transformations(T, T_link)
+                    var = var + var_link
 
-                        # the QA plot:
-                        method.plot_difference_image(
-                            dither_set[i],
-                            dither_set[j],
-                            x_return_table[i, j],
-                            y_return_table[i, j],
-                            rotation_return_table[i, j],
-                            f"{obs_name}_dither_{i+1}_to_dither_{j+1}_mirrored",
-                            show=False,
-                            custom_title=f"Mirrored Alignment from Dither {i+1} to Dither {j+1}",
-                        )
+                (
+                    x_return_table[i, j],
+                    y_return_table[i, j],
+                    rotation_return_table[i, j],
+                ) = matrix_to_parameters(T, centre)
 
-                    # this is the loop for all dithers. If opposite pair was found,
-                    # the success bool will break it.
-                    for k in range(n_dithers):
-                        if success:
-                            break
+                (
+                    x_error_table[i, j],
+                    y_error_table[i, j],
+                    rotation_error_table[i, j],
+                ) = np.sqrt(var)
 
-                        # skip duplicates
-                        if k == i or k == j:
-                            continue
+                succes_table[i, j] = 0.5
 
-                        # one intermediate frame search
-                        if succes_table[i, k] == 1 and succes_table[k, j] == 1:
-                            self.logger.info(
-                                f"Found a path from dither {i+1} to dither {j+1} through dither {k+1}."
-                            )
-                            T_i_k = transformation_matrix(
-                                x_return_table[i, k],
-                                y_return_table[i, k],
-                                rotation_return_table[i, k],
-                                centre,
-                            )
-                            T_k_j = transformation_matrix(
-                                x_return_table[k, j],
-                                y_return_table[k, j],
-                                rotation_return_table[k, j],
-                                centre,
-                            )
-                            T_i_j_composed = compose_transformations(T_i_k, T_k_j)
-                            tx_composed, ty_composed, rotation_angle_composed = (
-                                matrix_to_parameters(T_i_j_composed, centre)
-                            )
-                            x_return_table[i, j] = tx_composed
-                            y_return_table[i, j] = ty_composed
-                            rotation_return_table[i, j] = rotation_angle_composed
+                intermediates = path[1:-1]
 
-                            # TODO: check if this is the correct way to propagate errors for composed transformations
+                if not intermediates:
+                    # one link that is not i -> j itself: the mirrored j -> i
+                    name = f"{obs_name}_dither_{i+1}_to_dither_{j+1}_mirrored"
+                    title = f"Mirrored Alignment from Dither {i+1} to Dither {j+1}"
+                    self.logger.info(
+                        f"Using the inverse of dither {j+1} -> dither {i+1} for "
+                        f"dither {i+1} -> dither {j+1}."
+                    )
+                else:
+                    through = ", ".join(str(k + 1) for k in intermediates)
+                    name = (
+                        f"{obs_name}_dither_{i+1}_to_dither_{j+1}_composed_via_"
+                        + "_".join(str(k + 1) for k in intermediates)
+                    )
+                    title = (
+                        f"Composed Alignment from Dither {i+1} to Dither {j+1} "
+                        f"through Dither(s) {through}"
+                    )
+                    self.logger.info(
+                        f"Found a path from dither {i+1} to dither {j+1} through "
+                        f"dither(s) {through} ({len(path) - 1} direct measurements)."
+                    )
 
-                            x_error_table[i, j] = np.sqrt(
-                                x_error_table[i, k] ** 2 + x_error_table[k, j] ** 2
-                            )
-                            y_error_table[i, j] = np.sqrt(
-                                y_error_table[i, k] ** 2 + y_error_table[k, j] ** 2
-                            )
-                            rotation_error_table[i, j] = np.sqrt(
-                                rotation_error_table[i, k] ** 2
-                                + rotation_error_table[k, j] ** 2
-                            )
-
-                            succes_table[i, j] = 0.5
-
-                            success = True
-
-                            method.plot_difference_image(
-                                dither_set[i],
-                                dither_set[j],
-                                tx_composed,
-                                ty_composed,
-                                rotation_angle_composed,
-                                f"{obs_name}_dither_{i+1}_to_dither_{j+1}_composed",
-                                show=False,
-                                custom_title=f"Composed Alignment from Dither {i+1} to Dither {j+1} through Dither {k+1}",
-                            )
-                            break
-
-                    # two intermediate frames search
-                    if not success:
-                        for k in range(n_dithers):
-                            if k == i or k == j:
-                                continue
-                            for l in range(n_dithers):
-                                if l == i or l == j or l == k:
-                                    continue
-
-                                if (
-                                    succes_table[i, k] == 1
-                                    and succes_table[k, l] == 1
-                                    and succes_table[l, j] == 1
-                                ):
-                                    self.logger.info(
-                                        f"Found a path from dither {i+1} to dither {j+1} through dithers {k+1} and {l+1}."
-                                    )
-                                    T_i_k = transformation_matrix(
-                                        x_return_table[i, k],
-                                        y_return_table[i, k],
-                                        rotation_return_table[i, k],
-                                        centre,
-                                    )
-                                    T_k_l = transformation_matrix(
-                                        x_return_table[k, l],
-                                        y_return_table[k, l],
-                                        rotation_return_table[k, l],
-                                        centre,
-                                    )
-                                    T_l_j = transformation_matrix(
-                                        x_return_table[l, j],
-                                        y_return_table[l, j],
-                                        rotation_return_table[l, j],
-                                        centre,
-                                    )
-                                    T_i_j_composed = compose_transformations(
-                                        compose_transformations(T_i_k, T_k_l), T_l_j
-                                    )
-                                    (
-                                        tx_composed,
-                                        ty_composed,
-                                        rotation_angle_composed,
-                                    ) = matrix_to_parameters(T_i_j_composed, centre)
-                                    x_return_table[i, j] = tx_composed
-                                    y_return_table[i, j] = ty_composed
-                                    rotation_return_table[i, j] = (
-                                        rotation_angle_composed
-                                    )
-
-                                    # TODO: check if this is the correct way to propagate errors for composed transformations
-
-                                    x_error_table[i, j] = np.sqrt(
-                                        x_error_table[i, k] ** 2
-                                        + x_error_table[k, l] ** 2
-                                        + x_error_table[l, j] ** 2
-                                    )
-                                    y_error_table[i, j] = np.sqrt(
-                                        y_error_table[i, k] ** 2
-                                        + y_error_table[k, l] ** 2
-                                        + y_error_table[l, j] ** 2
-                                    )
-                                    rotation_error_table[i, j] = np.sqrt(
-                                        rotation_error_table[i, k] ** 2
-                                        + rotation_error_table[k, l] ** 2
-                                        + rotation_error_table[l, j] ** 2
-                                    )
-                                    succes_table[i, j] = 0.5
-
-                                    success = True
-
-                                    method.plot_difference_image(
-                                        dither_set[i],
-                                        dither_set[j],
-                                        tx_composed,
-                                        ty_composed,
-                                        rotation_angle_composed,
-                                        f"{obs_name}_dither_{i+1}_to_dither_{j+1}_composed_2_intermediates",
-                                        show=False,
-                                        custom_title=f"Composed Alignment from Dither {i+1} to Dither {j+1} through Dithers {k+1} and {l+1}",
-                                    )
-
-                                    break
-                            if success:
-                                break
-
-                    if not success:
-                        self.logger.warning(
-                            f"No path found from dither {i+1} to dither {j+1}."
-                        )
+                method.plot_difference_image(
+                    dither_set[i],
+                    dither_set[j],
+                    x_return_table[i, j],
+                    y_return_table[i, j],
+                    rotation_return_table[i, j],
+                    name,
+                    show=False,
+                    custom_title=title,
+                )
 
         # check for consistency again (now also covers mirrored / composed entries)
 
@@ -772,59 +1337,7 @@ class AlignmentPipeline:
 
         self.logger.info("Consistency check complete.")
 
-        
-        x_table_filename = f"x_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        x_error_table_filename = f"x_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        y_table_filename = f"y_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        y_error_table_filename = f"y_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        rotation_table_filename = f"rotation_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        rotation_error_table_filename = f"rotation_error_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-        success_table_filename = f"success_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-
-        np.savetxt(
-            pathlib.Path(self.output_dir) / x_table_filename,
-            x_return_table,
-            delimiter=",",
-            header="x_offset_table",
-        )
-
-        np.savetxt(
-            pathlib.Path(self.output_dir) / x_error_table_filename,
-            x_error_table,
-            delimiter=",",
-            header="x_error_table",
-        )
-
-        np.savetxt(
-            pathlib.Path(self.output_dir) / y_table_filename,
-            y_return_table,
-            delimiter=",",
-            header="y_offset_table",
-        )
-        np.savetxt(
-            pathlib.Path(self.output_dir) / y_error_table_filename,
-            y_error_table,
-            delimiter=",",
-            header="y_error_table",
-        )
-        np.savetxt(
-            pathlib.Path(self.output_dir) / rotation_table_filename,
-            rotation_return_table,
-            delimiter=",",
-            header="rotation_offset_table",
-        )
-        np.savetxt(
-            pathlib.Path(self.output_dir) / rotation_error_table_filename,
-            rotation_error_table,
-            delimiter=",",
-            header="rotation_error_table",
-        )
-        np.savetxt(
-            pathlib.Path(self.output_dir) / success_table_filename,
-            succes_table,
-            delimiter=",",
-            header="success_table",
-        )
+        self._save_dither_tables(obs_name, tables)
 
         return (
             x_return_table,
@@ -862,7 +1375,7 @@ class AlignmentPipeline:
         #TODO a hard copy and carries too much info in the parameters, needs refactor
         """
         n_dithers = len(dither_frames)
-        n_items = n_dithers + 1                           # + reference panel
+        n_items = n_dithers + 1  # + reference panel
         owns_figure = axes is None
 
         if owns_figure:
@@ -896,8 +1409,12 @@ class AlignmentPipeline:
             image = dither_frame_arrays[i]
             vmin, vmax = _display_limits(image)
             ax_img.imshow(
-                image, cmap="gray", origin="lower", interpolation="nearest",
-                vmin=vmin, vmax=vmax,
+                image,
+                cmap="gray",
+                origin="lower",
+                interpolation="nearest",
+                vmin=vmin,
+                vmax=vmax,
             )
             ax_img.set_title(f"Dither {i + 1}")
             ax_img.set_xlabel("x")
@@ -907,19 +1424,41 @@ class AlignmentPipeline:
             ax.axis("off")
 
             (
-                tx, ty, rotation_angle,
-                tx_error, ty_error, rotation_error,
-                success, composed, composed_from,
+                tx,
+                ty,
+                rotation_angle,
+                tx_error,
+                ty_error,
+                rotation_error,
+                success,
+                composed,
+                composed_from,
             ) = science_tables[pointing][i]
 
-            status_text, status_color = _science_status(success, composed, composed_from)
+            status_text, status_color = _science_status(
+                success, composed, composed_from
+            )
 
             if success is None or tx is None or ty is None or rotation_angle is None:
-                ax.text(0.05, 0.5, f"Dither {i + 1}\nNo result",
-                        ha="left", va="center", fontsize=11, color="white")
-                ax.text(0.05, 0.18, f"Status: {status_text}",
-                        ha="left", va="center", fontsize=10,
-                        color=status_color, fontweight="bold")
+                ax.text(
+                    0.05,
+                    0.5,
+                    f"Dither {i + 1}\nNo result",
+                    ha="left",
+                    va="center",
+                    fontsize=11,
+                    color="white",
+                )
+                ax.text(
+                    0.05,
+                    0.18,
+                    f"Status: {status_text}",
+                    ha="left",
+                    va="center",
+                    fontsize=10,
+                    color=status_color,
+                    fontweight="bold",
+                )
                 continue
 
             main_text = (
@@ -931,10 +1470,26 @@ class AlignmentPipeline:
                 f"ty_err = {ty_error:.3f}\n"
                 f"rot_err = {rotation_error:.3f}"
             )
-            ax.text(0.05, 0.95, main_text, ha="left", va="top", fontsize=9,
-                    color="white", linespacing=1.4)
-            ax.text(0.05, 0.18, f"Status: {status_text}", ha="left", va="center",
-                    fontsize=10, color=status_color, fontweight="bold")
+            ax.text(
+                0.05,
+                0.95,
+                main_text,
+                ha="left",
+                va="top",
+                fontsize=9,
+                color="white",
+                linespacing=1.4,
+            )
+            ax.text(
+                0.05,
+                0.18,
+                f"Status: {status_text}",
+                ha="left",
+                va="center",
+                fontsize=10,
+                color=status_color,
+                fontweight="bold",
+            )
             ax.axvspan(0.0, 1.0, ymin=0.0, ymax=1.0, facecolor="white", alpha=0.0)
             ax.set_facecolor("white")
             for spine in ax.spines.values():
@@ -943,15 +1498,21 @@ class AlignmentPipeline:
         # ---- reference panel (the item after the last dither) -----------------
         # reprojected_reference_frames is filled per pointing in run(); accept the
         # (pointing, k) key form too so either convention works.
-        ref_key = pointing if pointing in reprojected_reference_frames else (pointing, 0)
+        ref_key = (
+            pointing if pointing in reprojected_reference_frames else (pointing, 0)
+        )
         reference_frame_pointing = reprojected_reference_frames[ref_key]
         v_med = np.nanmedian(reference_frame_pointing)
         v_std = np.nanstd(reference_frame_pointing)
 
         ref_ax, summary_ax = panel_axes(n_dithers)
         ref_ax.imshow(
-            reference_frame_pointing, cmap="gray", origin="lower",
-            interpolation="nearest", vmin=v_med - 3 * v_std, vmax=v_med + 3 * v_std,
+            reference_frame_pointing,
+            cmap="gray",
+            origin="lower",
+            interpolation="nearest",
+            vmin=v_med - 3 * v_std,
+            vmax=v_med + 3 * v_std,
         )
         ref_ax.set_title("Reference")
         ref_ax.set_xlabel("x")
@@ -969,20 +1530,27 @@ class AlignmentPipeline:
 
         summary_ax.axis("off")
         summary_ax.text(
-            0.05, 0.9,
+            0.05,
+            0.9,
             f"Reference alignment\nPointing {pointing}\n"
             f"{n_dithers} dithers\n"
             f"Reference file:\n{self.reference_file}",
-            ha="left", va="top", fontsize=10, linespacing=1.5,
+            ha="left",
+            va="top",
+            fontsize=10,
+            linespacing=1.5,
         )
         summary_ax.text(
-            0.05, 0.45,
+            0.05,
+            0.45,
             "Status summary:\n"
             + "\n".join(
                 f"D{i + 1}: {_short_status(science_tables[pointing][i][6])}"
                 for i in range(n_dithers)
             ),
-            ha="left", va="top", fontsize=9 if n_dithers <= 8 else 6,
+            ha="left",
+            va="top",
+            fontsize=9 if n_dithers <= 8 else 6,
             linespacing=1.4,
         )
 
@@ -1034,16 +1602,24 @@ class AlignmentPipeline:
         fig.suptitle(f"Pointing {pointing} alignment QA report", fontsize=16)
 
         self._plot_science_alignment(
-            pointing, dither_frames, dither_frame_arrays,
-            reprojected_reference_frames, science_tables, QA_dir_science,
+            pointing,
+            dither_frames,
+            dither_frame_arrays,
+            reprojected_reference_frames,
+            science_tables,
+            QA_dir_science,
             axes=axes[:sci_rows, :],
         )
 
         # a single row of axes -> summary panels only (thumbnails are already
         # shown in the science block above)
         self._plot_dither_alignment(
-            dither_frame_arrays, n_dithers, success_table,
-            x_table, y_table, rotation_table,
+            dither_frame_arrays,
+            n_dithers,
+            success_table,
+            x_table,
+            y_table,
+            rotation_table,
             obs_title=pointing + "_after_compositions_",
             axes=axes[-1, :N_SUMMARY_PANELS],
         )
@@ -1053,11 +1629,15 @@ class AlignmentPipeline:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         if save:
             pathlib.Path(QA_dir_combined).mkdir(parents=True, exist_ok=True)
-            fig.savefig(QA_dir_combined / f"{pointing}_combined_QA_{self.aligner.name}.png", dpi=200, bbox_inches="tight")
+            fig.savefig(
+                QA_dir_combined / f"{pointing}_combined_QA_{self.aligner.name}.png",
+                dpi=200,
+                bbox_inches="tight",
+            )
         if show:
             plt.show()
         else:
-            plt.close(fig)          # run() never closed these -> figure leak per pointing
+            plt.close(fig)  # run() never closed these -> figure leak per pointing
 
         return fig, axes
 
@@ -1083,6 +1663,15 @@ class AlignmentPipeline:
         with status 1 (consistent), 0.7 (cannot be verified / inconsistent) or
         0 (both directions failed).
         """
+
+        # initial guesses from earlier runs (if any sources are given)
+        guess_translation, guess_rotation, _ = self._get_initial_guess(
+            "science_forward", pointing, i, shape=dither_frame.shape, wcs=dither_wcs
+        )
+        guess_translation_rev, guess_rotation_rev, _ = self._get_initial_guess(
+            "science_reverse", pointing, i, shape=dither_frame.shape, wcs=dither_wcs
+        )
+
         (
             (tx, ty),
             rotation_angle,
@@ -1095,7 +1684,10 @@ class AlignmentPipeline:
             f"{pointing}_dither_{i+1}_to_reference",
             input_wcs=dither_wcs,
             reference_wcs=reference_wcs,
-            skip_rotation_estimation=self.skip_rotation_estimation
+            initial_guess_translation=guess_translation,
+            initial_guess_rotation=guess_rotation,
+            skip_rotation_estimation=self.skip_rotation_estimation,
+            scan_for_angles=self.scan_for_angles,
         )
 
         (
@@ -1110,7 +1702,10 @@ class AlignmentPipeline:
             f"{pointing}_reference_to_dither_{i+1}",
             input_wcs=reference_wcs,
             reference_wcs=dither_wcs,
-            skip_rotation_estimation=self.skip_rotation_estimation
+            initial_guess_translation=guess_translation_rev,
+            initial_guess_rotation=guess_rotation_rev,
+            skip_rotation_estimation=self.skip_rotation_estimation,
+            scan_for_angles=self.scan_for_angles,
         )
 
         fwd_ok = success == 1
@@ -1124,6 +1719,7 @@ class AlignmentPipeline:
                 (tx_rev, ty_rev, rotation_angle_rev),
                 _check_points(shape),
             )
+            direction = "forward"
             if distance <= self.distance_threshold:
                 status = 1
             else:
@@ -1140,6 +1736,7 @@ class AlignmentPipeline:
                 f"Pointing {pointing}, dither {i+1}: reverse alignment failed, "
                 f"forward alignment cannot be verified. Marking as inconsistent."
             )
+            direction = "forward"
             status = 0.7
 
         elif rev_ok:
@@ -1157,10 +1754,14 @@ class AlignmentPipeline:
                 ty_error_rev,
                 rotation_error_rev,
             )
+            direction = "reverse"
             status = 0.7
 
         else:
+            direction = None
             status = 0.0
+
+        self.science_directions[(pointing, i)] = direction
 
         # the last two entries book-keep whether this was a composed alignment
         # and what it was composed from
@@ -1193,12 +1794,16 @@ class AlignmentPipeline:
     ):
         """
         Replace every science alignment that is not a clean direct measurement
-        (status 0 failed, 0.7 inconsistent) by a composition
+        (status 0 failed, 0.7 inconsistent) by the shortest composition
 
-            ref -> k (science, status 1 or 0.5)  ->  [j ->]  i (dither tables)
+            ref -> k (direct science, status 1)  ->  ... ->  i (direct dither links)
 
-        using at most one intermediate dither j.  Repeats until no further
-        progress, so an entry can be recovered through another recovered entry.
+        Path length is the number of direct measurements: the science link plus
+        the dither links, where a dither link is a direct dither measurement
+        (status 1) or its exact inverse (mirrored). A path through a recovered or
+        composed entry is the same as the chain of direct links it was built
+        from, so only direct links are needed and there is no limit on the
+        number of intermediate dithers. Ties are broken by the lowest dither index.
 
         Direction convention:
             science_tables[pointing][i] : ref -> i
@@ -1214,82 +1819,66 @@ class AlignmentPipeline:
                 f"(status {st[i][6]}). Attempting to recover..."
             )
 
-        def ok(a, b):
-            return _is_usable_alignment(success_table[a, b])
+        # dithers with a direct (clean) science alignment are the starting points
+        anchors = [k for k in range(n) if st[k][6] == 1]
 
-        progress = True
-        while pending and progress:
-            progress = False
-            for i in list(pending):
-                centre = _image_centre(dither_frame_arrays[i].shape)
+        def is_link(a, b):
+            return self._is_direct_dither_link(success_table, a, b)
 
-                anchors = [
-                    k for k in range(n)
-                    if k != i and _is_usable_alignment(st[k][6])
-                ]
+        for i in list(pending):
+            centre = _image_centre(dither_frame_arrays[i].shape)
 
-                # candidate chains (anchor k, hops ending at i), shortest first
-                chains = [(k, [i]) for k in anchors if ok(k, i)]
-                chains += [
-                    (k, [j, i])
-                    for k in anchors
-                    for j in range(n)
-                    if j not in (i, k) and ok(k, j) and ok(j, i)
-                ]
+            path = _shortest_direct_path(anchors, i, n, is_link)
 
-                if not chains:
-                    continue
+            if path is None:
+                continue
 
-                k, hops = chains[0]
-                tx_k, ty_k, rot_k, xe_k, ye_k, re_k = st[k][:6]
+            k = path[0]
+            tx_k, ty_k, rot_k, xe_k, ye_k, re_k = st[k][:6]
 
-                T = transformation_matrix(tx_k, ty_k, rot_k, centre)
-                # TODO: check if quadrature is the correct way to propagate errors for composed transformations
-                var = np.array([xe_k, ye_k, re_k], dtype=float) ** 2
-                prev = k
-                for nxt in hops:
-                    T = compose_transformations(
-                        T,
-                        transformation_matrix(
-                            x_table[prev, nxt],
-                            y_table[prev, nxt],
-                            rotation_table[prev, nxt],
-                            centre,
-                        ),
-                    )
-                    var = var + np.array(
-                        [
-                            x_error_table[prev, nxt],
-                            y_error_table[prev, nxt],
-                            rotation_error_table[prev, nxt],
-                        ],
-                        dtype=float,
-                    ) ** 2
-                    prev = nxt
+            T = transformation_matrix(tx_k, ty_k, rot_k, centre)
+            # TODO: check if quadrature is the correct way to propagate errors for composed transformations
+            var = np.array([xe_k, ye_k, re_k], dtype=float) ** 2
 
-                tx_c, ty_c, rot_c = matrix_to_parameters(T, centre)
-                via = f"dither {k + 1}" + (
-                    f" via dither {hops[0] + 1}" if len(hops) == 2 else ""
+            for a, b in zip(path[:-1], path[1:]):
+                T_link, var_link = self._direct_dither_link(
+                    a,
+                    b,
+                    success_table,
+                    x_table,
+                    y_table,
+                    rotation_table,
+                    x_error_table,
+                    y_error_table,
+                    rotation_error_table,
+                    centre,
                 )
+                T = compose_transformations(T, T_link)
+                var = var + var_link
 
-                st[i] = (tx_c, ty_c, rot_c, *np.sqrt(var), 0.5, True, via)
+            tx_c, ty_c, rot_c = matrix_to_parameters(T, centre)
+            via = f"dither {k + 1}" + "".join(
+                f" via dither {j + 1}" for j in path[1:-1]
+            )
 
-                self.aligner.plot_difference_image(
-                    reprojected_reference_frames[pointing],
-                    dither_frame_arrays[i],
-                    tx_c,
-                    ty_c,
-                    rot_c,
-                    f"{pointing}_dither_{i+1}_to_reference_composed_via_{via.replace(' ', '_')}",
-                    show=False,
-                    custom_title=f"Composed Alignment from Dither {i+1} to reference through {via}",
-                )
+            st[i] = (tx_c, ty_c, rot_c, *np.sqrt(var), 0.5, True, via)
 
-                self.logger.info(
-                    f"Recovered alignment for pointing {pointing}, dither {i+1} using {via}."
-                )
-                pending.remove(i)
-                progress = True
+            self.aligner.plot_difference_image(
+                reprojected_reference_frames[pointing],
+                dither_frame_arrays[i],
+                tx_c,
+                ty_c,
+                rot_c,
+                f"{pointing}_dither_{i+1}_to_reference_composed_via_{via.replace(' ', '_')}",
+                show=False,
+                custom_title=f"Composed Alignment from Dither {i+1} to reference through {via}",
+            )
+
+            self.logger.info(
+                f"Recovered alignment for pointing {pointing}, dither {i+1} using {via} "
+                f"({len(path)} direct measurements)."
+            )
+            pending.remove(i)
 
         for i in pending:
             self.logger.warning(
@@ -1297,11 +1886,14 @@ class AlignmentPipeline:
                 f"dither {i+1} is still not clean (status {st[i][6]})."
             )
 
-    def run(self):
+    def run(self, skip_dithers = False):
         """
         Run the alignment pipeline.
 
         For now simple.
+
+        skip_dithers: bool
+            For debugging, dev stuff, don't touch.
         """
 
         self.logger.info("Starting alignment pipeline...")
@@ -1327,9 +1919,7 @@ class AlignmentPipeline:
         QA_dir_combined.mkdir(parents=True, exist_ok=True)
 
         # make an aligner with dither QA path
-        self.aligner = self.method(
-            QA_path=QA_dir_dithers, logger=self.logger
-        )
+        self.aligner = self.method(QA_path=QA_dir_dithers, logger=self.logger)
 
         # prepare the reference frame and its WCS
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
@@ -1378,12 +1968,15 @@ class AlignmentPipeline:
 
             # bring dithers to the same WCS and shape using reprojection
             dither_frame_arrays, dither_frame_wcs = reproject_dithers(
-                dither_frame_arrays, dither_frame_wcs, logger=self.logger, method="interpolation"
+                dither_frame_arrays,
+                dither_frame_wcs,
+                logger=self.logger,
+                method="interpolation",
             )
 
-            # remove nan edge 
+            # remove nan edge
 
-            # TODO we keep this and use it for reprojection in a bit of a hack 
+            # TODO we keep this and use it for reprojection in a bit of a hack
 
             original_shape = dither_frame_arrays[0].shape
 
@@ -1391,23 +1984,37 @@ class AlignmentPipeline:
                 dither_frame_arrays, logger=self.logger
             )
 
-            # ... and run the dither aligment
-            (
-                x_table,
-                x_error_table,
-                y_table,
-                y_error_table,
-                rotation_table,
-                rotation_error_table,
-                success_table,
-            ) = self.align_dithers(
-                dither_frame_arrays,
-                dither_frame_wcs,
-                self.aligner,
-                obs_name=pointing
-            )
+            if not skip_dithers and self.dither_mode == "full":
 
-            dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
+                # ... and run the dither aligment
+                (
+                    x_table,
+                    x_error_table,
+                    y_table,
+                    y_error_table,
+                    rotation_table,
+                    rotation_error_table,
+                    success_table,
+                ) = self.align_dithers(
+                    dither_frame_arrays, dither_frame_wcs, self.aligner, obs_name=pointing
+                )
+
+            # targeted mode: the dither tables are filled after the science
+            # alignment; skipped dithers: empty tables (no links)
+
+            else:
+
+                (
+                    x_table,
+                    x_error_table,
+                    y_table,
+                    y_error_table,
+                    rotation_table,
+                    rotation_error_table,
+                    success_table,
+                ) = self._empty_dither_tables(
+                    len(dither_frame_arrays), status=NOT_ATTEMPTED
+                )
 
             # now science aligment
 
@@ -1423,17 +2030,18 @@ class AlignmentPipeline:
                 shape_out=original_shape,
             )
 
-            reference_WCS_reprojected = dither_frame_wcs[0]  # update reference WCS to match the dither WCS
+            reference_WCS_reprojected = dither_frame_wcs[
+                0
+            ]  # update reference WCS to match the dither WCS
 
             # also crop the same edges as the dither frames to ensure consistency
             reprojected_reference_frame = reprojected_reference_frame[
-                edge_cut_value:reprojected_reference_frame.shape[0]-edge_cut_value, edge_cut_value:reprojected_reference_frame.shape[1]-edge_cut_value
+                edge_cut_value : reprojected_reference_frame.shape[0] - edge_cut_value,
+                edge_cut_value : reprojected_reference_frame.shape[1] - edge_cut_value,
             ]
 
             # keep this for plotting later
-            reprojected_reference_frames[pointing] = (
-                reprojected_reference_frame
-            )
+            reprojected_reference_frames[pointing] = reprojected_reference_frame
 
             # 1) align every dither to the reference both ways and check consistency
             for i in range(len(dither_frame_arrays)):
@@ -1450,6 +2058,32 @@ class AlignmentPipeline:
                     reference_WCS_reprojected,
                     dither_frame_wcs[i],
                 )
+
+            # targeted mode: align only the dither links needed to recover the
+            # science alignments that are not clean
+            if not skip_dithers and self.dither_mode == "targeted":
+
+                self.aligner.QA_path = QA_dir_dithers
+
+                (
+                    x_table,
+                    x_error_table,
+                    y_table,
+                    y_error_table,
+                    rotation_table,
+                    rotation_error_table,
+                    success_table,
+                ) = self.align_dithers_targeted(
+                    dither_frame_arrays,
+                    dither_frame_wcs,
+                    self.aligner,
+                    science_tables[pointing],
+                    obs_name=pointing,
+                )
+
+                self.aligner.QA_path = QA_dir_science
+
+            dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
 
             # 2) extrapolate: recover failed / inconsistent entries by composing
             #    transformations through other dithers
@@ -1494,8 +2128,8 @@ class AlignmentPipeline:
                     ty_error,
                     rotation_error,
                     success,
-                    _,
-                    _,
+                    composed,
+                    composed_from,
                 ) = science_tables[pointing][i]
 
                 # 1 and 0.5 are always written; a still-inconsistent (0.7) entry
@@ -1505,7 +2139,14 @@ class AlignmentPipeline:
                 )
                 has_values = all(
                     v is not None and np.isfinite(v)
-                    for v in (tx, ty, rotation_angle, tx_error, ty_error, rotation_error)
+                    for v in (
+                        tx,
+                        ty,
+                        rotation_angle,
+                        tx_error,
+                        ty_error,
+                        rotation_error,
+                    )
                 )
 
                 if not (writable and has_values):
@@ -1517,6 +2158,8 @@ class AlignmentPipeline:
                     dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = (
                         rotation_error
                     ) = None
+
+                    self.reported_science_images[(pointing, i)] = None
 
                 else:
                     if success == 0.7:
@@ -1531,8 +2174,26 @@ class AlignmentPipeline:
                         dither_frame_wcs[i], tx, ty, logger=self.logger
                     )
 
-                    dRA_sigma, dDEC_sigma = detector_translation_to_sky_translation(
+                    # errors are propagated through the WCS Jacobian, not
+                    # converted like a displacement (see the function)
+                    dRA_sigma, dDEC_sigma = detector_errors_to_sky_errors(
                         dither_frame_wcs[i], tx_error, ty_error
+                    )
+
+                    # book-keep the difference image of the reported result
+                    if composed:
+                        image_obs_name = (
+                            f"{pointing}_dither_{i+1}_to_reference_composed_via_"
+                            f"{composed_from.replace(' ', '_')}"
+                        )
+                    elif self.science_directions.get((pointing, i)) == "reverse":
+                        image_obs_name = f"{pointing}_reference_to_dither_{i+1}"
+                    else:
+                        image_obs_name = f"{pointing}_dither_{i+1}_to_reference"
+
+                    self.reported_science_images[(pointing, i)] = (
+                        QA_dir_science
+                        / f"difference_image_{image_obs_name}_{self.aligner.name}.png"
                     )
 
                 table_entry = make_table_entry(
@@ -1551,4 +2212,6 @@ class AlignmentPipeline:
                 output_table.append(tuple(value for _, value in table_entry.items()))
 
         # write the final results to a FITS table
-        write_final_results(output_table, self.aligner.name, self.output_dir, logger=self.logger)
+        write_final_results(
+            output_table, self.aligner.name, self.output_dir, logger=self.logger
+        )

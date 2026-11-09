@@ -4,7 +4,6 @@ Reads the configuration file and runs the alignment pipeline.
 
 if __name__ == "__main__":
 
-
     import argparse
     import os
     import json
@@ -60,11 +59,28 @@ if __name__ == "__main__":
         help="If set, rotation estimation will be skipped. Default is False.",
     )
 
+    parser.add_argument(
+        "--scan_for_angles",
+        action="store_true",
+        help="If set, use the shared angle scan to estimate the rotation. "
+        "Default is False (use each method's direct rotation estimator).",
+    )
+
+    parser.add_argument(
+        "--dither_mode",
+        type=str,
+        choices=("full", "targeted"),
+        default="full",
+        help="'full' aligns all dither pairs, 'targeted' only the pairs needed to "
+        "recover failed science alignments. Default is 'full'.",
+    )
+
     args = parser.parse_args()
 
-
     import matplotlib
-    if args.plot_headless: matplotlib.use("Agg")
+
+    if args.plot_headless:
+        matplotlib.use("Agg")
 
     # create the output directory if it does not exist
     if not os.path.exists(args.output_dir):
@@ -73,14 +89,14 @@ if __name__ == "__main__":
     with open(args.config_file, "r") as f:
         config = json.load(f)
 
-    # imports happen here so we can set global backends for matplotlib 
+    # imports happen here so we can set global backends for matplotlib
     # before importing any other modules that use it
-    
+
     from pipeline import AlignmentPipeline
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
 
     # TODO: this method selection needs to be refactored
-    
+
     method = None
 
     switcher = {
@@ -99,7 +115,6 @@ if __name__ == "__main__":
             f"Invalid method: {args.method}. Choose from 'NoAlignment', 'PointSources', 'FFT', 'OpticalFlow'."
         )
 
-    
     if args.method == "All":
         # run the pipeline for each method in the list, this option mostly for testing
         for method in switcher[args.method]:
@@ -111,12 +126,14 @@ if __name__ == "__main__":
                 output_dir=args.output_dir,
                 aligment_method=method,
                 distance_threshold=args.distance_threshold,
-                skip_rotation_estimation=args.skip_rotation_estimation
+                skip_rotation_estimation=args.skip_rotation_estimation,
+                scan_for_angles=args.scan_for_angles,
+                dither_mode=args.dither_mode,
             )
 
             pipeline.run()
 
-    #singular cases
+    # singular cases
     else:
 
         # create the pipeline
@@ -127,7 +144,9 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             aligment_method=method,
             distance_threshold=args.distance_threshold,
-            skip_rotation_estimation=args.skip_rotation_estimation
+            skip_rotation_estimation=args.skip_rotation_estimation,
+            scan_for_angles=args.scan_for_angles,
+            dither_mode=args.dither_mode,
         )
 
         pipeline.run()
