@@ -3,6 +3,7 @@ from stats import longest_run
 from scipy.ndimage import gaussian_filter, map_coordinates
 from numpy.fft import fft2, fftshift
 from scipy.signal.windows import tukey
+from scipy.interpolate import griddata
 
 import numpy as np
 
@@ -20,6 +21,63 @@ def remove_nans(image, fill_value=0, logger=None):
         logger.info(f"Replacing NaN values in the image with fill_value: {fill_value}")
 
     return np.nan_to_num(image, nan=fill_value)
+
+def interpolate_nans(image, logger=None):
+    """
+    Interpolate NaN values in a 2D image using cubic interpolation.
+
+    Falls back to nearest-neighbor interpolation for NaN pixels
+    that cubic interpolation cannot fill, such as pixels outside
+    the convex hull of valid points.
+    """
+    if logger:
+        logger.info("Interpolating NaN values in the image using cubic interpolation.")
+
+    image = np.asarray(image, dtype=float)
+    nan_mask = np.isnan(image)
+
+    # Return a copy if there are no NaNs
+    if not np.any(nan_mask):
+        return image.copy()
+
+    # Coordinates of valid and missing pixels
+    valid_coords = np.array(np.where(~nan_mask)).T
+    nan_coords = np.array(np.where(nan_mask)).T
+
+    # Values at valid pixels
+    valid_values = image[~nan_mask]
+
+    # Ensure there are enough valid points for interpolation
+    if len(valid_values) < 4:
+        if logger:
+            logger.warning(
+                "Too few valid pixels for cubic interpolation; "
+                "using nearest-neighbor interpolation."
+            )
+        interpolated_values = griddata(
+            valid_coords, valid_values, nan_coords, method="nearest"
+        )
+    else:
+        # Cubic interpolation
+        interpolated_values = griddata(
+            valid_coords, valid_values, nan_coords, method="cubic"
+        )
+
+        # Fill any remaining NaNs using nearest-neighbor interpolation
+        missing = np.isnan(interpolated_values)
+        if np.any(missing):
+            interpolated_values[missing] = griddata(
+                valid_coords,
+                valid_values,
+                nan_coords[missing],
+                method="nearest",
+            )
+
+    # Fill missing pixels without modifying the original image
+    interpolated_image = image.copy()
+    interpolated_image[nan_mask] = interpolated_values
+
+    return interpolated_image
 
 
 def remove_bright_sources_simple(

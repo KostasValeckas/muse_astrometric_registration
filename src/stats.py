@@ -21,8 +21,23 @@ def masked_ncc(a, b, mask):
     return 0.0 if denom == 0 else (a * b).sum() / denom
 
 
-def ternary_search(f, left, right, eps=1e-2, nan_default=1.0):
+def ternary_search(f, left, right, eps=1e-1, nan_default=1.0, logger=None):
+    """
+    Ternary search for the minimum of `f` in [left, right].
+
+    Reports failure (returns None, None, None) if
+    - the final bracket still touches the original left or right boundary,
+      i.e. the minimum may lie at or beyond the search range, or
+    - all evaluated points returned the same value (no information, e.g.
+      every evaluation failed and got `nan_default`).
+
+    Returns
+    -------
+    x_min, y_min, tried
+        Position and value of the minimum, and the list of (x, y) evaluated.
+    """
     tried = []
+    left_0, right_0 = left, right
 
     def evaluate(x):
         y = f(x)
@@ -49,5 +64,26 @@ def ternary_search(f, left, right, eps=1e-2, nan_default=1.0):
 
     x_min = (left + right) / 2
     y_min = evaluate(x_min)
+
+    # all points returned the same value: no minimum to find
+    ys = np.array([y for _, y in tried], dtype=float)
+    if np.allclose(ys, ys[0], rtol=1e-9, atol=0.0):
+        if logger:
+            logger.warning(
+                f"Ternary search: all {len(ys)} evaluations returned the "
+                f"same value ({ys[0]:.6g}), reporting failure"
+            )
+        return None, None, None
+
+    # the bracket never moved away from one of the edges: the minimum
+    # can be at or beyond the boundary of the search range
+    if left == left_0 or right == right_0:
+        if logger:
+            logger.warning(
+                f"Ternary search reached the boundary of the search range "
+                f"[{left_0:.4f}, {right_0:.4f}] (final bracket "
+                f"[{left:.4f}, {right:.4f}]), reporting failure"
+            )
+        return None, None, None
 
     return x_min, y_min, tried

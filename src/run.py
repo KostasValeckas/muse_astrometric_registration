@@ -59,6 +59,22 @@ if __name__ == "__main__":
         help="If set, rotation estimation will be skipped. Default is False.",
     )
 
+    parser.add_argument(
+        "--scan_for_angles",
+        action="store_true",
+        help="If set, use the shared angle scan to estimate the rotation. "
+        "Default is False (use each method's direct rotation estimator).",
+    )
+
+    parser.add_argument(
+        "--dither_mode",
+        type=str,
+        choices=("full", "targeted"),
+        default="full",
+        help="'full' aligns all dither pairs, 'targeted' only the pairs needed to "
+        "recover failed science alignments. Default is 'full'.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -111,6 +127,8 @@ if __name__ == "__main__":
                 aligment_method=method,
                 distance_threshold=args.distance_threshold,
                 skip_rotation_estimation=args.skip_rotation_estimation,
+                scan_for_angles=args.scan_for_angles,
+                dither_mode=args.dither_mode,
             )
 
             pipeline.run()
@@ -127,6 +145,8 @@ if __name__ == "__main__":
             aligment_method=method,
             distance_threshold=args.distance_threshold,
             skip_rotation_estimation=args.skip_rotation_estimation,
+            scan_for_angles=args.scan_for_angles,
+            dither_mode=args.dither_mode,
         )
 
         pipeline.run()
