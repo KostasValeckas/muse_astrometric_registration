@@ -2,6 +2,7 @@ from logger import get_logger, format_elapsed
 
 import time
 
+import itertools
 import pathlib
 from collections import deque
 
@@ -1034,6 +1035,71 @@ class AlignmentPipeline:
 
         return score
 
+    def _verified_dither_link(
+        self, a, b, dither_set, wcs_set, method, obs_name, tables, shape
+    ):
+        """
+        Align the dither pair a <-> b in both directions (a -> b, then b -> a)
+        and check that the two are consistent, i.e. that the round trip
+        a -> b -> a brings the test points back to within `distance_threshold`
+        (the same check as `_cross_ref_dither_table_displacement` and the
+        science alignment).
+
+        The link is usable (True) only if both directions succeed AND they are
+        consistent; both entries then keep status 1. Otherwise:
+        - a -> b fails: b -> a is not run (the link can never be verified),
+        - only one direction succeeds: that entry is set to 0.7, since it
+          cannot be verified (as for the science alignment),
+        - both succeed but disagree: both entries are set to 0.7.
+        So a status 1 entry in a targeted table is always a verified link, and
+        `_recover_science_alignments` only composes through verified links.
+        """
+        succes_table = tables[6]
+
+        if not self._align_dither_pair(
+            a, b, dither_set, wcs_set, method, obs_name, tables
+        ):
+            self.logger.info(
+                f"Dither {a+1} -> dither {b+1} failed, link {a+1} <-> {b+1} "
+                f"cannot be verified (reverse not run)."
+            )
+            return False
+
+        if not self._align_dither_pair(
+            b, a, dither_set, wcs_set, method, obs_name, tables
+        ):
+            self.logger.warning(
+                f"Dither {b+1} -> dither {a+1} failed, dither {a+1} -> dither "
+                f"{b+1} cannot be verified. Marking as inconsistent."
+            )
+            succes_table[a, b] = 0.7
+            return False
+
+        x_table, _, y_table, _, rotation_table, _, _ = tables
+
+        distance = _roundtrip_distance(
+            (x_table[a, b], y_table[a, b], rotation_table[a, b]),
+            (x_table[b, a], y_table[b, a], rotation_table[b, a]),
+            _check_points(shape),
+        )
+
+        # (written so that a NaN distance also counts as inconsistent)
+        if not distance <= self.distance_threshold:
+            self.logger.warning(
+                f"Alignment between dither {a+1} and dither {b+1} is inconsistent "
+                f"(round-trip displacement: {distance:.3f}). Marking as inconsistent."
+            )
+            succes_table[a, b] = 0.7
+            succes_table[b, a] = 0.7
+            return False
+
+        self.logger.info(
+            f"Dither link {a+1} <-> {b+1} verified (round-trip displacement: "
+            f"{distance:.3f})."
+        )
+
+        return True
+
     def align_dithers_targeted(
         self, dither_set, wcs_set, method, science_table, obs_name=None
     ):
@@ -1042,24 +1108,26 @@ class AlignmentPipeline:
         that are not clean (status != 1), instead of all pairs.
 
         The anchors are the dithers with a clean science alignment. For every
-        non-clean dither the shortest composition anchor -> ... -> dither is
-        searched one path length at a time, and every dither link is aligned
-        only when the search needs it:
+        non-clean dither (the goal) the candidate paths
 
-            length 1: anchor -> dither
-            length 2: anchor -> m -> dither (m reached from an anchor), ...
+            anchor -> m_1 -> ... -> goal
 
-        At every length the links into the target dither are tried first. A link
-        a <-> b is first aligned as a -> b; if that fails, b -> a is tried (a
-        mirrored measurement counts as direct). Every link is aligned at most
-        once and reused for the other dithers. Within one length the candidates
-        are ordered by `_guess_link_score` (links the guess sources measured
-        first), then by dither index.
+        (no dither visited twice) are tried one at a time, shortest first, until
+        one works. A path works if every link on it is verified: aligned in
+        both directions and consistent, see `_verified_dither_link`. Every link
+        is aligned at most once (the result is cached), so a link that failed
+        rules out every path through it, and a verified link is reused by the
+        other paths and the other goals. E.g. for goal 3 and anchor 1:
 
-        The path length is the same as with the full table (the shortest
-        composition through direct links); only the tie between equally short
-        paths may be broken differently. No forward/reverse consistency check
-        is done for the links, since only one direction is aligned.
+            3 - 1;  then 3 - 2 - 1;  then 3 - 4 - 1;  ...;  then 3 - 2 - 4 - 1 ...
+
+        Within one path length the paths are ordered by the number of links
+        that still have to be aligned (cheapest first), then by
+        `_guess_link_score` (links the initial guess sources measured first),
+        then by dither index.
+
+        Since only verified links are left with status 1, the shortest path
+        found here is also the one `_recover_science_alignments` composes.
 
         Returns the tables in the same order as `align_dithers`; pairs that were
         not aligned have status NOT_ATTEMPTED.
@@ -1068,6 +1136,10 @@ class AlignmentPipeline:
         n_dithers = len(dither_set)
 
         tables = self._empty_dither_tables(n_dithers, status=NOT_ATTEMPTED)
+
+        min_height = min([dither.shape[0] for dither in dither_set])
+        min_width = min([dither.shape[1] for dither in dither_set])
+        shape = (min_height, min_width)
 
         anchors = [k for k in range(n_dithers) if science_table[k][6] == 1]
         pending = [k for k in range(n_dithers) if science_table[k][6] != 1]
@@ -1094,85 +1166,93 @@ class AlignmentPipeline:
             # (min, max) -> True / False, every link is aligned at most once
             links = {}
 
+            def key(a, b):
+                return (min(a, b), max(a, b))
+
             def link(a, b):
-                key = (min(a, b), max(a, b))
-
-                if key not in links:
-                    ok = self._align_dither_pair(
-                        a, b, dither_set, wcs_set, method, obs_name, tables
+                if key(a, b) not in links:
+                    links[key(a, b)] = self._verified_dither_link(
+                        a, b, dither_set, wcs_set, method, obs_name, tables, shape
                     )
+                return links[key(a, b)]
 
-                    if not ok:
-                        self.logger.info(
-                            f"Dither {a+1} -> dither {b+1} failed, trying "
-                            f"dither {b+1} -> dither {a+1}."
-                        )
-                        ok = self._align_dither_pair(
-                            b, a, dither_set, wcs_set, method, obs_name, tables
-                        )
+            def path_links(path):
+                return list(zip(path[:-1], path[1:]))
 
-                    links[key] = ok
-
-                return links[key]
-
-            def ordered(pairs):
-                return sorted(
-                    pairs,
-                    key=lambda ab: (-self._guess_link_score(obs_name, *ab), ab),
-                )
+            def path_order(path):
+                pairs = path_links(path)
+                untested = sum(key(a, b) not in links for a, b in pairs)
+                score = sum(self._guess_link_score(obs_name, a, b) for a, b in pairs)
+                return (untested, -score, path)
 
             for goal in pending:
 
-                reached = set(anchors)
-                frontier = list(anchors)
-                length = 1
-                found = False
+                # possible intermediate dithers: a path through another anchor
+                # contains a shorter path from that anchor, tried before
+                others = [
+                    k for k in range(n_dithers) if k != goal and k not in anchors
+                ]
+                found = None
 
-                while frontier and not found:
+                # number of intermediate dithers on the path
+                for n_mid in range(0, len(others) + 1):
 
-                    # one link longer: try the links into the goal first
-                    for a, _ in ordered([(a, goal) for a in frontier]):
-                        if link(a, goal):
-                            found = True
-                            break
-
-                    if found:
-                        break
-
-                    # no path of this length: grow the reached set by one link
-                    next_frontier = []
-
-                    candidates = [
-                        (a, b)
-                        for a in frontier
-                        for b in range(n_dithers)
-                        if b not in reached and b != goal
+                    paths = [
+                        [anchor, *mids, goal]
+                        for anchor in anchors
+                        for mids in itertools.permutations(others, n_mid)
                     ]
 
-                    for a, b in ordered(candidates):
-                        if b in reached:
-                            continue
-                        if link(a, b):
-                            reached.add(b)
-                            next_frontier.append(b)
+                    if not paths:
+                        break
 
-                    frontier = next_frontier
-                    length += 1
+                    while paths and found is None:
 
-                if found:
+                        # drop paths through a link already known to fail
+                        paths = [
+                            p
+                            for p in paths
+                            if all(links.get(key(a, b), True) for a, b in path_links(p))
+                        ]
+
+                        if not paths:
+                            break
+
+                        path = min(paths, key=path_order)
+                        paths.remove(path)
+
+                        if len(path) > 2:
+                            self.logger.info(
+                                f"Pointing {obs_name}: trying dither path "
+                                + " -> ".join(str(k + 1) for k in path)
+                                + f" for dither {goal+1}."
+                            )
+
+                        # links are tried in order and stop at the first failure
+                        if all(link(a, b) for a, b in path_links(path)):
+                            found = path
+
+                    if found is not None:
+                        break
+
+                if found is not None:
                     self.logger.info(
                         f"Pointing {obs_name}: dither {goal+1} can be composed "
-                        f"with {length} dither link(s)."
+                        f"with {len(found) - 1} verified dither link(s): "
+                        + " -> ".join(str(k + 1) for k in found)
+                        + "."
                     )
                 else:
                     self.logger.warning(
-                        f"Pointing {obs_name}: no dither path to dither {goal+1}."
+                        f"Pointing {obs_name}: no verified dither path to dither "
+                        f"{goal+1}."
                     )
 
             self.logger.info(
                 f"Pointing {obs_name}: {int(np.sum(tables[6] != NOT_ATTEMPTED))} "
-                f"dither alignment(s) run, instead of {n_dithers * n_dithers} "
-                f"for the full table."
+                f"dither alignment(s) run ({len(links)} link(s) tested, "
+                f"{sum(links.values())} verified), instead of "
+                f"{n_dithers * n_dithers} for the full table."
             )
 
         self._save_dither_tables(obs_name, tables)

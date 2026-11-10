@@ -208,13 +208,37 @@ The optional flags are:
 * ```NoAlignment``` - does nothing, for testing the plumbing (with the angle scan it
   only scans the rotation).
 * ```PointSources``` - matches point sources with ```astroalign``` and fits a
-  rotation + translation to the matched pairs (least-squares errors).
+  rotation + translation to the matched pairs (least-squares errors). astroalign
+  only returns the sources of its matched triangles (from at most its 50 brightest
+  detections), so its transform is used to re-match all sources detected in both
+  frames (3 sigma, min. area 5 px, unambiguous mutual nearest neighbours within
+  3 px); the astroalign matches are kept if that finds fewer. Every
+  alignment gets a QA plot ```point_sources_*.png```: the numbered matched sources
+  in both frames (accepted / rejected), the measured displacements, the fit
+  residuals in the frame and in the (dx, dy) plane with the threshold, and a
+  histogram of the residual lengths against the expected Rayleigh distribution.
 * ```OpticalFlow``` - ```spacepylot``` computes the dense TV-L1 flow field between the
   frames, and the rigid transform is fitted to a grid of flow vectors in this
   repository (not with ```spacepylot```'s own homography step, which refers the
   translation to the corner of its cropped frame and whose translation-only fit is
   broken with ```skimage``` >= 0.26). Errors come from a spatial block bootstrap of
-  the flow vectors (5x5 tiles, QA plot ```bootstrap_*.png```).
+  the flow vectors (5x5 tiles). Every alignment gets a flow field QA plot
+  ```flow_field_*.png```: the measured flow, the fitted rigid model, the residual flow
+  and the residual vectors.
+
+Both ```PointSources``` and ```OpticalFlow``` reject outliers iteratively with an
+adaptive threshold on the length of the residual vector: 3 robust sigmas of the
+residual scatter (sigma = median residual length / 1.1774, the Rayleigh median, so
+robust to up to 50% outliers), clipped to a lower and upper limit. Residuals of all
+points are recomputed in every pass, so a rejected point can come back.
+
+* ```OpticalFlow```: limits [0.05, 0.5] px (TV-L1 residuals scatter by ~0.07 px).
+* ```PointSources```: limits [0.1, 1.5] px. Matched centroids on real MUSE data scatter
+  by 0.2-0.8 px per axis and mismatches are off by 1.5-5 px, so a fixed 0.5 px cut
+  threw away up to half of the good sources. The first fit uses a robust (soft-L1)
+  loss, so mismatches do not set the first threshold. An alignment needs at least
+  5 accepted sources to count as successful; if astroalign finds fewer matches, its
+  settings are loosened step by step before giving up.
 * ```FFT``` - phase correlation on band-passed (difference of gaussians) frames, over
   a range of filter scales (sigmas), with a known control offset as a self-check. A
   translation is accepted when several consecutive sigmas agree, the control offset is
@@ -297,11 +321,15 @@ used to recover the science alignments that failed:
 
 * ```--dither_mode full``` aligns all dither pairs before the science alignment.
 * ```--dither_mode targeted``` aligns the science frames first, and then only the
-  dither pairs needed to recover the ones that failed. It searches for the shortest
-  path one length at a time, trying the links that the guess methods measured first,
-  and aligns every link at most once. If all science alignments are clean, no dither
-  alignment is run at all. Only one direction of every link is aligned, so the links
-  get no consistency check.
+  dither pairs needed to recover the ones that failed. Every link is aligned in both
+  directions and checked for consistency, like the science alignment; a link is only
+  used if both directions work and agree (a one-sided or disagreeing link is marked
+  inconsistent). The candidate paths are tried one at a time, shortest first: e.g. to
+  recover dither 3 from clean dither 1 it tries 3 - 1, then 3 - 2 - 1, then 3 - 4 - 1,
+  and so on, skipping every path through a link that already failed. Paths that reuse
+  already verified links and links the guess methods measured go first. Every link is
+  aligned at most once. If all science alignments are clean, no dither alignment is
+  run at all.
 
 A failed science alignment is replaced by the shortest composition through direct
 measurements (reference -> clean dither -> ... -> failed dither). The path length is
@@ -405,8 +433,10 @@ Every run (and every method directory of a hybrid run) contains:
   also what the hybrid run reads for the initial guesses.
 * ```aligment_QA/dithers```, ```aligment_QA/science``` and ```aligment_QA/combined```
   - the QA plots: difference images (also for failed, mirrored and composed
-  alignments), angle scans, FFT peak and progression plots, optical flow bootstraps,
-  and a one-page report per pointing.
+  alignments), angle scans, FFT peak and progression plots, optical flow fields, point source matches,
+  and a one-page report per pointing. A failed alignment only gets its failed
+  difference image (```failed_aligment_*.png```): the other QA plots of an alignment
+  are held back until it succeeds.
 * ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together).
 
 ------------------------------------------------------------------------------

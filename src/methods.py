@@ -1,10 +1,15 @@
 from abc import ABC, abstractmethod
 from asyncio.log import logger
 import os
+import io
+import functools
 import astroalign as aa
+import sep
+from scipy.spatial import cKDTree
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import ConnectionPatch, Ellipse
+from matplotlib.colors import LinearSegmentedColormap
 import os
 from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate, gaussian_filter
@@ -43,7 +48,7 @@ from spacepylot.alignment_utilities import TranslationTransform
 import spacepylot.alignment_utilities as spacepylot_utils
 import logging
 
-from stats import ternary_search
+from stats import ternary_search, robust_residual_threshold
 
 
 # plot styling
@@ -62,6 +67,14 @@ plt.rcParams.update(
         "savefig.edgecolor": "black",
     }
 )
+
+
+# arrows drawn over grey frames (flow fields, point source displacements and
+# residuals): the bright part of viridis only, and a thin black outline
+ARROW_CMAP = LinearSegmentedColormap.from_list(
+    "viridis_bright", plt.get_cmap("viridis")(np.linspace(0.35, 1.0, 256))
+)
+ARROW_OUTLINE = dict(edgecolor="black", linewidth=0.6)
 
 
 # this is used to redirect printing from external methods to the logger, so that we can capture all output in the log file
@@ -283,6 +296,86 @@ class AligmentMethod(ABC):
 
         # this is the return value when the alignment fails
         self.FAILED_RETURN = (None, None), None, (None, None), None, False
+
+        # QA plots made during `run` are buffered and only written if the
+        # alignment succeeds, see `_buffer_QA_during_run`
+        self._QA_buffer = None
+        self._QA_depth = 0
+
+    # ------------------------------------------------------------------
+    # QA plots of failed alignments
+    #
+    # A failed alignment gets only the failed difference image
+    # (`plot_failed_aligment`). Other QA plots may already have been made by
+    # then (angle scan, FFT peak / progression, the direct FFT fit before the
+    # scan, ...), so every run() of a subclass is wrapped: all QA figures
+    # saved during the run go through `_save_QA_figure`, which keeps them in
+    # memory (as rendered images); they are written when the run returns
+    # with success, and dropped when it fails or raises.
+    # `plot_failed_aligment` writes directly. Nested runs (the FFT direct fit
+    # before the angle scan) share the buffer of the outermost run. Plots
+    # made outside run() (e.g. the pipeline's composed difference images)
+    # are written directly.
+    # ------------------------------------------------------------------
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "run" in cls.__dict__:
+            cls.run = AligmentMethod._buffer_QA_during_run(cls.__dict__["run"])
+
+    @staticmethod
+    def _buffer_QA_during_run(run):
+        @functools.wraps(run)
+        def wrapper(self, *args, **kwargs):
+            outermost = getattr(self, "_QA_depth", 0) == 0
+            if outermost:
+                self._QA_buffer = []
+            self._QA_depth = getattr(self, "_QA_depth", 0) + 1
+
+            try:
+                result = run(self, *args, **kwargs)
+            except BaseException:
+                self._QA_depth -= 1
+                if outermost:
+                    self._QA_buffer = None
+                raise
+
+            self._QA_depth -= 1
+
+            if outermost:
+                buffered, self._QA_buffer = self._QA_buffer, None
+                success = bool(result[-1]) if isinstance(result, tuple) else False
+
+                if success:
+                    for filename, data in buffered:
+                        with open(filename, "wb") as f:
+                            f.write(data)
+                elif buffered and self.logger:
+                    self.logger.info(
+                        f"Alignment failed: {len(buffered)} QA plot(s) of the "
+                        f"attempt not written, only the failed difference image "
+                        f"is kept."
+                    )
+
+            return result
+
+        return wrapper
+
+    def _save_QA_figure(self, filename, fig=None):
+        """
+        Save a QA figure (`fig`, default the current pyplot figure): kept in
+        memory while a run() is in progress (written only if it succeeds),
+        written directly otherwise.
+        """
+        fig = plt.gcf() if fig is None else fig
+
+        if self._QA_buffer is None:
+            fig.savefig(filename)
+            return
+
+        data = io.BytesIO()
+        fig.savefig(data, format=os.path.splitext(filename)[1].lstrip(".") or "png")
+        self._QA_buffer.append((filename, data.getvalue()))
 
     def check_input(
         self,
@@ -538,7 +631,7 @@ class AligmentMethod(ABC):
             plt.suptitle(
                 f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg\n"
             )
-        plt.savefig(f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png")
+        self._save_QA_figure(f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png")
 
         if self.logger:
             self.logger.info(
@@ -1386,6 +1479,89 @@ class AligmentMethod(ABC):
 
         return float(0.5 * (p84 - p16)), vertex_err_formal
 
+    # ------------------------------------------------------------------
+    # Arrow plots (flow fields, point source displacements and residuals)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _quiver_subsample(src, mask, max_per_axis=25):
+        """
+        Mask of a regular subset of the flow grid with at most `max_per_axis`
+        vectors per axis (2500 arrows are unreadable), and the spacing (px) of
+        that subset.
+        """
+        xs = np.unique(src[mask, 0])
+        ys = np.unique(src[mask, 1])
+
+        step = max(1, int(np.ceil(max(len(xs), len(ys)) / max_per_axis)))
+
+        sub = mask & np.isin(src[:, 0], xs[::step]) & np.isin(src[:, 1], ys[::step])
+
+        spacing = step * float(np.median(np.diff(xs))) if len(xs) > 1 else 1.0
+
+        return sub, spacing
+
+    @staticmethod
+    def _arrow_magnification(vectors, spacing):
+        """
+        Factor that makes the longest arrows (95th percentile of the vector
+        lengths) about 1.5 grid spacings long, and a round reference length
+        (px) for the arrow key.
+        """
+        lengths = np.linalg.norm(vectors, axis=1)
+        lengths = lengths[np.isfinite(lengths)]
+
+        if len(lengths) == 0 or np.percentile(lengths, 95) <= 0:
+            return 1.0, 1.0
+
+        long = float(np.percentile(lengths, 95))
+        reference = float(f"{long:.1g}")
+
+        return 1.5 * spacing / long, reference
+
+    def _draw_flow_quiver(
+        self, ax, fig, src, vectors, sub, spacing, magnification, reference, label,
+        width=0.003,
+    ):
+        """Arrows of `vectors` at `src[sub]`, `magnification` times longer,
+        coloured by their (true) length, with a colour bar and an arrow key.
+
+        The arrows are drawn over grey frames, so only the bright part of
+        viridis is used (teal to yellow, the dark purple / blue end disappears
+        on grey) and every arrow gets a thin black outline."""
+        lengths = np.linalg.norm(vectors[sub], axis=1)
+
+        q = ax.quiver(
+            src[sub, 0],
+            src[sub, 1],
+            vectors[sub, 0] * magnification,
+            vectors[sub, 1] * magnification,
+            lengths,
+            cmap=ARROW_CMAP,
+            angles="xy",
+            scale_units="xy",
+            scale=1,
+            width=width,
+            **ARROW_OUTLINE,
+        )
+        ax.quiverkey(
+            q,
+            0.80,
+            1.02,
+            reference * magnification,
+            f"{reference:g} px",
+            labelpos="E",
+            coordinates="axes",
+            color="white",
+            labelcolor="white",
+        )
+        # constant length (e.g. the model of a pure shift): one colour, not
+        # rounding noise stretched over the whole colour map
+        if len(lengths) and np.ptp(lengths) <= 1e-3 * max(np.max(lengths), 1e-12):
+            q.set_clim(0.9 * np.mean(lengths), 1.1 * np.mean(lengths) + 1e-12)
+        cbar = fig.colorbar(q, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(label)
+
     def plot_angle_scan(self, scan_result, obs_name, show=False):
         """
         Plot the coarse ternary-search points, the fine scan, the fitted
@@ -1767,7 +1943,7 @@ class AligmentMethod(ABC):
         fig.tight_layout()
 
         filename = f"{self.QA_path}/angle_scan_model_{obs_name}_{self.name}.png"
-        fig.savefig(filename)
+        self._save_QA_figure(filename, fig)
 
         if self.logger:
             self.logger.info(f"Saved angle scan plot to {filename}")
@@ -2194,6 +2370,9 @@ class NoAlignment(AligmentMethod):
             )
 
             if scan_result is None:
+                self.plot_failed_aligment(
+                    reference_frame, input_frame, obs_name, show=show_QA
+                )
                 return self.FAILED_RETURN
 
             rotation = scan_result["angle"]
@@ -2222,21 +2401,107 @@ class PointSources(AligmentMethod):
         logger=None,
         MIN_MATCHES_FRACTION=0.5,
         detection_sigma=5,
-        NUM_NEAREST_NEIGHBOURS=3,
+        NUM_NEAREST_NEIGHBOURS=5,
         PIXEL_TOL=5,
         min_area=10,
-        outlier_threshold=0.5,
+        rematch=True,
+        rematch_detection_sigma=3.0,
+        rematch_min_area=5,
+        match_radius=3.0,
+        outlier_threshold=1.5,
+        outlier_sigma=3.0,
+        outlier_threshold_min=0.1,
+        robust_f_scale=0.5,
+        min_sources=5,
         max_iterations=5,
         QA_path=None,
     ):
+        """
+        Parameters (matching: see astroalign; outlier rejection below)
+        ----------
+        NUM_NEAREST_NEIGHBOURS : int
+            astroalign NUM_NEAREST_NEIGHBORS (default 5, the astroalign
+            default; the setting was previously not applied because of the
+            spelling, so 5 is what was effectively used before).
+
+        rematch : bool
+            If True (default), astroalign is only used to find the transform:
+            all sources are then detected again in both frames (no limit of
+            50 control points, `rematch_detection_sigma`, `rematch_min_area`),
+            the input sources are projected with the astroalign transform, and
+            unambiguous mutual nearest neighbours within `match_radius` are
+            matched. astroalign itself only returns the sources that are part
+            of its matched triangles, which are usually much fewer than the
+            sources available. The astroalign matches are kept if the
+            re-matching finds fewer.
+
+        rematch_detection_sigma : float
+            Detection threshold (background sigmas) of the re-matching
+            (default 3). Noise detections hardly ever coincide in both frames
+            within `match_radius`, so this can be lower than for astroalign.
+
+        rematch_min_area : int
+            Minimum source area (pixels) of the re-matching (default 5).
+
+        match_radius : float
+            Matching radius (pixels) of the re-matching (default 3). Pairs
+            with a second candidate within this radius are left out as
+            ambiguous. Mismatches inside the radius are removed by the outlier
+            rejection.
+
+        outlier_threshold : float
+            Upper limit (pixels) of the adaptive outlier threshold (default
+            1.5). Only there to always reject clear mismatches, also when the
+            scatter is large.
+
+        outlier_sigma : float
+            Outlier threshold on the residual length in robust sigmas of the
+            residual scatter of the accepted sources (default 3), see
+            `stats.robust_residual_threshold`.
+
+        outlier_threshold_min : float
+            Lower limit (pixels) of the adaptive threshold (default 0.1).
+
+        robust_f_scale : float
+            Scale (pixels) of the soft-L1 loss of the first fit (default 0.5):
+            residuals well above it count linearly instead of quadratically, so
+            mismatches (astroalign accepts matches within PIXEL_TOL = 5 px) do
+            not pull the first fit, whose residuals set the first threshold.
+
+        min_sources : int
+            Minimum number of accepted (matched and not rejected) sources for
+            the alignment to count as successful (default 5). Also the minimum
+            number of astroalign matches before the looser matching settings
+            are tried.
+
+        Why these values
+        ----------------
+        On real MUSE data (white-light dither vs. reference) the centroid
+        residuals of correctly matched sources scatter by sigma ~0.2-0.8 px
+        per axis (sep barycentres, different PSFs, extended sources), while
+        mismatches are off by 1.5-5 px. A fixed 0.5 px cut (the old default)
+        rejected up to half of the good sources; the adaptive 3 sigma cut
+        follows the actual scatter of each frame pair, and the 1.5 px upper
+        limit still removes the mismatches.
+        """
 
         self.MIN_MATCHES_FRACTION = MIN_MATCHES_FRACTION
         self.detection_sigma = detection_sigma
         self.NUM_NEAREST_NEIGHBOURS = NUM_NEAREST_NEIGHBOURS
         self.PIXEL_TOL = PIXEL_TOL
         self.min_area = min_area
+        self.rematch = rematch
+        self.rematch_detection_sigma = rematch_detection_sigma
+        self.rematch_min_area = rematch_min_area
+        self.match_radius = match_radius
 
         self.outlier_threshold = outlier_threshold
+        self.outlier_sigma = outlier_sigma
+        self.outlier_threshold_min = outlier_threshold_min
+        self.robust_f_scale = robust_f_scale
+        self.min_sources = int(min_sources)
+        if self.min_sources < 3:
+            raise ValueError("min_sources must be >= 3 (3 parameters are fitted)")
         self.max_iterations = max_iterations
 
         super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
@@ -2246,7 +2511,9 @@ class PointSources(AligmentMethod):
                 f"Initialized {self.name} alignment method, version {self.version}."
             )
 
-    def fit_euclidean_transform(self, source, target, centre, p0=[0.0, 0.0, 0.0]):
+    def fit_euclidean_transform(
+        self, source, target, centre, p0=[0.0, 0.0, 0.0], loss="linear", f_scale=1.0
+    ):
         # TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
         """
         Fit rotation about `centre` + translation.
@@ -2266,6 +2533,10 @@ class PointSources(AligmentMethod):
             The centre of rotation.
         p0 : list, optional
             Initial guess for the parameters [theta, tx, ty].
+        loss, f_scale : optional
+            Loss of scipy.optimize.least_squares ("linear" = plain least
+            squares; "soft_l1" for the robust first fit) and its scale in
+            pixels. The errors are only meaningful for "linear".
 
         Returns
         -------
@@ -2306,6 +2577,8 @@ class PointSources(AligmentMethod):
             _residuals,
             p0,
             args=(),
+            loss=loss,
+            f_scale=f_scale,
         )
 
         theta, tx, ty = result.x
@@ -2334,7 +2607,7 @@ class PointSources(AligmentMethod):
             covariance,
         )
 
-    def fit_translation(self, source, target, p0=[0.0, 0.0]):
+    def fit_translation(self, source, target, p0=[0.0, 0.0], loss="linear", f_scale=1.0):
         # TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
         """
         Fit translation (fixed rotation counterpart to `fit_euclidean_transform`).
@@ -2350,6 +2623,9 @@ class PointSources(AligmentMethod):
 
         p0 : list, optional
             Initial guess for the parameters [tx, ty].
+
+        loss, f_scale : optional
+            As in `fit_euclidean_transform`.
 
         Returns
         -------
@@ -2374,6 +2650,8 @@ class PointSources(AligmentMethod):
             _residuals,
             p0,
             args=(),
+            loss=loss,
+            f_scale=f_scale,
         )
 
         tx, ty = result.x
@@ -2407,6 +2685,8 @@ class PointSources(AligmentMethod):
         p0=[0.0, 0.0, 0.0],
         skip_rotation_estimation=False,
         fixed_rotation=None,
+        loss="linear",
+        f_scale=1.0,
     ):
         """
         Fit a Euclidean transform, or a translation with a fixed rotation.
@@ -2417,6 +2697,9 @@ class PointSources(AligmentMethod):
 
         Fixing the rotation is used by the angle scan: the source coordinates
         are rotated by the trial angle and only the translation is fitted.
+
+        `loss` and `f_scale` are passed to the least-squares fit (see
+        `fit_euclidean_transform`).
         """
 
         if skip_rotation_estimation or fixed_rotation is not None:
@@ -2433,7 +2716,7 @@ class PointSources(AligmentMethod):
             rotated_source = self._rotate_points(source, centre, theta)
 
             offsets, translation_err, covariance = self.fit_translation(
-                rotated_source, target, p0=p0[1:3]
+                rotated_source, target, p0=p0[1:3], loss=loss, f_scale=f_scale
             )
 
             theta_err = 0.0
@@ -2447,7 +2730,25 @@ class PointSources(AligmentMethod):
             )
 
         else:
-            return self.fit_euclidean_transform(source, target, centre, p0=p0)
+            return self.fit_euclidean_transform(
+                source, target, centre, p0=p0, loss=loss, f_scale=f_scale
+            )
+
+    def _outlier_threshold(self, residuals, n_parameters):
+        """
+        Adaptive outlier threshold (pixels) on the residual length of the
+        accepted sources `residuals` ((N, 2)) of a fit with `n_parameters`
+        parameters, see `stats.robust_residual_threshold`. Returns
+        (threshold, sigma).
+        """
+        return robust_residual_threshold(
+            residuals,
+            n_sigma=self.outlier_sigma,
+            minimum=self.outlier_threshold_min,
+            maximum=self.outlier_threshold,
+            min_points=self.min_sources,
+            n_parameters=n_parameters,
+        )
 
     def _fit_translation_at_angle(
         self,
@@ -2462,8 +2763,11 @@ class PointSources(AligmentMethod):
 
         The image rotation uses the scipy convention of `run()`; the matched
         source coordinates are therefore rotated by `-angle` before the
-        translation-only fit. Outliers are rejected iteratively with the same
-        threshold as the normal PointSources fit.
+        translation-only fit. Outliers are rejected iteratively in the same way
+        as in the normal PointSources fit: robust (soft-L1) first fit, then
+        least squares with the adaptive threshold (residuals of all sources
+        recomputed every pass, so rejected sources can come back). Fewer than
+        `min_sources` accepted sources is a failure.
 
         Returns a small result dict compatible with the shared scan metric, or
         None if the fit failed.
@@ -2474,40 +2778,41 @@ class PointSources(AligmentMethod):
         offset = np.asarray(p0, dtype=float)
         offset_err = np.full(2, np.nan)
 
-        for _ in range(self.max_iterations):
-            source_fit = source[good_mask]
-            target_fit = target[good_mask]
+        rotated_all = self._rotate_points(source, centre, theta)
 
-            if len(source_fit) < 3:
+        for iteration in range(self.max_iterations):
+            if good_mask.sum() < self.min_sources:
                 return None
 
-            rotated_source = self._rotate_points(source_fit, centre, theta)
-
+            # robust first fit, so mismatches do not set the first threshold
             try:
                 offset, offset_err, _ = self.fit_translation(
-                    rotated_source,
-                    target_fit,
+                    rotated_all[good_mask],
+                    target[good_mask],
                     p0=offset,
+                    loss="soft_l1" if iteration == 0 else "linear",
+                    f_scale=self.robust_f_scale,
                 )
             except Exception:
                 return None
 
-            residuals = target_fit - (rotated_source + offset)
+            residuals = target - (rotated_all + offset)
 
-            outlier_mask = (
-                np.abs(residuals[:, 0]) > self.outlier_threshold
-            ) | (np.abs(residuals[:, 1]) > self.outlier_threshold)
+            threshold, _ = self._outlier_threshold(
+                residuals[good_mask], n_parameters=2
+            )
 
-            if not np.any(outlier_mask):
+            new_good_mask = np.linalg.norm(residuals, axis=1) <= threshold
+
+            if np.array_equal(new_good_mask, good_mask):
                 break
 
-            rejected = np.where(good_mask)[0][outlier_mask]
-            good_mask[rejected] = False
+            good_mask = new_good_mask
 
         source_fit = source[good_mask]
         target_fit = target[good_mask]
 
-        if len(source_fit) < 3:
+        if len(source_fit) < self.min_sources:
             return None
 
         rotated_source = self._rotate_points(source_fit, centre, theta)
@@ -2537,6 +2842,578 @@ class PointSources(AligmentMethod):
     def _seeded_default_rng(self, *args, **kwargs):
         return PointSources._original_default_rng(42)
 
+    # ------------------------------------------------------------------
+    # QA: matched sources and residuals
+    # ------------------------------------------------------------------
+
+    def plot_point_sources(
+        self,
+        reference_frame,
+        input_frame,
+        source_list,
+        target_list,
+        obs_name,
+        good_mask=None,
+        residuals=None,
+        threshold=None,
+        sigma=None,
+        result=None,
+        errors=None,
+        scan_rotation=None,
+        failed_reason=None,
+        save=True,
+        show=False,
+    ):
+        """
+        QA plot of a point-source alignment, made for every alignment where
+        astroalign found matches (also failed ones).
+
+        Panels
+        ------
+        Top row:
+        1. Reference frame with the matched sources (accepted: cyan circles,
+           rejected: red crosses), numbered as in the log ("Rejected original
+           source indices").
+        2. Input frame with the same sources and numbers, to check by eye that
+           the pairs are the same objects.
+        3. Measured displacement of every pair (reference - input position)
+           over the reference, magnified and coloured by length. For a rigid
+           offset all arrows are parallel (shift) or turn about one point
+           (rotation); a mismatch sticks out.
+
+        Bottom row (only with a fit):
+        4. Residuals (reference position - fitted model) at the source
+           positions, magnified on their own scale. Random arrows are noise; a
+           coherent pattern (e.g. one side pulling one way) is something the
+           rigid model does not describe. Rejected sources are drawn in red with
+           their length clipped (direction only).
+        5. Residual vectors in the (dx, dy) plane with the adaptive threshold
+           and the 1 sigma circle; rejected sources beyond the plot range are
+           drawn on its edge.
+        6. Histogram of the residual lengths with the expected (Rayleigh)
+           distribution for the estimated sigma and the threshold. Accepted
+           sources should follow the curve; a long tail inside the threshold
+           means the scatter is not gaussian (e.g. a few poor centroids).
+
+        Saved to `point_sources_{obs_name}_{name}.png`.
+        """
+        source_list = np.asarray(source_list, float)
+        target_list = np.asarray(target_list, float)
+        n = len(source_list)
+
+        if good_mask is None:
+            good_mask = np.ones(n, dtype=bool)
+            fitted = False
+        else:
+            good_mask = np.asarray(good_mask, bool)
+            fitted = residuals is not None
+
+        bad_mask = ~good_mask
+
+        fig, axes = plt.subplots(2, 3, figsize=(22, 14))
+        ax_ref, ax_in, ax_disp = axes[0]
+        ax_res, ax_scatter, ax_hist = axes[1]
+
+        def _show(ax, frame, title, alpha=1.0):
+            data = np.ma.filled(np.ma.asarray(frame, dtype=float), np.nan)
+            finite = data[np.isfinite(data)]
+            vmin, vmax = (
+                np.percentile(finite, [5, 99]) if len(finite) else (0.0, 1.0)
+            )
+            ax.imshow(
+                data,
+                cmap="gray",
+                origin="upper",
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest",
+                alpha=alpha,
+            )
+            ax.set_title(title)
+            ax.set_xlabel("x [px]")
+            ax.set_ylabel("y [px]")
+
+        def _mark(ax, positions):
+            ax.scatter(
+                positions[good_mask, 0],
+                positions[good_mask, 1],
+                s=90,
+                facecolors="none",
+                edgecolors="cyan",
+                linewidths=1.2,
+                label=f"accepted ({int(good_mask.sum())})" if fitted else f"matched ({n})",
+            )
+            if fitted and bad_mask.any():
+                ax.scatter(
+                    positions[bad_mask, 0],
+                    positions[bad_mask, 1],
+                    s=90,
+                    marker="x",
+                    color="red",
+                    linewidths=1.5,
+                    label=f"rejected ({int(bad_mask.sum())})",
+                )
+            for k, (x, y) in enumerate(positions):
+                ax.annotate(
+                    str(k),
+                    (x, y),
+                    xytext=(6, 6),
+                    textcoords="offset points",
+                    fontsize=9,
+                    color="red" if (fitted and bad_mask[k]) else "yellow",
+                    bbox=dict(boxstyle="round,pad=0.1", fc="black", ec="none", alpha=0.6),
+                )
+            ax.legend(loc="lower right", fontsize=8)
+
+        # ---- 1, 2) frames with the matched sources ------------------------
+        _show(ax_ref, reference_frame, "Reference frame, matched sources")
+        _mark(ax_ref, target_list)
+
+        _show(ax_in, input_frame, "Input frame, matched sources")
+        _mark(ax_in, source_list)
+
+        # few, sparse arrows: the longest ones about 12% of the frame size,
+        # drawn thicker than the dense flow fields, with a dot at their base
+        frame_size = max(np.shape(reference_frame)[:2])
+        spacing = 0.08 * frame_size
+
+        # ---- 3) measured displacement -------------------------------------
+        displacement = target_list - source_list
+
+        _show(ax_disp, reference_frame, "", alpha=0.6)
+        magnification, reference = self._arrow_magnification(
+            displacement[good_mask], spacing
+        )
+        self._draw_flow_quiver(
+            ax_disp, fig, target_list, displacement, good_mask, spacing,
+            magnification, reference, "|displacement| [px]", width=0.006,
+        )
+        ax_disp.scatter(target_list[:, 0], target_list[:, 1], s=8, color="white")
+        if fitted and bad_mask.any():
+            ax_disp.quiver(
+                target_list[bad_mask, 0],
+                target_list[bad_mask, 1],
+                displacement[bad_mask, 0] * magnification,
+                displacement[bad_mask, 1] * magnification,
+                color="red",
+                angles="xy",
+                scale_units="xy",
+                scale=1,
+                width=0.006,
+                **ARROW_OUTLINE,
+            )
+        ax_disp.set_title(
+            f"Measured displacement (reference - input position), arrows "
+            f"x{magnification:.3g}\n(rejected in red)",
+            pad=22,
+        )
+
+        if not fitted:
+            for ax in (ax_res, ax_scatter, ax_hist):
+                ax.axis("off")
+                ax.text(
+                    0.5, 0.5, "no fit", ha="center", va="center", fontsize=16,
+                    transform=ax.transAxes,
+                )
+        else:
+            lengths = np.linalg.norm(residuals, axis=1)
+            good_lengths = lengths[good_mask]
+            rms = float(np.sqrt(np.mean(good_lengths**2))) if good_mask.any() else np.nan
+
+            # ---- 4) residual arrows ----------------------------------------
+            _show(ax_res, reference_frame, "", alpha=0.6)
+            res_mag, res_ref = self._arrow_magnification(residuals[good_mask], spacing)
+            self._draw_flow_quiver(
+                ax_res, fig, target_list, residuals, good_mask, spacing,
+                res_mag, res_ref, "|residual| [px]", width=0.006,
+            )
+            ax_res.scatter(target_list[:, 0], target_list[:, 1], s=8, color="white")
+            if bad_mask.any():
+                # direction only: clip the drawn length to 2x the longest arrow
+                clip = 2 * 1.5 * spacing
+                drawn = residuals[bad_mask] * res_mag
+                drawn_len = np.linalg.norm(drawn, axis=1)
+                scale = np.where(drawn_len > clip, clip / np.maximum(drawn_len, 1e-12), 1.0)
+                drawn = drawn * scale[:, None]
+                ax_res.quiver(
+                    target_list[bad_mask, 0],
+                    target_list[bad_mask, 1],
+                    drawn[:, 0],
+                    drawn[:, 1],
+                    color="red",
+                    angles="xy",
+                    scale_units="xy",
+                    scale=1,
+                    width=0.006,
+                    **ARROW_OUTLINE,
+                )
+            ax_res.set_title(
+                f"Residuals (reference - model) of the accepted sources, arrows "
+                f"x{res_mag:.3g}\nrms {rms:.3f} px (rejected in red, length clipped)",
+                pad=22,
+            )
+
+            # ---- 5) residual vectors ---------------------------------------
+            limit = max(
+                1.3 * (threshold if threshold else 0.0),
+                1.1 * (np.max(good_lengths) if good_mask.any() else 1.0),
+            )
+
+            ax_scatter.scatter(
+                residuals[good_mask, 0],
+                residuals[good_mask, 1],
+                s=30,
+                color="cyan",
+                label=f"accepted ({int(good_mask.sum())})",
+            )
+            if bad_mask.any():
+                on_scale = bad_mask & (lengths <= 0.97 * limit)
+                off_scale = bad_mask & (lengths > 0.97 * limit)
+                if on_scale.any():
+                    ax_scatter.scatter(
+                        residuals[on_scale, 0],
+                        residuals[on_scale, 1],
+                        s=50,
+                        marker="x",
+                        color="red",
+                        label=f"rejected ({int(on_scale.sum())})",
+                    )
+                if off_scale.any():
+                    edge = residuals[off_scale] * (
+                        0.97 * limit / lengths[off_scale]
+                    )[:, None]
+                    ax_scatter.scatter(
+                        edge[:, 0],
+                        edge[:, 1],
+                        s=50,
+                        marker="D",
+                        facecolors="none",
+                        edgecolors="red",
+                        label=(
+                            f"rejected, off scale ({int(off_scale.sum())}, "
+                            f"up to {lengths[off_scale].max():.2f} px)"
+                        ),
+                    )
+                for k in np.flatnonzero(bad_mask):
+                    xy = residuals[k] * min(1.0, 0.97 * limit / max(lengths[k], 1e-12))
+                    ax_scatter.annotate(
+                        str(k), xy, xytext=(5, 5), textcoords="offset points",
+                        fontsize=7, color="red",
+                    )
+
+            if threshold is not None:
+                ax_scatter.add_patch(
+                    plt.Circle(
+                        (0, 0), threshold, fill=False, color="yellow",
+                        linestyle="--",
+                        label=f"threshold {threshold:.3f} px",
+                    )
+                )
+            if sigma is not None and np.isfinite(sigma):
+                ax_scatter.add_patch(
+                    plt.Circle(
+                        (0, 0), sigma, fill=False, color="white", linestyle=":",
+                        label=f"1 sigma ({sigma:.3f} px per axis)",
+                    )
+                )
+            ax_scatter.axhline(0, color="gray", linewidth=0.8)
+            ax_scatter.axvline(0, color="gray", linewidth=0.8)
+            ax_scatter.set_xlim(-limit, limit)
+            ax_scatter.set_ylim(-limit, limit)
+            ax_scatter.set_aspect("equal")
+            ax_scatter.set_xlabel("residual x [px]")
+            ax_scatter.set_ylabel("residual y [px]")
+            ax_scatter.set_title("Residual vectors")
+            ax_scatter.legend(loc="upper right", fontsize=8)
+
+            # ---- 6) residual length histogram ------------------------------
+            hist_max = max(
+                1.5 * (threshold if threshold else 0.0),
+                1.1 * (np.max(good_lengths) if good_mask.any() else 1.0),
+            )
+            bins = np.linspace(0, hist_max, max(8, min(25, n // 2)))
+            clipped = np.minimum(lengths, bins[-1] - 1e-9)
+
+            ax_hist.hist(
+                [clipped[good_mask], clipped[bad_mask]],
+                bins=bins,
+                stacked=True,
+                color=["cyan", "red"],
+                label=["accepted", "rejected (last bin: off scale)"],
+            )
+            if sigma is not None and np.isfinite(sigma) and sigma > 0:
+                r = np.linspace(0, hist_max, 200)
+                rayleigh = r / sigma**2 * np.exp(-(r**2) / (2 * sigma**2))
+                ax_hist.plot(
+                    r,
+                    rayleigh * good_mask.sum() * (bins[1] - bins[0]),
+                    color="white",
+                    label=f"expected (Rayleigh, sigma {sigma:.3f} px)",
+                )
+            if threshold is not None:
+                ax_hist.axvline(
+                    threshold, color="yellow", linestyle="--",
+                    label=f"threshold {threshold:.3f} px",
+                )
+            ax_hist.set_xlabel("|residual| [px]")
+            ax_hist.set_ylabel("sources")
+            ax_hist.set_title("Residual lengths")
+            ax_hist.legend(fontsize=8)
+
+        # ---- title ----------------------------------------------------------
+        title = f"Point source alignment for {obs_name}"
+        match_info = getattr(self, "_last_match_description", None)
+        title += f"\n{n} matched sources" + (
+            f" (astroalign, {match_info})" if match_info else ""
+        )
+        if fitted:
+            title += (
+                f", {int(good_mask.sum())} accepted, {int(bad_mask.sum())} rejected"
+                + (
+                    f" (threshold {threshold:.3f} px = {self.outlier_sigma:g} sigma, "
+                    f"limits [{self.outlier_threshold_min:g}, {self.outlier_threshold:g}] px)"
+                    if threshold is not None
+                    else ""
+                )
+            )
+
+        if failed_reason is not None:
+            title += f"\nFAILED: {failed_reason}"
+        elif result is not None:
+            tx, ty, rot = result
+            tx_err, ty_err, rot_err = errors if errors is not None else (np.nan,) * 3
+            title += (
+                f"\nCorrection of the input: tx = {tx:.3f} +/- {tx_err:.3f} px, "
+                f"ty = {ty:.3f} +/- {ty_err:.3f} px, "
+                f"rot = {rot:.4f} +/- {rot_err:.4f} deg"
+            )
+
+        if scan_rotation is not None:
+            title += (
+                f"\n(rotation {scan_rotation:.4f} deg from the angle scan, "
+                f"translation fitted at that rotation)"
+            )
+
+        fig.suptitle(title, fontsize=13)
+        fig.tight_layout(rect=(0, 0, 1, 0.95))
+
+        if save:
+            filename = f"{self.QA_path}/point_sources_{obs_name}_{self.name}.png"
+            self._save_QA_figure(filename, fig)
+            if self.logger:
+                self.logger.info(f"Saved point source QA plot to {filename}")
+
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
+
+    def _detect_sources(self, frame, detection_sigma, min_area):
+        """
+        All sep detections (x, y) in a (masked) frame, brightest first. Same
+        detection as astroalign (global background rms, barycentres), but
+        without the limit on the number of sources.
+        """
+        data = np.ascontiguousarray(np.ma.getdata(frame), dtype=np.float32)
+        mask = np.ascontiguousarray(np.ma.getmaskarray(frame))
+
+        background = sep.Background(data, mask=mask)
+        sources = sep.extract(
+            data - background.back(),
+            detection_sigma * background.globalrms,
+            minarea=min_area,
+            mask=mask,
+        )
+        sources.sort(order="flux")
+        sources = sources[::-1]
+
+        return np.column_stack([sources["x"], sources["y"]]).astype(float)
+
+    def _rematch_sources(self, transform, input_frame, reference_frame):
+        """
+        Match all sources detected in both frames using the astroalign
+        transform (input -> reference).
+
+        The input sources are projected into the reference frame, and a pair
+        is kept if the two sources are mutual nearest neighbours within
+        `match_radius` and no other source of either frame lies within
+        `match_radius` (ambiguous pairs are left out).
+
+        Returns (source_list, target_list) (input / reference positions), or
+        None if the detection fails.
+        """
+        try:
+            input_sources = self._detect_sources(
+                input_frame, self.rematch_detection_sigma, self.rematch_min_area
+            )
+            reference_sources = self._detect_sources(
+                reference_frame, self.rematch_detection_sigma, self.rematch_min_area
+            )
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(
+                    f"Source detection for the re-matching failed: {e}, "
+                    f"using the astroalign matches."
+                )
+            return None
+
+        if len(input_sources) < 2 or len(reference_sources) < 2:
+            return None
+
+        projected = aa.matrix_transform(input_sources, transform.params)
+
+        reference_tree = cKDTree(reference_sources)
+        projected_tree = cKDTree(projected)
+
+        # two nearest neighbours each way: the second one tells if a pair is ambiguous
+        dist_forward, idx_forward = reference_tree.query(projected, k=2)
+        dist_backward, idx_backward = projected_tree.query(reference_sources, k=2)
+
+        n_input = len(projected)
+        input_idx = np.arange(n_input)
+        reference_idx = idx_forward[:, 0]
+
+        keep = (
+            (dist_forward[:, 0] <= self.match_radius)
+            & (dist_forward[:, 1] > self.match_radius)
+            & (idx_backward[reference_idx, 0] == input_idx)
+            & (dist_backward[reference_idx, 1] > self.match_radius)
+        )
+
+        if self.logger:
+            self.logger.info(
+                f"Re-matching: {len(input_sources)} input and "
+                f"{len(reference_sources)} reference sources detected "
+                f"(detection_sigma={self.rematch_detection_sigma}, "
+                f"min_area={self.rematch_min_area}), {int(keep.sum())} matched "
+                f"within {self.match_radius} px."
+            )
+
+        return input_sources[keep], reference_sources[reference_idx[keep]]
+
+    def _find_matches(self, input_frame, reference_frame):
+        """
+        Match point sources between the frames with astroalign.
+
+        First with the configured settings; if astroalign fails, or finds
+        fewer than `min_sources` matches, the settings are loosened one at a
+        time, in this order (only values looser than the configured ones):
+
+        1. MIN_MATCHES_FRACTION: 0.4, 0.3, 0.2
+        2. detection_sigma: 4, 3, 2, 1
+        3. NUM_NEAREST_NEIGHBOURS: 2 ... 8
+        4. PIXEL_TOL: 6, 7
+        5. min_area: 2 ... 20
+
+        With `rematch` (default), the matches of each attempt are replaced by
+        the re-matching of all detected sources with the astroalign transform
+        if that gives more (see `_rematch_sources`).
+
+        The first attempt with at least `min_sources` matches is used. The
+        astroalign module settings and its random generator (seeded, as
+        astroalign is otherwise not deterministic) are always restored.
+
+        Returns (source_list, target_list) (input / reference positions), or
+        None if no attempt gave enough matches.
+        """
+        attempts = [("configured settings", {})]
+        attempts += [
+            (f"MIN_MATCHES_FRACTION={v}", dict(MIN_MATCHES_FRACTION=v))
+            for v in (0.4, 0.3, 0.2)
+            if v < self.MIN_MATCHES_FRACTION
+        ]
+        attempts += [
+            (f"detection_sigma={v}", dict(detection_sigma=v))
+            for v in (4, 3, 2, 1)
+            if v < self.detection_sigma
+        ]
+        attempts += [
+            (f"NUM_NEAREST_NEIGHBOURS={v}", dict(NUM_NEAREST_NEIGHBOURS=v))
+            for v in (2, 3, 4, 5, 6, 7, 8)
+            if v != self.NUM_NEAREST_NEIGHBOURS
+        ]
+        attempts += [
+            (f"PIXEL_TOL={v}", dict(PIXEL_TOL=v)) for v in (6, 7) if v > self.PIXEL_TOL
+        ]
+        attempts += [
+            (f"min_area={v}", dict(min_area=v))
+            for v in (2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20)
+            if v != self.min_area
+        ]
+
+        self._last_match_description = None
+
+        original_rng = aa._np.random.default_rng
+        aa._np.random.default_rng = self._seeded_default_rng
+        original_nearest_neighbours = aa.NUM_NEAREST_NEIGHBORS
+
+        try:
+            for description, overrides in attempts:
+
+                aa.MIN_MATCHES_FRACTION = overrides.get(
+                    "MIN_MATCHES_FRACTION", self.MIN_MATCHES_FRACTION
+                )
+                aa.NUM_NEAREST_NEIGHBORS = overrides.get(
+                    "NUM_NEAREST_NEIGHBOURS", self.NUM_NEAREST_NEIGHBOURS
+                )
+                aa.PIXEL_TOL = overrides.get("PIXEL_TOL", self.PIXEL_TOL)
+
+                try:
+                    transform, (source_list, target_list) = aa.find_transform(
+                        input_frame,
+                        reference_frame,
+                        detection_sigma=overrides.get(
+                            "detection_sigma", self.detection_sigma
+                        ),
+                        min_area=overrides.get("min_area", self.min_area),
+                    )
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(
+                            f"astroalign failed with {description}: {e}"
+                        )
+                    continue
+
+                source_list = np.asarray(source_list, float)
+                target_list = np.asarray(target_list, float)
+
+                if self.logger:
+                    self.logger.info(
+                        f"astroalign found {len(source_list)} matches with {description}"
+                    )
+
+                # astroalign only returns the sources of its matched triangles:
+                # re-match all detected sources with its transform
+                if self.rematch:
+                    rematched = self._rematch_sources(
+                        transform, input_frame, reference_frame
+                    )
+                    if rematched is not None and len(rematched[0]) > len(source_list):
+                        source_list, target_list = rematched
+                        description = f"{description}, re-matched"
+
+                if len(source_list) < self.min_sources:
+                    if self.logger:
+                        self.logger.warning(
+                            f"only {len(source_list)} matches with "
+                            f"{description}, need {self.min_sources}"
+                        )
+                    continue
+
+                # for the QA plot
+                self._last_match_description = description
+
+                return source_list, target_list
+
+        finally:
+            aa._np.random.default_rng = original_rng
+            aa.MIN_MATCHES_FRACTION = self.MIN_MATCHES_FRACTION
+            aa.NUM_NEAREST_NEIGHBORS = original_nearest_neighbours
+            aa.PIXEL_TOL = self.PIXEL_TOL
+
+        return None
+
+
     def run(
         self,
         reference_frame,
@@ -2558,10 +3435,19 @@ class PointSources(AligmentMethod):
         The transformation is iteratively fitted using a 2D Euclidean transform
         consisting of rotation about the image centre plus translation.
 
-        After each fit, matched sources with residuals greater than defined threshold
-        in either the X or Y direction are rejected. The transformation is then
-        refitted using the remaining sources. Iteration continues until no
-        additional outliers are found or max_iterations is reached.
+        After each fit, the residuals of ALL matched sources are recomputed and
+        the sources whose residual length exceeds an adaptive threshold are
+        left out of the next fit: `outlier_sigma` robust sigmas of the residual
+        scatter of the accepted sources, clipped to [`outlier_threshold_min`,
+        `outlier_threshold`] (see `stats.robust_residual_threshold`). A source
+        rejected earlier can come back. Iteration continues until the set of
+        accepted sources no longer changes or max_iterations is reached. The
+        first fit uses a robust soft-L1 loss (`robust_f_scale`), so mismatches
+        do not set the first threshold; the following fits, and the reported
+        errors, are plain least squares on the accepted sources.
+
+        The alignment fails if fewer than `min_sources` (default 5) sources
+        are accepted in the end (or matched by astroalign at all).
 
         Parameters
         ----------
@@ -2660,229 +3546,23 @@ class PointSources(AligmentMethod):
         if not good_data:
             if self.logger:
                 self.logger.error("Invalid input data for alignment.")
+            self.plot_failed_aligment(
+                reference_frame, input_frame, obs_name, show=show_QA
+            )
             return self.FAILED_RETURN
 
         # ------------------------------------------------------------------
         # Find matching sources using astroalign
         # ------------------------------------------------------------------\
 
-        original = aa._np.random.default_rng
-        aa._np.random.default_rng = self._seeded_default_rng
+        matches = self._find_matches(input_frame, reference_frame)
 
-        # set default parameters for astroalign defined in the class constructor
-
-        aa.MIN_MATCHES_FRACTION = self.MIN_MATCHES_FRACTION
-        aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
-        aa.PIXEL_TOL = self.PIXEL_TOL
-
-        try:
-            _, (source_list, target_list) = aa.find_transform(
-                input_frame,
-                reference_frame,
-                detection_sigma=self.detection_sigma,
-                min_area=self.min_area,
-            )
-        except Exception as e:
+        if matches is None:
             if self.logger:
-                self.logger.error(f"Failed to find matching sources: {e}")
-
-            recovered = False
-
-            # some recovery options
-
-            if (
-                "List of matching triangles exhausted before an acceptable transformation was found"
-                in str(e)
-            ):
-                if self.logger:
-                    self.logger.warning(
-                        "astroalign failed to find matching sources, trying to lower MIN_MATCHES_FRACTION..."
-                    )
-
-                    for MIN_MATCHES_FRACTION in [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]:
-                        try:
-
-                            aa.MIN_MATCHES_FRACTION = 0.5
-                            _, (source_list, target_list) = aa.find_transform(
-                                input_frame,
-                                reference_frame,
-                                detection_sigma=self.detection_sigma,
-                                min_area=self.min_area,
-                            )
-                            recovered = True
-                            if self.logger:
-                                self.logger.info(
-                                    f"Successfully found matching sources with MIN_MATCHES_FRACTION={MIN_MATCHES_FRACTION}"
-                                )
-                            break
-                        except Exception as e_inner:
-                            if self.logger:
-                                self.logger.warning(
-                                    f"Failed to find matching sources with MIN_MATCHES_FRACTION={MIN_MATCHES_FRACTION}: {e_inner}"
-                                )
-
-                    # reset MIN_MATCHES_FRACTION to default
-
-                    aa.MIN_MATCHES_FRACTION = self.MIN_MATCHES_FRACTION
-
-            # try lowering detection limit detection_sigma=5 in find_transform
-            if not recovered:
-
-                if self.logger:
-                    self.logger.warning(
-                        "astroalign failed to find matching sources, trying to lower detection_sigma..."
-                    )
-
-                for detection_sigma in [5, 4, 3, 2, 1]:
-                    try:
-                        _, (source_list, target_list) = aa.find_transform(
-                            input_frame,
-                            reference_frame,
-                            detection_sigma=detection_sigma,
-                            min_area=self.min_area,
-                        )
-                        recovered = True
-                        if self.logger:
-                            self.logger.info(
-                                f"Successfully found matching sources with detection_sigma={detection_sigma}"
-                            )
-                        break
-                    except Exception as e_inner:
-                        if self.logger:
-                            self.logger.warning(
-                                f"Failed to find matching sources with detection_sigma={detection_sigma}: {e_inner}"
-                            )
-            # try increasing NUM_NEAREST_NEIGHBOUR
-
-            if not recovered:
-
-                if self.logger:
-                    self.logger.warning(
-                        "astroalign failed to find matching sources, trying to change NUM_NEAREST_NEIGHBOURS..."
-                    )
-
-                for NUM_NEAREST_NEIGHBOURS in [2, 3, 4, 5, 6, 7, 8]:
-                    try:
-                        aa.NUM_NEAREST_NEIGHBOURS = NUM_NEAREST_NEIGHBOURS
-                        _, (source_list, target_list) = aa.find_transform(
-                            input_frame,
-                            reference_frame,
-                            min_area=self.min_area,
-                            detection_sigma=self.detection_sigma,
-                        )
-                        recovered = True
-                        if self.logger:
-                            self.logger.info(
-                                f"Successfully found matching sources with NUM_NEAREST_NEIGHBOURS={NUM_NEAREST_NEIGHBOURS}"
-                            )
-                        break
-                    except Exception as e_inner:
-                        if self.logger:
-                            self.logger.warning(
-                                f"Failed to find matching sources with NUM_NEAREST_NEIGHBOURS={NUM_NEAREST_NEIGHBOURS}: {e_inner}"
-                            )
-
-                # reset to default
-
-                aa.NUM_NEAREST_NEIGHBOURS = self.NUM_NEAREST_NEIGHBOURS
-
-            # try increasing pixel_tolerance in find_transform
-
-            if not recovered:
-
-                if self.logger:
-                    self.logger.warning(
-                        "astroalign failed to find matching sources, trying to increase pixel_tolerance..."
-                    )
-
-                for pixel_tolerance in [2, 3, 4, 5, 6, 7]:
-
-                    aa.PIXEL_TOL = pixel_tolerance
-
-                    try:
-                        _, (source_list, target_list) = aa.find_transform(
-                            input_frame,
-                            reference_frame,
-                            min_area=self.min_area,
-                            detection_sigma=self.detection_sigma,
-                        )
-                        recovered = True
-                        if self.logger:
-                            self.logger.info(
-                                f"Successfully found matching sources with pixel_tolerance={pixel_tolerance}"
-                            )
-                        break
-                    except Exception as e_inner:
-                        if self.logger:
-                            self.logger.warning(
-                                f"Failed to find matching sources with pixel_tolerance={pixel_tolerance}: {e_inner}"
-                            )
-
-                    # reset to default
-
-                aa.PIXEL_TOL = self.PIXEL_TOL
-
-            # last call, try change min area
-            if not recovered:
-
-                if self.logger:
-                    self.logger.error(
-                        "astroalign failed to find matching sources, trying to change min_area..."
-                    )
-
-                for min_area in [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]:
-                    try:
-                        _, (source_list, target_list) = aa.find_transform(
-                            input_frame,
-                            reference_frame,
-                            detection_sigma=self.detection_sigma,
-                            min_area=min_area,
-                        )
-                        recovered = True
-                        if self.logger:
-                            self.logger.info(
-                                f"Successfully found matching sources with min_area={min_area}"
-                            )
-                        break
-                    except Exception as e_inner:
-                        if self.logger:
-                            self.logger.warning(
-                                f"Failed to find matching sources with min_area={min_area}: {e_inner}"
-                            )
-
-            # give up (only the QA plot depends on save_QA, the return must
-            # always happen, as source_list is not defined here)
-            if not recovered:
-
-                if self.logger:
-                    self.logger.error("astroalign failed.")
-
-                if save_QA:
-                    self.plot_failed_aligment(
-                        reference_frame,
-                        input_frame,
-                        obs_name,
-                        show=show_QA,
-                    )
-
-                aa._np.random.default_rng = original
-
-                return self.FAILED_RETURN
-
-        finally:
-            aa._np.random.default_rng = original
-
-        if self.logger:
-            self.logger.info(
-                f"Found {len(source_list)} matching sources for alignment."
-            )
-            self.logger.info(f"Source coordinates:\n{source_list}")
-            self.logger.info(f"Target coordinates:\n{target_list}")
-
-        # Need at least 3 points for a reliable 2D Euclidean transform
-        if len(source_list) < 3:
-            if self.logger:
-                self.logger.error("Not enough matched sources for reliable alignment.")
+                self.logger.error(
+                    f"astroalign failed to find at least {self.min_sources} "
+                    f"matching sources."
+                )
 
             self.plot_failed_aligment(
                 reference_frame,
@@ -2893,83 +3573,32 @@ class PointSources(AligmentMethod):
 
             return self.FAILED_RETURN
 
+        source_list, target_list = matches
+
+        if self.logger:
+            self.logger.info(
+                f"Found {len(source_list)} matching sources for alignment."
+            )
+            self.logger.info(f"Source coordinates:\n{source_list}")
+            self.logger.info(f"Target coordinates:\n{target_list}")
+
         # ------------------------------------------------------------------
-        # Initial matched-source QA plot
+        # QA plot of the matched sources (successful alignments only; a failed
+        # alignment only gets the failed difference image)
         # ------------------------------------------------------------------
 
-        if save_QA:
-            fig = plt.figure(figsize=(10, 5))
-
-            ax1 = plt.subplot(1, 2, 1)
-            ax1.imshow(
-                reference_frame,
-                cmap="gray",
-                vmin=np.nanpercentile(reference_frame.compressed(), 5),
-                vmax=np.nanpercentile(reference_frame.compressed(), 95),
-            )
-            ax1.scatter(
-                target_list[:, 0],
-                target_list[:, 1],
-                c="r",
-                marker="x",
-            )
-            ax1.set_title(
-                "Reference Frame with Matched Sources",
-            )
-
-            ax2 = plt.subplot(1, 2, 2)
-            ax2.imshow(
-                input_frame,
-                cmap="gray",
-                vmin=np.nanpercentile(input_frame.compressed(), 5),
-                vmax=np.nanpercentile(input_frame.compressed(), 95),
-            )
-            ax2.scatter(
-                source_list[:, 0],
-                source_list[:, 1],
-                c="b",
-                marker="o",
-            )
-            ax2.set_title(
-                "Input Frame with Matched Sources",
-            )
-
-            fig.suptitle(
-                f"Matched Sources for {obs_name}",
-            )
-
-            for (xt, yt), (xs, ys) in zip(
-                target_list,
-                source_list,
-            ):
-                con = ConnectionPatch(
-                    xyA=(xt, yt),
-                    coordsA=ax1.transData,
-                    xyB=(xs, ys),
-                    coordsB=ax2.transData,
-                    axesA=ax1,
-                    axesB=ax2,
-                    color="yellow",
-                    linewidth=0.5,
-                    alpha=0.6,
-                    clip_on=False,
+        def _sources_QA(**plot_kwargs):
+            if save_QA or show_QA:
+                self.plot_point_sources(
+                    reference_frame,
+                    input_frame,
+                    source_list,
+                    target_list,
+                    obs_name,
+                    save=save_QA,
+                    show=show_QA,
+                    **plot_kwargs,
                 )
-                fig.add_artist(con)
-
-            plt.savefig(
-                f"{self.QA_path}/matched_sources_{obs_name}.png",
-            )
-
-            if self.logger:
-                self.logger.info(
-                    f"Saved QA plot of matched sources to "
-                    f"{self.QA_path}/matched_sources_{obs_name}.png"
-                )
-
-            if show_QA:
-                plt.show()
-            else:
-                plt.close()
 
         # ------------------------------------------------------------------
         # Image centre
@@ -3078,8 +3707,9 @@ class PointSources(AligmentMethod):
             dtype=bool,
         )
 
-        # Keep track of the residual threshold for the final QA plot.
+        # Adaptive residual threshold, kept for the final QA plot.
         rejection_threshold = self.outlier_threshold
+        rejection_sigma = np.nan
 
         converged = False
 
@@ -3089,10 +3719,11 @@ class PointSources(AligmentMethod):
             target_fit = target_list[good_mask]
 
             # Make sure we still have enough sources.
-            if len(source_fit) < 3:
+            if len(source_fit) < self.min_sources:
                 if self.logger:
                     self.logger.error(
-                        "Too few matched sources remain after " "outlier rejection."
+                        f"Only {len(source_fit)} matched sources remain after "
+                        f"outlier rejection, need {self.min_sources}."
                     )
 
                 self.plot_failed_aligment(
@@ -3114,6 +3745,10 @@ class PointSources(AligmentMethod):
             # Fit Euclidean transformation
             # --------------------------------------------------------------
 
+            # The first fit is robust (soft-L1 loss): mismatches of up to
+            # PIXEL_TOL (5 px) would otherwise pull it, and its residuals set
+            # the first threshold. Later fits are plain least squares on the
+            # accepted sources (their errors are reported).
             try:
                 (theta, offset, theta_err, offset_err, _) = self.fit_points(
                     source_fit,
@@ -3122,6 +3757,8 @@ class PointSources(AligmentMethod):
                     p0=p0,
                     skip_rotation_estimation=skip_rotation_estimation,
                     fixed_rotation=fixed_rotation,
+                    loss="soft_l1" if iteration == 0 else "linear",
+                    f_scale=self.robust_f_scale,
                 )
             except Exception as e:
                 if self.logger:
@@ -3138,81 +3775,78 @@ class PointSources(AligmentMethod):
             tx, ty = offset
 
             # --------------------------------------------------------------
-            # Calculate predicted target positions
+            # Predicted target positions and residuals of ALL sources, so a
+            # source rejected earlier can come back
             # --------------------------------------------------------------
 
-            predicted_fit = centre + np.column_stack(
+            predicted_all = centre + np.column_stack(
                 [
                     (
-                        np.cos(theta) * (source_fit[:, 0] - centre[0])
-                        - np.sin(theta) * (source_fit[:, 1] - centre[1])
+                        np.cos(theta) * (source_list[:, 0] - centre[0])
+                        - np.sin(theta) * (source_list[:, 1] - centre[1])
                         + tx
                     ),
                     (
-                        np.sin(theta) * (source_fit[:, 0] - centre[0])
-                        + np.cos(theta) * (source_fit[:, 1] - centre[1])
+                        np.sin(theta) * (source_list[:, 0] - centre[0])
+                        + np.cos(theta) * (source_list[:, 1] - centre[1])
                         + ty
                     ),
                 ]
             )
 
-            # --------------------------------------------------------------
-            # Calculate residuals
-            # --------------------------------------------------------------
-
-            residuals_fit = target_fit - predicted_fit
+            residuals_all = target_list - predicted_all
 
             # --------------------------------------------------------------
             # Find outliers
             #
-            # A source is rejected if EITHER:
-            #
-            #     |dx| > self.outlier_threshold pixels
-            #
-            # or
-            #
-            #     |dy| > self.outlier_threshold pixels
+            # A source is rejected if the LENGTH of its residual exceeds the
+            # adaptive threshold: outlier_sigma robust sigmas of the residual
+            # scatter of the currently accepted sources, clipped to
+            # [outlier_threshold_min, outlier_threshold].
             # --------------------------------------------------------------
 
-            outlier_mask = (np.abs(residuals_fit[:, 0]) > rejection_threshold) | (
-                np.abs(residuals_fit[:, 1]) > rejection_threshold
+            n_parameters = (
+                2 if (skip_rotation_estimation or fixed_rotation is not None) else 3
+            )
+            rejection_threshold, rejection_sigma = self._outlier_threshold(
+                residuals_all[good_mask], n_parameters=n_parameters
             )
 
-            n_outliers = np.sum(outlier_mask)
+            new_good_mask = (
+                np.linalg.norm(residuals_all, axis=1) <= rejection_threshold
+            )
+
+            rejected_indices = np.flatnonzero(good_mask & ~new_good_mask)
+            readmitted_indices = np.flatnonzero(~good_mask & new_good_mask)
 
             if self.logger:
                 self.logger.info(
                     f"Fit iteration {iteration + 1}: "
-                    f"{n_outliers} outliers found "
-                    f"(threshold = {rejection_threshold:.2f} pixels)."
+                    f"{len(rejected_indices)} outliers found, "
+                    f"{len(readmitted_indices)} sources re-admitted "
+                    f"(threshold = {rejection_threshold:.3f} pixels, "
+                    f"{self.outlier_sigma:g} x sigma {rejection_sigma:.3f}, "
+                    f"clipped to [{self.outlier_threshold_min:g}, "
+                    f"{self.outlier_threshold:g}])."
                 )
 
             # --------------------------------------------------------------
-            # No outliers -> convergence
+            # Accepted set unchanged -> convergence
             # --------------------------------------------------------------
 
-            if n_outliers == 0:
+            if np.array_equal(new_good_mask, good_mask):
                 converged = True
 
                 if self.logger:
-                    self.logger.info("No outliers found. Iterative fitting converged.")
+                    self.logger.info(
+                        "Accepted sources unchanged. Iterative fitting converged."
+                    )
 
                 break
 
-            # --------------------------------------------------------------
-            # Reject outliers
-            #
-            # Convert indices from the current subset back to indices in
-            # the original source arrays.
-            # --------------------------------------------------------------
+            good_mask = new_good_mask
 
-            current_indices = np.where(good_mask)[0]
-
-            rejected_indices = current_indices[outlier_mask]
-
-            good_mask[rejected_indices] = False
-
-            if self.logger:
+            if self.logger and len(rejected_indices) > 0:
                 self.logger.info(
                     f"Rejected original source indices: " f"{rejected_indices.tolist()}"
                 )
@@ -3235,10 +3869,11 @@ class PointSources(AligmentMethod):
         source_fit = source_list[good_mask]
         target_fit = target_list[good_mask]
 
-        if len(source_fit) < 3:
+        if len(source_fit) < self.min_sources:
             if self.logger:
                 self.logger.error(
-                    "Too few matched sources remain for the final alignment."
+                    f"Only {len(source_fit)} accepted sources remain for the final "
+                    f"alignment, need {self.min_sources}. Setting alignment as failed."
                 )
 
             self.plot_failed_aligment(
@@ -3318,146 +3953,20 @@ class PointSources(AligmentMethod):
         final_outlier_mask = ~good_mask
 
         # ------------------------------------------------------------------
-        # Residual QA plot
+        # QA plots
         # ------------------------------------------------------------------
 
+        _sources_QA(
+            good_mask=good_mask,
+            residuals=residuals,
+            threshold=rejection_threshold,
+            sigma=rejection_sigma,
+            result=(tx, ty, rot),
+            errors=(tx_err, ty_err, rot_err),
+            scan_rotation=scanned_rotation,
+        )
+
         if save_QA:
-
-            fig_residuals = plt.figure(
-                figsize=(6, 6),
-            )
-
-            ax_residuals = fig_residuals.add_subplot(1, 1, 1)
-
-            # --------------------------------------------------------------
-            # Accepted points
-            # --------------------------------------------------------------
-
-            if np.any(good_mask):
-                ax_residuals.scatter(
-                    residuals[good_mask, 0],
-                    residuals[good_mask, 1],
-                    c="cyan",
-                    marker="o",
-                    label="Accepted",
-                )
-
-            # --------------------------------------------------------------
-            # Rejected points
-            # --------------------------------------------------------------
-
-            if np.any(final_outlier_mask):
-                ax_residuals.scatter(
-                    residuals[final_outlier_mask, 0],
-                    residuals[final_outlier_mask, 1],
-                    c="red",
-                    marker="x",
-                    s=60,
-                    label="Rejected",
-                )
-
-            # --------------------------------------------------------------
-            # pixel rejection boundaries
-            # --------------------------------------------------------------
-
-            ax_residuals.axhline(
-                rejection_threshold,
-                color="yellow",
-                linestyle="--",
-                linewidth=0.8,
-            )
-
-            ax_residuals.axhline(
-                -rejection_threshold,
-                color="yellow",
-                linestyle="--",
-                linewidth=0.8,
-            )
-
-            ax_residuals.axvline(
-                rejection_threshold,
-                color="yellow",
-                linestyle="--",
-                linewidth=0.8,
-            )
-
-            ax_residuals.axvline(
-                -rejection_threshold,
-                color="yellow",
-                linestyle="--",
-                linewidth=0.8,
-            )
-
-            # Zero lines
-            ax_residuals.axhline(
-                0,
-                color="white",
-                linestyle="--",
-                linewidth=0.5,
-            )
-
-            ax_residuals.axvline(
-                0,
-                color="white",
-                linestyle="--",
-                linewidth=0.5,
-            )
-
-            ax_residuals.set_aspect(
-                "equal",
-                adjustable="box",
-            )
-
-            ax_residuals.set_title(
-                f"Point source fitting residuals for\n {obs_name}",
-            )
-
-            ax_residuals.set_xlabel(
-                "Residual X (pixels)",
-            )
-
-            ax_residuals.set_ylabel(
-                "Residual Y (pixels)",
-            )
-
-            ax_residuals.legend()
-
-            # Make the QA plot symmetric around zero
-            all_residuals = residuals.ravel()
-
-            finite_residuals = all_residuals[np.isfinite(all_residuals)]
-
-            if len(finite_residuals) > 0:
-
-                max_residual = max(
-                    rejection_threshold * 1.5,
-                    np.max(np.abs(finite_residuals)) * 1.1,
-                )
-
-                ax_residuals.set_xlim(
-                    -max_residual,
-                    max_residual,
-                )
-
-                ax_residuals.set_ylim(
-                    -max_residual,
-                    max_residual,
-                )
-
-            plt.savefig(
-                f"{self.QA_path}/residuals_{obs_name}.png",
-            )
-
-            if self.logger:
-                self.logger.info(
-                    f"Saved QA plot of residuals to "
-                    f"{self.QA_path}/residuals_{obs_name}.png"
-                )
-
-            if show_QA:
-                plt.show()
-            else:
-                plt.close()
 
             # ------------------------------------------------------------------
             # Difference image QA plot
@@ -4162,8 +4671,8 @@ class FFT(AligmentMethod):
         )
         fig.tight_layout()
 
-        plt.savefig(
-            f"{self.QA_path}/translation_progression_{obs_name}_{self.name}.png"
+        self._save_QA_figure(
+            f"{self.QA_path}/translation_progression_{obs_name}_{self.name}.png", fig
         )
 
         if self.logger:
@@ -4463,8 +4972,8 @@ class FFT(AligmentMethod):
         )
         fig.tight_layout()
 
-        plt.savefig(
-            f"{self.QA_path}/translation_peak_{obs_name}_{self.name}.png"
+        self._save_QA_figure(
+            f"{self.QA_path}/translation_peak_{obs_name}_{self.name}.png", fig
         )
 
         if self.logger:
@@ -5108,6 +5617,7 @@ class FFT(AligmentMethod):
                             f"failed, angle scan not run"
                         )
 
+                    # the failed difference image was made by the direct fit
                     return self.FAILED_RETURN
 
                 if self.logger:
@@ -5318,7 +5828,7 @@ class FFT(AligmentMethod):
             plt.grid()
 
             if save_QA:
-                plt.savefig(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
+                self._save_QA_figure(f"{self.QA_path}/eps_vs_sigma_{obs_name}.png")
                 if self.logger:
                     self.logger.info(
                         f"Saved QA plot of eps vs sigma to "
@@ -5405,6 +5915,8 @@ class OpticalFlow(AligmentMethod):
         self,
         num_per_dimension=50,
         residual_threshold=0.5,
+        residual_sigma=3.0,
+        residual_threshold_min=0.05,
         bootstrap_tiles=5,
         bootstrap_samples=200,
         bootstrap_seed=1,
@@ -5421,9 +5933,19 @@ class OpticalFlow(AligmentMethod):
             i.e. 50 x 50 = 2500 points).
 
         residual_threshold : float
-            RANSAC inlier threshold in pixels (default 0.5, spacepylot's
-            default). Passed to spacepylot, and used again to recover the
-            inliers for the bootstrap.
+            Fixed inlier threshold in pixels of the first, rough step (RANSAC,
+            or the distance to the median flow vector for a translation-only
+            fit), default 0.5 (spacepylot's RANSAC default). In the refinement
+            it is the upper limit of the adaptive threshold.
+
+        residual_sigma : float
+            Adaptive inlier threshold of the refinement, in robust sigmas of
+            the residual scatter (default 3), see
+            `stats.robust_residual_threshold`. Clipped to
+            [`residual_threshold_min`, `residual_threshold`].
+
+        residual_threshold_min : float
+            Lower limit of the adaptive threshold in pixels (default 0.05).
 
         bootstrap_tiles : int
             The frame is split into bootstrap_tiles x bootstrap_tiles tiles,
@@ -5448,6 +5970,8 @@ class OpticalFlow(AligmentMethod):
 
         self.num_per_dimension = num_per_dimension
         self.residual_threshold = residual_threshold
+        self.residual_sigma = residual_sigma
+        self.residual_threshold_min = residual_threshold_min
         self.bootstrap_tiles = bootstrap_tiles
         self.bootstrap_samples = bootstrap_samples
         self.bootstrap_seed = bootstrap_seed
@@ -5567,8 +6091,16 @@ class OpticalFlow(AligmentMethod):
            fixed seed), the same robust step spacepylot uses. Translation only:
            the points within `residual_threshold` of the median flow vector.
         3. Refine: least-squares fit of the inliers (`_rigid_fit`), recompute
-           the residuals of ALL points, inliers = residual < `residual_threshold`;
-           repeat until the inlier set no longer changes (at most 10 times).
+           the residuals of ALL points, inliers = residual < adaptive
+           threshold; repeat until the inlier set no longer changes (at most
+           10 times). The threshold is `residual_sigma` robust sigmas of the
+           residual lengths of the current inliers
+           (`stats.robust_residual_threshold`), clipped to
+           [`residual_threshold_min`, `residual_threshold`]: the fixed 0.5 px
+           of the rough step is a ~7 sigma cut for typical TV-L1 residuals
+           (~0.07 px per axis) and lets vectors with a systematic error of
+           several tenths of a pixel into the fit, against reported errors of
+           ~0.005 px. Rejected vectors can come back in a later pass.
            The final fit is a plain least-squares fit of the inliers, which is
            also what the bootstrap refits, so the bootstrap is centred on the
            reported result.
@@ -5592,7 +6124,9 @@ class OpticalFlow(AligmentMethod):
         dict or None
             tx, ty, rot (rot = 0 for a translation-only fit), and for the
             bootstrap: src, dst, inliers, centre, rotation, params (the fitted
-            reference -> input matrix). None if there are fewer than 3 inliers.
+            reference -> input matrix), threshold (final inlier threshold, px)
+            and sigma (residual scatter per axis, px). None if there are fewer
+            than 3 inliers.
         """
         # 1) flow field and the sparse point pairs, in full-frame coordinates
         op.v, op.u = op.optical_flow()
@@ -5605,6 +6139,9 @@ class OpticalFlow(AligmentMethod):
 
         src = np.column_stack([np.ravel(x_sparse), np.ravel(y_sparse)]) + border
         dst = src + np.column_stack([np.ravel(u_sparse), np.ravel(v_sparse)])
+
+        # kept for the flow field QA plot, also when the fit fails
+        self._last_flow = dict(src=src, dst=dst)
 
         finite = np.all(np.isfinite(src), axis=1) & np.all(np.isfinite(dst), axis=1)
 
@@ -5638,19 +6175,29 @@ class OpticalFlow(AligmentMethod):
                 np.linalg.norm(dst - src - median_flow, axis=1) < self.residual_threshold
             )
 
-        # 3) refine with least squares until the inlier set is stable
+        # 3) refine with least squares and an adaptive threshold until the
+        #    inlier set is stable
         params = None
+        threshold, sigma = self.residual_threshold, np.nan
         for _ in range(10):
             if inliers.sum() < 3:
                 if self.logger:
                     self.logger.warning(
                         f"Optical flow: only {int(inliers.sum())} inliers within "
-                        f"{self.residual_threshold} px, no fit"
+                        f"{threshold:.3f} px, no fit"
                     )
                 return None
 
             params = self._rigid_fit(src[inliers], dst[inliers], rotation=rotation)
-            new_inliers = residuals(params) < self.residual_threshold
+            res = residuals(params)
+
+            threshold, sigma = robust_residual_threshold(
+                res[inliers],
+                n_sigma=self.residual_sigma,
+                minimum=self.residual_threshold_min,
+                maximum=self.residual_threshold,
+            )
+            new_inliers = res < threshold
 
             if np.array_equal(new_inliers, inliers):
                 break
@@ -5670,7 +6217,10 @@ class OpticalFlow(AligmentMethod):
 
         if self.logger:
             self.logger.info(
-                f"Optical flow fit: {int(inliers.sum())}/{int(finite.sum())} inliers, "
+                f"Optical flow fit: {int(inliers.sum())}/{int(finite.sum())} inliers "
+                f"(threshold {threshold:.3f} px = {self.residual_sigma:g} x sigma "
+                f"{sigma:.3f} px, clipped to [{self.residual_threshold_min:g}, "
+                f"{self.residual_threshold:g}]), "
                 f"tx = {tx:.4f}, ty = {ty:.4f}"
                 + (f", rot = {rot:.5f} degrees" if rotation else " (translation only)")
             )
@@ -5685,20 +6235,15 @@ class OpticalFlow(AligmentMethod):
             centre=centre,
             rotation=rotation,
             params=params,
+            threshold=threshold,
+            sigma=sigma,
         )
 
     # ------------------------------------------------------------------
     # Uncertainties: spatial block bootstrap of the inliers
     # ------------------------------------------------------------------
 
-    def bootstrap_uncertainty(
-        self,
-        fit,
-        obs_name=None,
-        reference_frame=None,
-        save_QA=True,
-        show_QA=False,
-    ):
+    def bootstrap_uncertainty(self, fit, obs_name=None):
         """
         Uncertainty of an optical-flow alignment from a spatial block bootstrap
         of the inliers of `fit_flow_transform`.
@@ -5746,13 +6291,7 @@ class OpticalFlow(AligmentMethod):
             Result of `fit_flow_transform`.
 
         obs_name : str
-            Observation name for logging and the QA plot.
-
-        reference_frame : np.2darray, optional
-            Shown under the flow vectors in the QA plot.
-
-        save_QA, show_QA : bool
-            Save / show the bootstrap QA plot.
+            Observation name for logging.
 
         Returns
         -------
@@ -5855,49 +6394,101 @@ class OpticalFlow(AligmentMethod):
             n_tiles=len(tiles),
         )
 
-        if (save_QA or show_QA) and obs_name is not None:
-            self.plot_bootstrap(
-                result,
-                point_estimate,
-                src,
-                dst,
-                inliers,
-                tile,
-                obs_name,
-                rotation=rotation,
-                reference_frame=reference_frame,
-                save=save_QA,
-                show=show_QA,
-            )
-
         return result
 
-    def plot_bootstrap(
+    # ------------------------------------------------------------------
+    # QA: the flow field
+    # ------------------------------------------------------------------
+
+    def plot_flow_field(
         self,
-        result,
-        point_estimate,
-        src,
-        dst,
-        inliers,
-        tile,
+        reference_frame,
         obs_name,
-        rotation=True,
-        reference_frame=None,
+        fit=None,
+        result=None,
+        errors=None,
+        scan_rotation=None,
+        failed_reason=None,
         save=True,
         show=False,
     ):
         """
-        QA plot of the bootstrap: the flow vectors of the fit (inliers coloured
-        by tile, outliers in red) and the distribution of the draws of tx, ty
-        (and rot) with the fit, the median and the +/- 1 sigma band.
-        """
-        n_panels = 4 if rotation else 3
-        fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5.5))
+        QA plot of the optical-flow field behind an alignment, made for every
+        alignment (also failed ones).
 
-        # ---- flow vectors ---------------------------------------------------
-        ax = axes[0]
-        if reference_frame is not None:
-            vmin, vmax = np.nanpercentile(reference_frame, [5, 95])
+        Panels
+        ------
+        1. Measured flow: the flow vectors fitted by `fit_flow_transform`
+           (where every reference pixel is found in the input), over the
+           reference frame, coloured by length; RANSAC / refit outliers as red
+           dots. For a clean rigid offset the arrows are all parallel (pure
+           shift) or swirl around one point (rotation).
+        2. Fitted model: the flow predicted by the fitted rigid transform at
+           the same points, with the same arrow scale as panel 1. The two
+           panels should look alike.
+        3. Residual flow (measured - model) of the inliers, with its own
+           (larger) arrow scale. Random arrows are noise; a coherent pattern
+           (a region pulling one way, a radial pattern) shows what the rigid
+           model does not describe: a bad region, distortion, a scale change.
+        4. Residual vectors of all points in the (dx, dy) plane, with the
+           adaptive inlier threshold and its upper limit `residual_threshold`
+           as circles.
+
+        Only up to 25 x 25 arrows are drawn (a regular subset of the grid);
+        the outliers, the residual scatter and all numbers use all points.
+        If the fit failed (`fit` None), only the measured flow of the last
+        flow computation is shown, without inlier information.
+
+        Parameters
+        ----------
+        reference_frame : np.2darray
+            Shown under the measured flow.
+
+        obs_name : str
+            Observation name for the title and the file name.
+
+        fit : dict, optional
+            Result of `fit_flow_transform`.
+
+        result : tuple, optional
+            Reported (tx, ty, rot) of the alignment.
+
+        errors : tuple, optional
+            Reported (tx_err, ty_err, rot_err).
+
+        scan_rotation : float, optional
+            Rotation from the angle scan (degrees): the flow was then measured
+            on the input rotated by this angle, so only a translation is left.
+
+        failed_reason : str, optional
+            Why the alignment was set as failed (shown in the title).
+
+        save, show : bool
+            Save to `flow_field_{obs_name}_{name}.png` / show the plot.
+        """
+        if fit is not None:
+            src, dst, inliers = fit["src"], fit["dst"], fit["inliers"]
+        elif getattr(self, "_last_flow", None) is not None:
+            src, dst, inliers = self._last_flow["src"], self._last_flow["dst"], None
+        else:
+            if self.logger:
+                self.logger.warning(
+                    f"No flow field to plot for {obs_name}, skipping flow QA plot."
+                )
+            return
+
+        flow = dst - src
+        finite = np.all(np.isfinite(src), axis=1) & np.all(np.isfinite(flow), axis=1)
+
+        if not finite.any():
+            return
+
+        fig, axes = plt.subplots(2, 2, figsize=(15, 14))
+        ax_flow, ax_model, ax_res, ax_scatter = axes.ravel()
+
+        vmin, vmax = np.nanpercentile(reference_frame, [5, 95])
+
+        def _background(ax):
             ax.imshow(
                 reference_frame,
                 cmap="gray",
@@ -5905,76 +6496,184 @@ class OpticalFlow(AligmentMethod):
                 vmin=vmin,
                 vmax=vmax,
                 interpolation="nearest",
+                alpha=0.6,
             )
+            ax.set_xlabel("x [px]")
+            ax.set_ylabel("y [px]")
 
-        flow = dst - src
-        ax.quiver(
-            src[inliers, 0],
-            src[inliers, 1],
-            flow[inliers, 0],
-            flow[inliers, 1],
-            tile[inliers],
-            cmap="tab20",
-            angles="xy",
-            scale_units="xy",
-            scale=0.1,
-            width=0.002,
+        # ---- 1) measured flow -------------------------------------------
+        good = finite if inliers is None else finite & inliers
+
+        sub, spacing = self._quiver_subsample(src, good)
+        magnification, reference = self._arrow_magnification(flow[good], spacing)
+
+        _background(ax_flow)
+        self._draw_flow_quiver(
+            ax_flow, fig, src, flow, sub, spacing, magnification, reference,
+            "|flow| [px]",
         )
-        if np.any(~inliers):
-            ax.scatter(
-                src[~inliers, 0],
-                src[~inliers, 1],
+
+        if inliers is not None and np.any(finite & ~inliers):
+            ax_flow.scatter(
+                src[finite & ~inliers, 0],
+                src[finite & ~inliers, 1],
                 s=4,
                 color="red",
-                label="RANSAC outliers",
+                label=f"outliers ({int(np.sum(finite & ~inliers))})",
             )
-            ax.legend(loc="upper right", fontsize=8)
+            ax_flow.legend(loc="lower right", fontsize=8)
 
-        if reference_frame is None:
-            # same orientation as the frame shown with origin upper
-            ax.invert_yaxis()
-        ax.set_aspect("equal")
-
-        ax.set_title(
-            f"Flow vectors x10 ({result['n_inliers']}/{result['n_points']} "
-            f"inliers, {result['n_tiles']} tiles)"
+        n_text = (
+            f"{int(np.sum(finite))} vectors"
+            if inliers is None
+            else f"{int(np.sum(finite & inliers))}/{int(np.sum(finite))} inliers"
         )
-        ax.set_xlabel("x [px]")
-        ax.set_ylabel("y [px]")
-
-        # ---- draws ------------------------------------------------------------
-        labels = [("tx", "px"), ("ty", "px"), ("rotation", "degrees")]
-
-        for k, ax in enumerate(axes[1:]):
-            values = result["draws"][:, k]
-            fit_value = point_estimate[k]
-            median = result["median"][k]
-            error = result["errors"][k]
-
-            ax.hist(values, bins=30, color="C0", alpha=0.8)
-            ax.axvspan(median - error, median + error, color="white", alpha=0.15,
-                       label=f"median +/- 1 sigma ({error:.4f})")
-            ax.axvline(median, color="white", linestyle="--", label="median of draws")
-            ax.axvline(fit_value, color="orange", label=f"fit ({fit_value:.4f})")
-
-            name, unit = labels[k]
-            ax.set_title(f"Bootstrap of {name}")
-            ax.set_xlabel(f"{name} [{unit}]")
-            ax.set_ylabel("draws")
-            ax.legend(fontsize=8)
-
-        fig.suptitle(
-            f"Optical flow bootstrap for {obs_name} "
-            f"({len(result['draws'])} resamples of {self.bootstrap_tiles}x"
-            f"{self.bootstrap_tiles} tiles)"
+        ax_flow.set_title(
+            f"Measured flow, arrows x{magnification:.3g} ({n_text})", pad=22
         )
-        fig.tight_layout()
+
+        if fit is None:
+            for ax in (ax_model, ax_res, ax_scatter):
+                ax.axis("off")
+                ax.text(
+                    0.5,
+                    0.5,
+                    "no fit",
+                    ha="center",
+                    va="center",
+                    fontsize=16,
+                    transform=ax.transAxes,
+                )
+        else:
+            params = fit["params"]
+            model_flow = src @ params[:2, :2].T + params[:2, 2] - src
+            residual = flow - model_flow
+
+            # ---- 2) fitted model, same arrow scale, at all grid points -----
+            sub_all, _ = self._quiver_subsample(src, finite)
+            _background(ax_model)
+            self._draw_flow_quiver(
+                ax_model, fig, src, model_flow, sub_all, spacing, magnification,
+                reference, "|model flow| [px]",
+            )
+            ax_model.set_title(
+                f"Fitted rigid model flow (reference -> input), arrows "
+                f"x{magnification:.3g}\n(same arrow scale as the measured flow)",
+                pad=22,
+            )
+
+            # ---- 3) residual flow, own scale ------------------------------
+            res_mag, res_ref = self._arrow_magnification(residual[good], spacing)
+            rms = float(np.sqrt(np.mean(np.sum(residual[good] ** 2, axis=1))))
+
+            _background(ax_res)
+            self._draw_flow_quiver(
+                ax_res, fig, src, residual, sub, spacing, res_mag, res_ref,
+                "|residual| [px]",
+            )
+            if np.any(finite & ~inliers):
+                ax_res.scatter(
+                    src[finite & ~inliers, 0],
+                    src[finite & ~inliers, 1],
+                    s=4,
+                    color="red",
+                    label="outliers",
+                )
+                ax_res.legend(loc="lower right", fontsize=8)
+            ax_res.set_title(
+                f"Residual flow (measured - model) of the inliers, arrows "
+                f"x{res_mag:.3g}\nrms {rms:.3f} px",
+                pad=22,
+            )
+
+            # ---- 4) residual vectors --------------------------------------
+            ax_scatter.scatter(
+                residual[good, 0],
+                residual[good, 1],
+                s=3,
+                color="cyan",
+                alpha=0.5,
+                label=f"inliers ({int(np.sum(good))})",
+            )
+            outl = finite & ~inliers
+            if outl.any():
+                ax_scatter.scatter(
+                    residual[outl, 0],
+                    residual[outl, 1],
+                    s=3,
+                    color="red",
+                    alpha=0.5,
+                    label=f"outliers ({int(np.sum(outl))})",
+                )
+            threshold = fit.get("threshold", self.residual_threshold)
+            ax_scatter.add_patch(
+                plt.Circle(
+                    (0, 0),
+                    threshold,
+                    fill=False,
+                    color="white",
+                    linestyle="--",
+                    label=(
+                        f"inlier threshold ({threshold:.3f} px = "
+                        f"{self.residual_sigma:g} sigma, {fit.get('sigma', np.nan):.3f} px)"
+                    ),
+                )
+            )
+            ax_scatter.add_patch(
+                plt.Circle(
+                    (0, 0),
+                    self.residual_threshold,
+                    fill=False,
+                    color="gray",
+                    linestyle=":",
+                    label=f"upper limit ({self.residual_threshold:g} px)",
+                )
+            )
+            ax_scatter.axhline(0, color="gray", linewidth=0.8)
+            ax_scatter.axvline(0, color="gray", linewidth=0.8)
+
+            # range: the threshold circle and the inliers, outliers may be far off
+            limit = 1.5 * self.residual_threshold
+            ax_scatter.set_xlim(-limit, limit)
+            ax_scatter.set_ylim(-limit, limit)
+            ax_scatter.set_aspect("equal")
+            ax_scatter.set_xlabel("residual x [px]")
+            ax_scatter.set_ylabel("residual y [px]")
+            ax_scatter.set_title(
+                f"Residual vectors (median |residual| of the inliers "
+                f"{np.median(np.linalg.norm(residual[good], axis=1)):.3f} px)"
+            )
+            ax_scatter.legend(loc="upper right", fontsize=8)
+
+        # ---- title: the reported result -----------------------------------
+        title = f"Optical flow field for {obs_name}"
+
+        if failed_reason is not None:
+            title += f"\nFAILED: {failed_reason}"
+        elif result is not None:
+            tx, ty, rot = result
+            tx_err, ty_err, rot_err = errors if errors is not None else (np.nan,) * 3
+            title += (
+                f"\nCorrection of the input: tx = {tx:.3f} +/- {tx_err:.3f} px, "
+                f"ty = {ty:.3f} +/- {ty_err:.3f} px, "
+                f"rot = {rot:.4f} +/- {rot_err:.4f} deg"
+            )
+
+        if scan_rotation is not None:
+            title += (
+                f"\n(rotation from the angle scan: flow measured on the input "
+                f"rotated by {scan_rotation:.4f} deg, translation only)"
+            )
+
+        fig.suptitle(title, fontsize=13)
+        # leave room for the (up to three line) title
+        fig.tight_layout(rect=(0, 0, 1, 0.94))
 
         if save:
-            filename = f"{self.QA_path}/bootstrap_{obs_name}_{self.name}.png"
-            fig.savefig(filename)
+            filename = f"{self.QA_path}/flow_field_{obs_name}_{self.name}.png"
+            self._save_QA_figure(filename, fig)
             if self.logger:
-                self.logger.info(f"Saved bootstrap QA plot to {filename}")
+                self.logger.info(f"Saved flow field QA plot to {filename}")
 
         if show:
             plt.show()
@@ -6073,6 +6772,22 @@ class OpticalFlow(AligmentMethod):
             )
 
         scan_for_angles = bool(scan_for_angles) and not skip_rotation_estimation
+
+        self._last_flow = None
+
+        def _flow_QA(fit, **plot_kwargs):
+            # flow field QA plot (successful alignments only; a failed
+            # alignment only gets the failed difference image)
+            if save_QA or show_QA:
+                self.plot_flow_field(
+                    reference_frame,
+                    obs_name,
+                    fit=fit,
+                    scan_rotation=rot if scan_for_angles else None,
+                    save=save_QA,
+                    show=show_QA,
+                    **plot_kwargs,
+                )
 
         # spacepylot only computes the flow field, the transform is fitted by
         # `fit_flow_transform` (see there for why)
@@ -6188,18 +6903,14 @@ class OpticalFlow(AligmentMethod):
 
         # uncertainties from the spatial block bootstrap of the inliers; for the
         # angle scan only tx, ty (the rotation error comes from the scan)
-        bootstrap = self.bootstrap_uncertainty(
-            fit,
-            obs_name=obs_name,
-            reference_frame=reference_frame,
-            save_QA=save_QA,
-            show_QA=show_QA,
-        )
+        bootstrap = self.bootstrap_uncertainty(fit, obs_name=obs_name)
 
         tx_err, ty_err = bootstrap["errors"][:2]
 
         if fit["rotation"]:
             rot_err = bootstrap["errors"][2]
+
+        _flow_QA(fit, result=(tx, ty, rot), errors=(tx_err, ty_err, rot_err))
 
         # plot difference image
 

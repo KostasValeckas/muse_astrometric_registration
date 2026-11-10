@@ -87,3 +87,86 @@ def ternary_search(f, left, right, eps=1e-1, nan_default=1.0, logger=None):
         return None, None, None
 
     return x_min, y_min, tried
+
+def robust_residual_threshold(
+    residuals, n_sigma=3.0, minimum=0.05, maximum=0.5, min_points=5, n_parameters=0
+):
+    """
+    Outlier threshold (pixels) on the LENGTH of 2D fit residuals, scaled to
+    the scatter of the residuals themselves instead of a fixed number.
+
+    Why
+    ---
+    A fixed threshold (e.g. 0.5 px) means a different thing for every frame
+    pair: for precise residuals (scatter ~0.05 px) it is a 10 sigma cut and
+    lets clearly wrong points pull the fit, for noisy residuals it may cut
+    into the good points. Cutting on the length |r| (a circle) instead of
+    |dx| or |dy| (a box) also makes the cut independent of how the frame is
+    oriented relative to the pixel axes.
+
+    How
+    ---
+    For isotropic gaussian residuals with sigma per axis, |r| follows a
+    Rayleigh distribution with median sigma * sqrt(2 ln 2) = 1.1774 sigma, so
+
+        sigma = median(|r|) / 1.1774
+
+    Like the MAD this is robust to up to 50% outliers. Residuals of a
+    least-squares fit are smaller than the true scatter, since the fit
+    follows the points a bit: with N points (2N coordinates) and
+    `n_parameters` fitted parameters, sigma is corrected by
+    sqrt(2N / (2N - n_parameters)) (1.15x for 6 point sources and a rotation
+    + translation fit, negligible for thousands of flow vectors). The
+    threshold is
+    n_sigma * sigma (3 sigma: 1.1% of good points fall outside, exp(-9/2)),
+    clipped to [minimum, maximum]:
+    - `minimum` keeps a noise-free or quantised case from collapsing to 0
+      and rejecting points over rounding-level differences;
+    - `maximum` is the old fixed threshold, so the cut is never looser than
+      before, also when the fit is bad and the scatter large.
+
+    Pass the residuals of the CURRENT inliers (already roughly clean), and
+    apply the threshold to all points so rejected points can come back.
+
+    Parameters
+    ----------
+    residuals : array
+        (N, 2) residual vectors, or (N,) residual lengths.
+
+    n_sigma, minimum, maximum : float
+        See above.
+
+    min_points : int
+        With fewer finite residuals the scatter is not trusted and `maximum`
+        is returned.
+
+    n_parameters : int
+        Number of fitted parameters, for the correction above (0: none).
+
+    Returns
+    -------
+    threshold, sigma
+        Threshold in pixels and the estimated sigma per axis (NaN if not
+        estimated).
+    """
+    residuals = np.asarray(residuals, dtype=float)
+
+    if residuals.ndim == 2:
+        lengths = np.linalg.norm(residuals, axis=1)
+    else:
+        lengths = np.abs(residuals)
+
+    lengths = lengths[np.isfinite(lengths)]
+
+    if len(lengths) < min_points:
+        return float(maximum), np.nan
+
+    sigma = float(np.median(lengths) / np.sqrt(2 * np.log(2)))
+
+    n_coordinates = 2 * len(lengths)
+    if 0 < n_parameters < n_coordinates:
+        sigma *= float(np.sqrt(n_coordinates / (n_coordinates - n_parameters)))
+
+    threshold = float(np.clip(n_sigma * sigma, minimum, maximum))
+
+    return threshold, sigma
