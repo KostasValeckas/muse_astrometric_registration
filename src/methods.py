@@ -117,7 +117,9 @@ class AligmentMethod(ABC):
         angle_bootstrap_samples=200,
         angle_bootstrap_block=5,
         angle_bootstrap_seed=1,
-        angle_fit_model="hyperbola",
+        angle_fit_model="auto",
+        fit_min_contrast=3.0,
+        fit_max_extrapolation=1.0,
     ):
         """
         Initialize the alignment method.
@@ -208,18 +210,29 @@ class AligmentMethod(ABC):
             Seed of that bootstrap, so a rerun gives the same error (default 1).
 
         angle_fit_model : str
-            Model fitted to the fine scan to find the minimum: "hyperbola"
-            (default), f = sqrt(a (x - x_v)^2 + b) + c, or "parabola". The
-            difference metric is a rounded V over the fine scan (parabolic only
-            close to the minimum, linear further out); a parabola fitted to it
-            is biased towards the longer side when the fine scan is not centred
-            on the minimum (0.01 deg on synthetic data, ~12x the statistical
-            error), the hyperbola follows both regimes. See `_fit_angle_parabola`.
+            Model fitted to the fine scan to find the minimum: "auto" (default)
+            fits both a parabola and a hyperbola, f = sqrt(a (x - x_v)^2 + b) + c,
+            and uses the one with the lower AICc; "parabola" or "hyperbola"
+            force one model. The difference metric is a rounded V over the fine
+            scan: when the scan reaches the straight arms a parabola is biased
+            towards the longer side, when it only sees the rounded bottom the
+            hyperbola is degenerate and does not converge. See
+            `_fit_angle_parabola`.
+
+        fit_min_contrast : float
+            Shape check of the fine scan fit: the model must rise from its
+            minimum to the higher fine scan edge by more than this many robust
+            residual sigmas (default 3), else the curve is flat within the noise
+            and the fit is rejected.
+
+        fit_max_extrapolation : float
+            Shape check of the fine scan fit: the minimum may lie at most this
+            many fine scan widths beyond the edges of the fine scan (default 1).
         """
 
-        if angle_fit_model not in ("hyperbola", "parabola"):
+        if angle_fit_model not in ("auto", "hyperbola", "parabola"):
             raise ValueError(
-                f"angle_fit_model must be 'hyperbola' or 'parabola', got "
+                f"angle_fit_model must be 'auto', 'hyperbola' or 'parabola', got "
                 f"{angle_fit_model!r}"
             )
 
@@ -256,6 +269,8 @@ class AligmentMethod(ABC):
         self.angle_bootstrap_block = angle_bootstrap_block
         self.angle_bootstrap_seed = angle_bootstrap_seed
         self.angle_fit_model = angle_fit_model
+        self.fit_min_contrast = fit_min_contrast
+        self.fit_max_extrapolation = fit_max_extrapolation
 
         # translations per scanned angle and the frames of the current scan,
         # filled by _scan_difference_metric
@@ -863,47 +878,78 @@ class AligmentMethod(ABC):
 
     def _fit_angle_parabola(self, angles, diffs):
         """
-        Multi-pass (default two) fit of the fine scan model to the fine angle
-        scan, to find its minimum. (The name is historical: the model is set by
-        `angle_fit_model`.)
+        Fit of the fine scan to find its minimum. (The name is historical: with
+        the default `angle_fit_model` = "auto" both a parabola and a hyperbola
+        are fitted and the better one is used.)
 
-        Model
-        -----
-        "hyperbola" (default): f = sqrt(a (x - x_v)^2 + b) + c, a, b > 0.
+        Models
+        ------
+        "parabola": f = A x^2 + B x + C, minimum at x = -B / 2A (A > 0).
+
+        "hyperbola": f = sqrt(a (x - x_v)^2 + b) + c, a > 0, b >= 0.
         Close to the minimum (|x - x_v| << sqrt(b / a)) this is a parabola,
         c + sqrt(b) + a / (2 sqrt(b)) (x - x_v)^2; further out it becomes the
-        straight arms c + sqrt(a) |x - x_v| of a V. b sets where one turns into
-        the other, so it follows the rounded-V shape of the difference metric
-        over the fine scan. The minimum is exactly at x = x_v, a fit
-        parameter. Fitted with scipy.optimize.least_squares, started from a
-        parabola fit.
+        straight arms c + sqrt(a) |x - x_v| of a V (b = 0 is a sharp V). The
+        minimum is exactly at x = x_v, a fit parameter. Fitted with
+        scipy.optimize.least_squares, started from a parabola fit.
 
-        Why not a parabola: over the fine scan the metric is a rounded V, and
-        the fine scan is centred on the rough ternary minimum, not on the true
-        one. A parabola fitted to a lopsided V is pulled towards the longer
-        side (synthetic test: 0.310 instead of 0.300 degrees, ~12x the
-        statistical error, with a clear wave in the residuals). "parabola"
-        (A x^2 + B x + C, minimum at -B / 2A) is kept as an option.
+        Why both: the difference metric over the fine scan is a rounded V. When
+        the fine scan reaches the straight arms, a parabola fitted to a
+        lopsided V is pulled towards the longer side (synthetic test: 0.310
+        instead of 0.300 degrees, ~12x the statistical error), and the
+        hyperbola is needed. When the fine scan only sees the rounded bottom,
+        the scan is a parabola and the hyperbola is degenerate: it can only
+        reach the parabola in the limit a, b -> infinity, c -> -infinity (with
+        a / (2 sqrt(b)) fixed), so its parameters run away and the optimizer
+        never converges, although its x_v is fine. On real data this was the
+        cause of most failed fine scan fits (34 of 81 in a hybrid FFT run).
 
-        Pass 1 fits all finite points. In each further pass, points whose
-        residual (from the previous fit, evaluated for all points) deviates
-        from the median residual by more than `fit_outlier_sigma` robust
-        sigmas (1.4826 * MAD) are rejected and the survivors are refitted.
+        Model choice ("auto")
+        ---------------------
+        Each model gets its own multi-pass fit (`_multipass_fit`), then the
+        shape check below. If both pass, the one with the lower small-sample
+        Akaike information criterion,
+            AICc = n ln(RSS / n) + 2k + 2k (k + 1) / (n - k - 1),
+        wins, with RSS and n taken over the points kept by BOTH fits (so the
+        two are compared on the same data) and k = 3 (parabola) or 4
+        (hyperbola). The extra term penalises the extra hyperbola parameter, so
+        on a parabolic scan (equal RSS) the parabola wins, and the hyperbola
+        only wins if it really fits better. A hyperbola fit that stopped at the
+        evaluation limit (the degenerate case above) is still a valid
+        candidate; it simply loses to the parabola.
 
-        The fit is only accepted if the model has a minimum (parabola: A > 0,
-        hyperbola: a, b > 0) and it lies inside the full angle search range
-        [`angle_scan_start`, `angle_scan_end`]. The vertex may lie outside the
-        fine scan itself (the fine scan is centred on the rough ternary search
-        minimum, which can be somewhat off).
+        Multi-pass fit: pass 1 fits all finite points. In each further pass,
+        points whose residual (from the previous fit, evaluated for all points)
+        deviates from the median residual by more than `fit_outlier_sigma`
+        robust sigmas (1.4826 * MAD) are rejected and the survivors are
+        refitted. If a pass would leave fewer than `fit_min_points` points, the
+        previous pass is kept instead of failing.
+
+        Shape check
+        -----------
+        Only fits whose parameters describe a shape that cannot give a
+        meaningful minimum are removed:
+        1. no minimum: parabola opens downwards (A <= 0), or hyperbola with
+           flat arms (a <= 0);
+        2. the minimum lies outside the full angle search range
+           [`angle_scan_start`, `angle_scan_end`];
+        3. the minimum is extrapolated more than `fit_max_extrapolation` fine
+           scan widths beyond the edges of the fine scan (the position then
+           depends only on the assumed model shape, not on the data);
+        4. the curve is flat within the noise: the rise of the model from its
+           minimum to the higher fine scan edge is less than
+           `fit_min_contrast` times the robust scatter of the residuals.
+        A minimum somewhat outside the fine scan is allowed (the fine scan is
+        centred on the rough ternary search minimum, which can be off).
 
         Error of the vertex
         -------------------
         The formal least-squares error (covariance of x_v, for the parabola
-        propagated to x_v = -B / 2A) assumes independent points, but neighbouring fine scan
-        angles compare almost the same pixels and the residuals are correlated
-        (they show a smooth wave rather than random scatter), so the formal
-        error is too small. The reported error comes from a moving-block
-        residual bootstrap instead:
+        propagated to x_v = -B / 2A) assumes independent points, but
+        neighbouring fine scan angles compare almost the same pixels and the
+        residuals are correlated (they show a smooth wave rather than random
+        scatter), so the formal error is too small. The reported error comes
+        from a moving-block residual bootstrap of the chosen model instead:
 
         1. residuals r = d - fit for ALL finite points (in angle order),
            including the ones rejected as outliers;
@@ -911,8 +957,8 @@ class AligmentMethod(ABC):
            where r* is made of randomly chosen contiguous blocks of
            `angle_bootstrap_block` residuals (so their correlation is kept),
            and repeat the WHOLE fit on it, outlier rejection included
-           (`_multipass_parabola`), taking its vertex (draws with a
-           non-smiling parabola are dropped);
+           (`_multipass_fit`), taking its vertex (draws without a minimum
+           are dropped);
         3. error = half the 16-84 percentile width of the vertices.
 
         Resampling only the kept residuals and refitting in one pass would
@@ -921,7 +967,8 @@ class AligmentMethod(ABC):
         itself adds scatter to the vertex. With the full refit the error is
         about 0.75-0.8x the true scatter of the vertex over noise realisations
         (white and correlated synthetic noise), i.e. still slightly optimistic,
-        as residual bootstraps are.
+        as residual bootstraps are. The model choice is not repeated in the
+        bootstrap.
 
         No new image comparisons are needed. The formal error is logged next to
         it for comparison.
@@ -929,12 +976,14 @@ class AligmentMethod(ABC):
         Returns
         -------
         dict or None
-            coeffs (model parameters, in x = angle - x0), model, x0,
-            vertex (deg, the minimum), vertex_err (deg,
-            bootstrap), vertex_err_formal (deg), angles, diffs (finite points
-            only), keep (bool mask of points used in the final pass),
-            mean_resid (mean |residual| of the kept points), or None if the fit
-            failed.
+            coeffs (model parameters, in x = angle - x0; 3 for the parabola, 4
+            for the hyperbola), model (name of the chosen model), x0,
+            vertex (deg, the minimum), vertex_err (deg, bootstrap),
+            vertex_err_formal (deg), angles, diffs (finite points only), keep
+            (bool mask of points used in the final pass), mean_resid (mean
+            |residual| of the kept points), aicc (dict model -> AICc of the
+            models that passed the shape check, empty if only one was tried),
+            or None if no model passed.
         """
         angles = np.asarray(angles, float)
         diffs = np.asarray(diffs, float)
@@ -954,39 +1003,76 @@ class AligmentMethod(ABC):
         x0 = 0.5 * (a.min() + a.max())
         x = a - x0
 
-        params, keep, cov = self._multipass_parabola(x, d)
+        if self.angle_fit_model == "auto":
+            models = ("parabola", "hyperbola")
+        else:
+            models = (self.angle_fit_model,)
 
-        if params is None:
+        # fit every model and keep the ones with a sensible shape
+        candidates = {}
+        rejected = {}
+        for model in models:
+            params, keep, cov = self._multipass_fit(x, d, model)
+
+            if params is None:
+                rejected[model] = "the least-squares fit failed"
+                continue
+
+            reason = self._angle_fit_shape_problem(params, x, d, keep, x0)
+            if reason is not None:
+                rejected[model] = f"{reason} (params {np.round(params, 6)})"
+                continue
+
+            candidates[model] = (params, keep, cov)
+
+        for model, reason in rejected.items():
             if self.logger:
-                self.logger.warning(
-                    f"Fine scan {self.angle_fit_model} fit failed ({int(keep.sum())} "
-                    f"points survive outlier rejection, need {self.fit_min_points})"
+                # with "auto" one rejected model is no problem, the other is used
+                level = (
+                    self.logger.info
+                    if len(candidates) > 0
+                    else self.logger.warning
                 )
+                level(f"Fine scan {model} fit rejected: {reason}")
+
+        if len(candidates) == 0:
             return None
 
-        vertex_x = self._angle_model_vertex(params)
-
-        if vertex_x is None:
-            if self.logger:
-                self.logger.warning(
-                    f"Fine scan {self.angle_fit_model} has no minimum "
-                    f"(params {np.round(params, 6)})"
+        # choose the model: AICc over the points kept by all candidates
+        aicc = {}
+        if len(candidates) > 1:
+            common = np.logical_and.reduce([c[1] for c in candidates.values()])
+            n = int(common.sum())
+            for model, (params, _, _) in candidates.items():
+                k = len(params)
+                rss = float(
+                    np.sum((d[common] - self._angle_model_eval(params, x[common])) ** 2)
                 )
-            return None
+                if n > k + 1 and rss > 0:
+                    aicc[model] = (
+                        n * np.log(rss / n) + 2 * k + 2 * k * (k + 1) / (n - k - 1)
+                    )
+                else:
+                    # noise-free or too few common points: prefer fewer parameters
+                    aicc[model] = float(k)
+            chosen = min(aicc, key=aicc.get)
 
-        vertex = x0 + vertex_x
-        if not (self.angle_scan_start <= vertex <= self.angle_scan_end):
             if self.logger:
-                self.logger.warning(
-                    f"Fine scan {self.angle_fit_model} minimum {vertex:.4f} lies "
-                    f"outside the angle search range [{self.angle_scan_start:.4f}, "
-                    f"{self.angle_scan_end:.4f}]"
+                self.logger.info(
+                    "Fine scan model choice (AICc over "
+                    f"{n} common points, lower is better): "
+                    + ", ".join(f"{m} {v:.2f}" for m, v in aicc.items())
+                    + f" -> {chosen}"
                 )
-            return None
+        else:
+            chosen = next(iter(candidates))
+
+        params, keep, cov = candidates[chosen]
+        vertex = x0 + self._angle_model_vertex(params)
 
         if not (a.min() <= vertex <= a.max()) and self.logger:
             self.logger.info(
-                f"Fine scan {self.angle_fit_model} minimum {vertex:.4f} lies "
+                f"Fine scan {chosen} minimum {vertex:.4f} lies "
                 f"outside the fine scan [{a.min():.4f}, {a.max():.4f}] (extrapolated)"
             )
 
@@ -998,14 +1084,14 @@ class AligmentMethod(ABC):
 
         if self.logger:
             self.logger.info(
-                f"Fine scan vertex error: {vertex_err:.5f} degrees (block "
+                f"Fine scan {chosen} vertex error: {vertex_err:.5f} degrees (block "
                 f"bootstrap), {vertex_err_formal:.5f} degrees (formal, "
                 f"independent points)"
             )
 
         return dict(
             coeffs=params,
-            model=self.angle_fit_model,
+            model=chosen,
             x0=x0,
             vertex=float(vertex),
             vertex_err=float(vertex_err),
@@ -1014,23 +1100,84 @@ class AligmentMethod(ABC):
             diffs=d,
             keep=keep,
             mean_resid=mean_resid,
+            aicc=aicc,
         )
+
+    def _angle_fit_shape_problem(self, params, x, d, keep, x0):
+        """
+        Shape check of a fine scan fit (see `_fit_angle_parabola`).
+
+        Returns None if the shape gives a meaningful minimum, else a short
+        description of the problem (for the log).
+        """
+        model = self._angle_model_name(params)
+        vertex_x = self._angle_model_vertex(params)
+
+        # 1. the model must have a minimum
+        if vertex_x is None:
+            if model == "parabola":
+                return "no minimum, the parabola opens downwards"
+            return "no minimum, the hyperbola arms are flat"
+
+        # 2. inside the full angle search range
+        vertex = x0 + vertex_x
+        if not (self.angle_scan_start <= vertex <= self.angle_scan_end):
+            return (
+                f"minimum {vertex:.4f} lies outside the angle search range "
+                f"[{self.angle_scan_start:.4f}, {self.angle_scan_end:.4f}]"
+            )
+
+        # 3. not extrapolated far beyond the fine scan
+        width = float(x.max() - x.min())
+        max_out = self.fit_max_extrapolation * width
+        if vertex_x < x.min() - max_out or vertex_x > x.max() + max_out:
+            return (
+                f"minimum {vertex:.4f} is extrapolated more than "
+                f"{self.fit_max_extrapolation:g} fine scan widths beyond the "
+                f"fine scan [{x0 + x.min():.4f}, {x0 + x.max():.4f}]"
+            )
+
+        # 4. the dip must stand out from the noise
+        residuals = d[keep] - self._angle_model_eval(params, x[keep])
+        scatter = 1.4826 * np.median(np.abs(residuals - np.median(residuals)))
+        if scatter <= 0:
+            scatter = np.std(residuals)
+
+        bottom = float(self._angle_model_eval(params, np.array([vertex_x]))[0])
+        edges = self._angle_model_eval(params, np.array([x.min(), x.max()]))
+        rise = float(np.max(edges)) - bottom
+
+        if rise <= self.fit_min_contrast * scatter:
+            return (
+                f"the curve is flat within the noise (rise {rise:.3g} from the "
+                f"minimum to the higher scan edge, residual scatter {scatter:.3g}, "
+                f"need > {self.fit_min_contrast:g}x)"
+            )
+
+        return None
 
     # ------------------------------------------------------------------
     # Fine scan models
     #
     #   parabola : params = (A, B, C), f = A x^2 + B x + C, vertex -B / 2A
     #   hyperbola: params = (a, b, c, x_v), f = sqrt(a (x - x_v)^2 + b) + c,
-    #              minimum exactly at x_v (a, b > 0)
+    #              minimum exactly at x_v (a > 0, b >= 0)
     #
-    # x is the angle minus the centre of the fine scan (well conditioned).
+    # The model is identified by the number of parameters, so a fit result
+    # carries its model with it. x is the angle minus the centre of the fine
+    # scan (well conditioned).
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _angle_model_name(params):
+        """Name of the fine scan model of `params` (3 = parabola, 4 = hyperbola)."""
+        return "parabola" if len(params) == 3 else "hyperbola"
 
     def _angle_model_eval(self, params, x):
         """Evaluate the fine scan model `params` at x (= angle - x0)."""
         params = np.asarray(params, float)
 
-        if self.angle_fit_model == "parabola":
+        if self._angle_model_name(params) == "parabola":
             return np.polyval(params, x)
 
         a, b, c, x_v = params
@@ -1044,28 +1191,36 @@ class AligmentMethod(ABC):
         if not np.all(np.isfinite(params)):
             return None
 
-        if self.angle_fit_model == "parabola":
+        if self._angle_model_name(params) == "parabola":
             A, B, _ = params
             return None if A <= 0 else float(-B / (2 * A))
 
+        # b = 0 is a sharp V, still with a well defined minimum at x_v
         a, b, _, x_v = params
-        return None if (a <= 0 or b <= 0) else float(x_v)
+        return None if (a <= 0 or b < 0) else float(x_v)
 
-    def _angle_model_fit(self, x, d, p0=None):
+    def _angle_model_fit(self, x, d, model, p0=None):
         """
-        Least-squares fit of the fine scan model to (x, d).
+        Least-squares fit of the fine scan model `model` ("parabola" or
+        "hyperbola") to (x, d).
 
         Parabola: linear (np.polyfit). Hyperbola: nonlinear
-        (scipy.optimize.least_squares with a > 0, b > 0), started from `p0`
+        (scipy.optimize.least_squares with a >= 0, b >= 0), started from `p0`
         if given, else from a parabola fit: its vertex for x_v, the slopes of
         the outer thirds of the scan for the arms (sqrt(a)), and its curvature
         A = a / (2 sqrt(b)) near the minimum for b.
+
+        A hyperbola fit that stops at the evaluation limit is kept (if its
+        parameters are finite): that is the degenerate case of a parabolic
+        scan (see `_fit_angle_parabola`), where the parameters drift off
+        while the shape and x_v are already settled. The model choice then
+        prefers the parabola.
 
         Returns (params, covariance), covariance from the jacobian scaled by
         the residual variance (NaN if it cannot be computed), or (None, None)
         if the fit failed.
         """
-        if self.angle_fit_model == "parabola":
+        if model == "parabola":
             try:
                 params, cov = np.polyfit(x, d, 2, cov=True)
             except (ValueError, np.linalg.LinAlgError):
@@ -1113,7 +1268,9 @@ class AligmentMethod(ABC):
         except (ValueError, np.linalg.LinAlgError):
             return None, None
 
-        if not result.success:
+        # status 0 = evaluation limit reached: kept (degenerate parabolic case),
+        # status -1 = improper input: failed
+        if result.status < 0 or not np.all(np.isfinite(result.x)):
             return None, None
 
         params = result.x
@@ -1127,21 +1284,23 @@ class AligmentMethod(ABC):
 
         return params, cov
 
-    def _multipass_parabola(self, x, d, p0=None):
+    def _multipass_fit(self, x, d, model, p0=None):
         """
-        The multi-pass fit of the fine scan model (`angle_fit_model`) used by
+        The multi-pass fit of the fine scan model `model` used by
         `_fit_angle_parabola` (and repeated by its bootstrap): pass 1 fits all
         points; every further pass rejects points whose residual deviates from
         the median residual by more than `fit_outlier_sigma` robust sigmas and
         refits the survivors. Residuals of ALL points are recomputed from each
-        new fit, so a point rejected earlier can be let back in.
+        new fit, so a point rejected earlier can be let back in. If a pass
+        would leave fewer than `fit_min_points` points, or its refit fails,
+        the previous pass is kept (the rejection only refines a fit, it is
+        not a reason to lose it).
 
-        Returns (params, keep, covariance of the last pass), or
-        (None, keep, None) if the fit fails or fewer than `fit_min_points`
-        points survive.
+        Returns (params, keep, covariance of the last kept pass), or
+        (None, keep, None) if the first fit fails.
         """
         keep = np.ones(len(x), dtype=bool)
-        params, cov = self._angle_model_fit(x, d, p0=p0)
+        params, cov = self._angle_model_fit(x, d, model, p0=p0)
 
         if params is None:
             return None, keep, None
@@ -1153,17 +1312,21 @@ class AligmentMethod(ABC):
             if sigma <= 0:
                 sigma = np.std(r)
             if sigma > 0:
-                keep = np.abs(r - med) <= self.fit_outlier_sigma * sigma
+                new_keep = np.abs(r - med) <= self.fit_outlier_sigma * sigma
             else:
-                keep = np.ones(len(x), dtype=bool)
+                new_keep = np.ones(len(x), dtype=bool)
 
-            if keep.sum() < self.fit_min_points:
-                return None, keep, None
+            if new_keep.sum() < self.fit_min_points:
+                break
 
-            params, cov = self._angle_model_fit(x[keep], d[keep], p0=params)
+            new_params, new_cov = self._angle_model_fit(
+                x[new_keep], d[new_keep], model, p0=params
+            )
 
-            if params is None:
-                return None, keep, None
+            if new_params is None:
+                break
+
+            params, cov, keep = new_params, new_cov, new_keep
 
         return params, keep, cov
 
@@ -1176,22 +1339,24 @@ class AligmentMethod(ABC):
         Returns (bootstrap error, formal error) in degrees, see
         `_fit_angle_parabola`. NaN if it cannot be estimated.
         """
+        model = self._angle_model_name(params)
+
         # formal error, assuming independent points
         vertex_err_formal = np.nan
         if cov is not None and np.all(np.isfinite(cov)):
-            if self.angle_fit_model == "parabola":
+            if model == "parabola":
                 # propagate (A, B) to x_v = -B / (2A)
                 A, B, _ = params
                 J = np.array([B / (2 * A**2), -1.0 / (2 * A)])
                 vertex_err_formal = float(np.sqrt(J @ cov[:2, :2] @ J))
-            else:
+            elif cov[3, 3] >= 0:
                 # x_v is a fit parameter
                 vertex_err_formal = float(np.sqrt(cov[3, 3]))
 
         # moving-block residual bootstrap of ALL points, repeating the full
         # fit (with outlier rejection) for every draw
-        model = self._angle_model_eval(params, x)
-        residuals = d - model
+        fitted = self._angle_model_eval(params, x)
+        residuals = d - fitted
 
         n = len(x)
         block = int(np.clip(self.angle_bootstrap_block, 1, n))
@@ -1204,7 +1369,7 @@ class AligmentMethod(ABC):
             starts = rng.integers(0, n - block + 1, size=n_blocks)
             resampled = np.concatenate([residuals[k : k + block] for k in starts])[:n]
 
-            p, _, _ = self._multipass_parabola(x, model + resampled, p0=params)
+            p, _, _ = self._multipass_fit(x, fitted + resampled, model, p0=params)
             vertex = None if p is None else self._angle_model_vertex(p)
             if vertex is not None:
                 vertices.append(vertex)
@@ -1213,7 +1378,7 @@ class AligmentMethod(ABC):
             if self.logger:
                 self.logger.warning(
                     f"Only {len(vertices)}/{self.angle_bootstrap_samples} bootstrap "
-                    f"{self.angle_fit_model} fits have a minimum, vertex error unknown"
+                    f"{model} fits have a minimum, vertex error unknown"
                 )
             return np.nan, vertex_err_formal
 
@@ -1308,7 +1473,7 @@ class AligmentMethod(ABC):
                     grid,
                     self._angle_model_eval(fit["coeffs"], grid - fit["x0"]),
                     color="green",
-                    label=f"{self.angle_fit_model.capitalize()} fit ({self.fit_passes}-pass)",
+                    label=f"{fit['model'].capitalize()} fit ({self.fit_passes}-pass)",
                 )
             else:
                 ax.plot(
@@ -1521,7 +1686,7 @@ class AligmentMethod(ABC):
 
             rms = float(np.sqrt(np.mean(residuals[keep] ** 2)))
             ax_fit_res.set_title(
-                f"{self.angle_fit_model.capitalize()} fit residuals (rms of used "
+                f"{fit['model'].capitalize()} fit residuals (rms of used "
                 f"points = {rms:.3g})",
                 fontsize=10,
             )
@@ -1532,7 +1697,7 @@ class AligmentMethod(ABC):
             ax_fit_res.set_ylim(-1.5 * r_max, 1.5 * r_max)
         else:
             ax_fit_res.set_title(
-                f"{self.angle_fit_model.capitalize()} fit residuals (fit failed)",
+                "Fine scan fit residuals (fit failed)",
                 fontsize=10,
             )
 

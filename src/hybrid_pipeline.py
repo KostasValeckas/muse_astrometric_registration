@@ -233,6 +233,10 @@ if __name__ == "__main__":
     import argparse
     import os
     import json
+    import time
+
+    # total execution time of the hybrid run, logged as the last line
+    hybrid_start_time = time.perf_counter()
 
     parser = argparse.ArgumentParser(description="Run hybrid aligment pipeline")
 
@@ -358,7 +362,7 @@ if __name__ == "__main__":
 
     from pipeline import AlignmentPipeline
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
-    from logger import get_logger
+    from logger import get_logger, format_elapsed
 
     switcher = {
         "NoAlignment": NoAlignment,
@@ -496,4 +500,9 @@ if __name__ == "__main__":
         pipelines,
         os.path.join(args.output_dir, FINAL_IMAGES_DIR),
         logger=logger,
+    )
+
+    logger.info(
+        f"Hybrid pipeline finished, total execution time (all three runs): "
+        f"{format_elapsed(time.perf_counter() - hybrid_start_time)}"
     )
