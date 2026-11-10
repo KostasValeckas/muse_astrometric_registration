@@ -1,4 +1,6 @@
-from logger import get_logger
+from logger import get_logger, format_elapsed
+
+import time
 
 import pathlib
 from collections import deque
@@ -1890,10 +1892,25 @@ class AlignmentPipeline:
         """
         Run the alignment pipeline.
 
-        For now simple.
+        For now simple. The work is done in `_run`; this wrapper only logs the
+        total execution time as the last line of the log (also if the run
+        crashes, so the log shows how far it got and how long it took).
 
         skip_dithers: bool
             For debugging, dev stuff, don't touch.
+        """
+        start_time = time.perf_counter()
+        try:
+            self._run(skip_dithers=skip_dithers)
+        finally:
+            self.logger.info(
+                f"Alignment pipeline ({self.method.__name__}) finished, total "
+                f"execution time: {format_elapsed(time.perf_counter() - start_time)}"
+            )
+
+    def _run(self, skip_dithers = False):
+        """
+        The alignment pipeline itself, see `run`.
         """
 
         self.logger.info("Starting alignment pipeline...")

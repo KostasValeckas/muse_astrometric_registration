@@ -87,3 +87,18 @@ def get_logger(output_path, logger_name="muse_astrometric_registration"):
     logger.info("Logger initialized. Log will be saved in " + fh.baseFilename + ".")
 
     return logger
+
+
+def format_elapsed(seconds):
+    """
+    Format a duration in seconds as "1 h 02 min 03.4 s" (leading zero units
+    are left out), for the execution time log lines.
+    """
+    hours, rest = divmod(float(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+
+    if hours >= 1:
+        return f"{int(hours)} h {int(minutes):02d} min {secs:04.1f} s"
+    if minutes >= 1:
+        return f"{int(minutes)} min {secs:04.1f} s"
+    return f"{secs:.1f} s"

@@ -256,11 +256,15 @@ minimising the difference between the reference and the rotated + shifted input
 3. A linear trend is fitted to tx(angle) and ty(angle), translation outliers are
    rejected, and all angles are re-scored with the smooth trend translation, so the
    jitter of the individual estimates does not leak into the metric.
-4. A hyperbola, ```sqrt(a (x - x0)^2 + b) + c```, is fitted to the fine scan with a
-   2-pass outlier rejection. The minimum is the fit parameter ```x0``` and may lie
-   outside the fine scan. (A parabola is biased on the rounded-V shape of the metric
-   and is still available as an option.) The angle error comes from a block bootstrap
-   of the fit residuals.
+4. Both a parabola and a hyperbola, ```sqrt(a (x - x0)^2 + b) + c```, are fitted to
+   the fine scan with a 2-pass outlier rejection, and the one with the lower AICc
+   (compared on the same points) is used. The metric is a rounded V: when the fine
+   scan reaches the straight arms the parabola is biased and the hyperbola wins, when
+   it only sees the rounded bottom the hyperbola degenerates and the parabola wins.
+   Fits are only thrown away if their shape makes no sense: no minimum, minimum
+   outside the search range or extrapolated more than one fine scan width beyond the
+   scan, or a curve that is flat within the noise. The minimum may lie outside the
+   fine scan. The angle error comes from a block bootstrap of the fit residuals.
 
 The QA plot ```angle_scan_model_*.png``` shows the scan, the fit and its residuals,
 and the translation per angle with its trend and residuals.
@@ -403,7 +407,7 @@ Every run (and every method directory of a hybrid run) contains:
   - the QA plots: difference images (also for failed, mirrored and composed
   alignments), angle scans, FFT peak and progression plots, optical flow bootstraps,
   and a one-page report per pointing.
-* ```aligment_log_*.log``` - the log of the run.
+* ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together).
 
 ------------------------------------------------------------------------------
 
