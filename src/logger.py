@@ -34,8 +34,10 @@ def get_logger(output_path, logger_name="muse_astrometric_registration"):
     # Create a custom logger
     logger = logging.getLogger(logger_name)
 
-    # Close and remove leftover handlers
-    for handler in logger.handlers:
+    # Close and remove leftover handlers. Iterate over a copy: removing from
+    # the list being iterated skips every second handler, which then keeps
+    # writing the next run into the previous log file
+    for handler in list(logger.handlers):
         handler.close()
         logger.removeHandler(handler)
 
@@ -55,6 +57,10 @@ def get_logger(output_path, logger_name="muse_astrometric_registration"):
     # Create a custom formatter - this allows different colors for different log levels
     class CustomFormatter(logging.Formatter):
         def format(self, record):
+            # color a copy of the record - the record is shared between the
+            # handlers, and changing it here would put the color codes into
+            # the log file as well
+            record = logging.makeLogRecord(record.__dict__)
             if record.levelno == logging.INFO:
                 record.levelname = f"{Fore.GREEN}{record.levelname}{Style.RESET_ALL}"
             elif record.levelno == logging.WARNING:

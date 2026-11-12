@@ -4127,6 +4127,8 @@ class FFT(AligmentMethod):
         direct_fit_before_scan=True,
         rotation_guess_tol=0.1,
         scan_sigma_margin=5,
+        scan_on_rotation_failure=True,
+        fallback_to_direct_fit=True,
         logger=None,
         QA_path=None,
     ):
@@ -4196,6 +4198,24 @@ class FFT(AligmentMethod):
             Number of sigma grid steps added on each side of the sigmas the
             direct fit agreed on, when the sigma range of the scan is narrowed
             (default 5, of the `sigma_num` geometric steps).
+            If a scan with narrowed sigmas fails, it is redone once with the
+            full sigma grid.
+
+        scan_on_rotation_failure : bool
+            With the angle scan: if the direct fit fails in its rotation
+            estimate (no valid entry in the per-sigma rotation table), a
+            translation-only fit at 0 degrees is tried, and if it succeeds the
+            angle scan is run anyway, with that translation as the expected
+            one (the scan does not need the direct rotation estimate).
+            If False, the alignment fails as soon as the direct fit fails, as
+            before (default True).
+
+        fallback_to_direct_fit : bool
+            With the angle scan: if the scan fails (e.g. the ternary search
+            ends at the boundary of the angle range, or no angle could be
+            scored) after a successful direct fit, return the direct fit
+            instead of failing the alignment. The round-trip and dither checks
+            of the pipeline still apply to it (default True).
         """
 
         self.oversample_factor = oversample_factor
@@ -4212,10 +4232,17 @@ class FFT(AligmentMethod):
         self.direct_fit_before_scan = direct_fit_before_scan
         self.rotation_guess_tol = rotation_guess_tol
         self.scan_sigma_margin = scan_sigma_margin
+        self.scan_on_rotation_failure = scan_on_rotation_failure
+        self.fallback_to_direct_fit = fallback_to_direct_fit
 
         # result of the last final translation estimate of run(), used to
         # narrow the sigma range of the scan after the direct fit
         self._last_translation_result = None
+
+        # stage at which the last run() failed ("rotation" or "translation"),
+        # None after a success. Lets the scan path tell a failed direct
+        # rotation estimate from a failed translation
+        self._last_failure_stage = None
 
         super().__init__(
             "FFT",
@@ -5202,6 +5229,10 @@ class FFT(AligmentMethod):
         peak            : dict with the final correlation-surface data (main and
                           control peaks, SNRs and search metadata) used by the QA
                           plot, or None if no sigma was evaluated.
+        rejections      : list of (sigma, [failed criteria]) for every processed
+                          sigma (empty list: accepted). If no translation is found
+                          and `obs_name` is given, a summary is logged
+                          (`_log_translation_rejections`).
         """
         if n_agree < 2:
             raise ValueError("n_agree must be >= 2: the std with ddof=1 needs two points")
@@ -5240,6 +5271,10 @@ class FFT(AligmentMethod):
 
         rows = []
         group = None
+
+        # per sigma: the acceptance criteria it failed (empty if accepted), for
+        # the log when no translation is found
+        rejections = []
 
         # Keep the last computed correlation maps so the final peak QA plot can
         # reuse them without computing any extra inverse FFTs.
@@ -5320,17 +5355,20 @@ class FFT(AligmentMethod):
             shape_dev = self._peak_shape_deviation(fit_m, fit_c)
 
             # (NaN ratios / deviations fail the comparisons, i.e. reject the sigma)
-            ok = (
-                in_region
-                and ok_m_all
-                and ok_c
-                and np.all(np.abs(tc - c_vec) < ctrl_tol)
-                and snr_m > snr_min
-                and snr_c > snr_min
-                and win_delta <= window_tol
-                and snr_ratio >= snr_ratio_min
-                and shape_dev <= shape_tol
+            criteria = (
+                ("main peak outside the guess region", in_region),
+                ("main peak refinement failed", ok_m_all),
+                ("control peak refinement failed", bool(ok_c)),
+                ("control offset not recovered", bool(np.all(np.abs(tc - c_vec) < ctrl_tol))),
+                (f"snr_main <= {snr_min:g}", bool(snr_m > snr_min)),
+                (f"snr_ctrl <= {snr_min:g}", bool(snr_c > snr_min)),
+                (f"window not settled (> {window_tol:g} px)", bool(win_delta <= window_tol)),
+                (f"snr_main / snr_ctrl < {snr_ratio_min:g}", bool(snr_ratio >= snr_ratio_min)),
+                (f"peak shape deviation > {shape_tol:g}", bool(shape_dev <= shape_tol)),
             )
+            failed_criteria = [name for name, passed in criteria if not passed]
+            rejections.append((float(s), failed_criteria))
+            ok = len(failed_criteria) == 0
             rows.append(
                 (
                     s,
@@ -5437,10 +5475,62 @@ class FFT(AligmentMethod):
                 peak=peak,
             )
 
+            # why no translation was found. Only logged with an obs_name (the
+            # direct and final estimates), the many estimates of the angle
+            # scan would flood the log
+            if self.logger and obs_name is not None:
+                self._log_translation_rejections(
+                    rejections, table, n_agree, agree_tol, obs_name
+                )
+
+        result["rejections"] = rejections
+
         if save_QA and obs_name is not None:
             self.plot_translation_peak(result, obs_name, show=show_QA)
 
         return result
+
+    def _log_translation_rejections(self, rejections, table, n_agree, agree_tol, obs_name):
+        """
+        Log why `estimate_translation` found no translation: how many sigmas
+        failed each acceptance criterion, and the criteria failed per sigma.
+        If enough sigmas were accepted, the failure is the agreement instead
+        (no `n_agree` consecutive accepted sigmas within `agree_tol` px).
+        """
+        n_sigmas = len(rejections)
+        n_accepted = sum(1 for _, failed in rejections if len(failed) == 0)
+
+        counts = {}
+        for _, failed in rejections:
+            for name in failed:
+                counts[name] = counts.get(name, 0) + 1
+
+        summary = ", ".join(
+            f"{name}: {count}"
+            for name, count in sorted(counts.items(), key=lambda item: -item[1])
+        )
+
+        lines = []
+        for k, (sigma, failed) in enumerate(rejections):
+            eps = table[k, 5:7] if k < len(table) else (np.nan, np.nan)
+            lines.append(
+                f"  sigma {sigma:.3f}: eps = ({eps[0]:.3f}, {eps[1]:.3f}) px, "
+                + ("accepted" if len(failed) == 0 else "rejected - " + "; ".join(failed))
+            )
+
+        if n_accepted >= n_agree:
+            reason = (
+                f"{n_accepted} sigmas accepted, but no {n_agree} consecutive ones "
+                f"agree within {agree_tol:g} px"
+            )
+        else:
+            reason = f"only {n_accepted} sigmas accepted, need {n_agree} consecutive"
+
+        self.logger.warning(
+            f"No translation found for {obs_name}: {reason} ({n_sigmas} sigmas "
+            f"processed). Rejections per criterion: {summary or 'none'}\n"
+            + "\n".join(lines)
+        )
 
     def _narrow_scan_sigmas(
         self,
@@ -5536,9 +5626,15 @@ class FFT(AligmentMethod):
         trend); only without a trend is it estimated again at that angle.
 
         With the scan, the direct fit is run first (`direct_fit_before_scan`);
-        if it fails, so does the alignment. If it agrees with the initial guess,
-        the scan only searches the sigmas around the ones the direct fit
-        agreed on (`rotation_guess_tol`, `scan_sigma_margin`).
+        if it fails in the translation, so does the alignment. If only its
+        rotation estimate fails, a translation-only fit at 0 degrees is tried
+        and, if it works, the scan is run anyway (`scan_on_rotation_failure`).
+        If the direct fit agrees with the initial guess, the scan only searches
+        the sigmas around the ones the direct fit agreed on
+        (`rotation_guess_tol`, `scan_sigma_margin`); if that narrowed scan
+        fails, it is redone with the full sigma grid. If the scan fails after a
+        successful direct fit, the direct fit is returned
+        (`fallback_to_direct_fit`).
 
         Parameters
         ----------
@@ -5675,15 +5771,23 @@ class FFT(AligmentMethod):
             # window): the direct fit, else the initial guess
             expected_shift = initial_guess_translation
 
-            # cheap check first: the direct fit. If even that fails, the slow
-            # angle scan is not run and the alignment is concluded as failed
-            # (the direct fit already wrote the failed alignment QA plot).
+            # direct fit result, returned if the scan fails
+            # (`fallback_to_direct_fit`); None if there is none to fall back on
+            direct_result = None
+
+            # cheap check first: the direct fit. If it fails in the translation,
+            # the slow angle scan is not run and the alignment is concluded as
+            # failed (the direct fit already wrote the failed alignment QA
+            # plot). If only its rotation estimate failed, the scan can still
+            # find the rotation (`scan_on_rotation_failure`).
             if self.direct_fit_before_scan:
 
                 if self.logger:
                     self.logger.info(
                         f"Direct FFT fit for {obs_name} before the angle scan ..."
                     )
+
+                self._last_failure_stage = None
 
                 direct_result = self.run(
                     reference_frame_backup,
@@ -5700,7 +5804,78 @@ class FFT(AligmentMethod):
                     **kwargs,
                 )
 
-                if not direct_result[-1]:
+                if direct_result[-1]:
+
+                    if self.logger:
+                        self.logger.info(
+                            f"Direct FFT fit for {obs_name} succeeded "
+                            f"(rotation {direct_result[1]:.4f} degrees), "
+                            f"running the angle scan ..."
+                        )
+
+                    expected_shift = direct_result[0]
+
+                    scan_sigmas = self._narrow_scan_sigmas(
+                        sigma_grid,
+                        direct_result,
+                        initial_guess_translation,
+                        initial_guess_rotation,
+                        obs_name,
+                    )
+
+                elif (
+                    self._last_failure_stage == "rotation"
+                    and self.scan_on_rotation_failure
+                ):
+                    # the direct rotation estimate failed, not necessarily the
+                    # translation: check that the translation can be measured
+                    # at all (at 0 degrees, cheap), then let the scan find the
+                    # rotation, with that translation as the expected one
+                    if self.logger:
+                        self.logger.info(
+                            f"Direct FFT rotation estimate failed for {obs_name}, "
+                            f"trying a translation-only fit at 0 degrees before "
+                            f"the angle scan ..."
+                        )
+
+                    translation_only = self.run(
+                        reference_frame_backup,
+                        input_frame_backup,
+                        obs_name,
+                        reference_wcs=reference_wcs,
+                        input_wcs=input_wcs,
+                        initial_guess_translation=initial_guess_translation,
+                        initial_guess_rotation=initial_guess_rotation,
+                        save_QA=save_QA,
+                        show_QA=show_QA,
+                        skip_rotation_estimation=True,
+                        scan_for_angles=False,
+                        **kwargs,
+                    )
+
+                    # no direct result to fall back on: its rotation (0) was
+                    # not measured
+                    direct_result = None
+
+                    if not translation_only[-1]:
+                        if self.logger:
+                            self.logger.warning(
+                                f"Failed FFT aligment for {obs_name}: the direct "
+                                f"rotation estimate and the translation-only fit "
+                                f"failed, angle scan not run"
+                            )
+                        return self.FAILED_RETURN
+
+                    expected_shift = translation_only[0]
+
+                    if self.logger:
+                        self.logger.info(
+                            f"Translation-only fit for {obs_name} succeeded "
+                            f"({expected_shift[0]:.3f}, {expected_shift[1]:.3f}) "
+                            f"px, running the angle scan with the full sigma range ..."
+                        )
+
+                else:
                     if self.logger:
                         self.logger.warning(
                             f"Failed FFT aligment for {obs_name}: the direct fit "
@@ -5710,30 +5885,13 @@ class FFT(AligmentMethod):
                     # the failed difference image was made by the direct fit
                     return self.FAILED_RETURN
 
-                if self.logger:
-                    self.logger.info(
-                        f"Direct FFT fit for {obs_name} succeeded "
-                        f"(rotation {direct_result[1]:.4f} degrees), "
-                        f"running the angle scan ..."
-                    )
-
-                expected_shift = direct_result[0]
-
-                scan_sigmas = self._narrow_scan_sigmas(
-                    sigma_grid,
-                    direct_result,
-                    initial_guess_translation,
-                    initial_guess_rotation,
-                    obs_name,
-                )
-
-            def _evaluate_angle(angle):
+            def _evaluate_angle(angle, sigmas):
                 diff, result = self._scan_difference_metric(
                     reference_frame_backup,
                     input_frame_backup,
                     angle,
                     lambda rotated_input: _estimate_translation(
-                        reference_frame_backup, rotated_input, sigmas=scan_sigmas
+                        reference_frame_backup, rotated_input, sigmas=sigmas
                     ),
                 )
 
@@ -5764,14 +5922,59 @@ class FFT(AligmentMethod):
                 return diff
 
             scan_result = self._scan_for_best_angle(
-                _evaluate_angle,
+                lambda angle: _evaluate_angle(angle, scan_sigmas),
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
                 expected_shift=expected_shift,
             )
 
+            # a narrowed sigma range can miss the scales that work at the other
+            # angles (the direct fit agreed on them at its own angle only):
+            # redo the scan once with the full sigma grid
+            if scan_result is None and len(scan_sigmas) < len(sigma_grid):
+                if self.logger:
+                    self.logger.warning(
+                        f"Angle scan with narrowed sigmas ({len(scan_sigmas)} of "
+                        f"{len(sigma_grid)}) failed for {obs_name}, redoing it "
+                        f"with the full sigma range ..."
+                    )
+
+                scan_result = self._scan_for_best_angle(
+                    lambda angle: _evaluate_angle(angle, sigma_grid),
+                    obs_name,
+                    save_QA=save_QA,
+                    show_QA=show_QA,
+                    expected_shift=expected_shift,
+                )
+
             if scan_result is None:
+
+                # the direct fit was good, only the scan could not improve on
+                # it (degenerate metric, boundary of the angle range): keep it
+                if direct_result is not None and self.fallback_to_direct_fit:
+                    if self.logger:
+                        self.logger.warning(
+                            f"Angle scan found no rotation for {obs_name}, "
+                            f"falling back to the direct fit: translation "
+                            f"({direct_result[0][0]:.4f}, {direct_result[0][1]:.4f}) "
+                            f"px, rotation {direct_result[1]:.4f} degrees"
+                        )
+
+                    # the difference image of the direct fit
+                    self.plot_difference_image(
+                        reference_frame_backup,
+                        input_frame_backup,
+                        direct_result[0][0],
+                        direct_result[0][1],
+                        direct_result[1],
+                        obs_name,
+                        show=False,
+                    )
+
+                    self._last_failure_stage = None
+                    return direct_result
+
                 if self.logger:
                     self.logger.warning(
                         f"Failed FFT aligment for {obs_name}: angle scan "
@@ -5785,6 +5988,7 @@ class FFT(AligmentMethod):
                     show=show_QA,
                 )
 
+                self._last_failure_stage = "rotation"
                 return self.FAILED_RETURN
 
             rot = scan_result["angle"]
@@ -5883,6 +6087,7 @@ class FFT(AligmentMethod):
                     show=show_QA,
                 )
 
+                self._last_failure_stage = "rotation"
                 return self.FAILED_RETURN
 
             best_entry = filtered_entries[np.argmax(filtered_entries[:, 4])]
@@ -5966,6 +6171,7 @@ class FFT(AligmentMethod):
                 reference_frame, input_frame, obs_name, show=show_QA
             )
 
+            self._last_failure_stage = "translation"
             return self.FAILED_RETURN
 
         self.plot_translation_progression(result, obs_name, show = show_QA)
@@ -6087,8 +6293,10 @@ class OpticalFlow(AligmentMethod):
 
         bootstrap_min_tiles : int
             Minimum number of tiles that contain inliers. Below this the
-            bootstrap is not trusted: a warning is logged and the errors are
-            set to 0 (unknown), as before the bootstrap existed (default 10).
+            bootstrap is not trusted: a warning is logged and conservative
+            fallback errors are used (the residual scatter of the flow vectors
+            over sqrt(number of tiles), see `bootstrap_uncertainty`)
+            (default 10).
         """
         super().__init__("OpticalFlow", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -6524,7 +6732,12 @@ class OpticalFlow(AligmentMethod):
             success (bool), errors (tx_err, ty_err, rot_err; rot_err = 0 for a
             translation-only fit), draws (bootstrap_samples x 3 array of
             tx, ty, rot), median of the draws, n_inliers, n_points, n_tiles.
-            With success False the errors are 0 (unknown).
+            With success False (inliers in fewer than `bootstrap_min_tiles`
+            tiles) the errors are a conservative fallback: the residual scatter
+            of the flow vectors (`fit["sigma"]`) over sqrt(number of tiles with
+            inliers), each tile counted as one independent measurement, and
+            for the rotation that error over the rms lever arm of the inliers.
+            NaN if the residual scatter is unknown, never 0.
         """
         src = fit["src"]
         dst = fit["dst"]
@@ -6548,9 +6761,29 @@ class OpticalFlow(AligmentMethod):
         tiles = [np.flatnonzero(inliers & (tile == t)) for t in range(n_t * n_t)]
         tiles = [members for members in tiles if len(members) > 0]
 
+        # fallback errors if the bootstrap cannot be done: the inliers are in
+        # too few tiles, so treat every tile as a single independent
+        # measurement with the residual scatter of the flow vectors. This is
+        # conservative, and never 0 (an error of 0 would look like a perfect
+        # measurement downstream)
+        sigma = float(fit.get("sigma", np.nan))
+        n_independent = max(len(tiles), 1)
+        fallback_t_err = sigma / np.sqrt(n_independent)
+        fallback_rot_err = 0.0
+        if rotation:
+            arm = src[inliers] - np.asarray(centre, float)
+            r_rms = np.sqrt(np.nanmean(np.sum(arm**2, axis=1))) if n_inliers else np.nan
+            fallback_rot_err = (
+                float(np.degrees(fallback_t_err / r_rms))
+                if np.isfinite(r_rms) and r_rms > 0
+                else np.nan
+            )
+        if not np.isfinite(fallback_t_err) or fallback_t_err <= 0:
+            fallback_t_err = np.nan
+
         fail = dict(
             success=False,
-            errors=(0.0, 0.0, 0.0),
+            errors=(fallback_t_err, fallback_t_err, fallback_rot_err),
             draws=None,
             median=None,
             n_inliers=n_inliers,
@@ -6568,8 +6801,12 @@ class OpticalFlow(AligmentMethod):
             if self.logger:
                 self.logger.warning(
                     f"Bootstrap for {obs_name}: only {len(tiles)} tiles contain "
-                    f"inliers, need {self.bootstrap_min_tiles}. Errors unknown, "
-                    f"setting them to 0."
+                    f"inliers, need {self.bootstrap_min_tiles}. Using the "
+                    f"conservative fallback errors (residual scatter "
+                    f"{sigma:.3f} px / sqrt({n_independent} tiles)): tx_err = "
+                    f"ty_err = {fallback_t_err:.4f} px"
+                    + (f", rot_err = {fallback_rot_err:.5f} degrees" if rotation else "")
+                    + "."
                 )
             return fail
 

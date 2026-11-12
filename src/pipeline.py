@@ -3,6 +3,8 @@ from logger import get_logger, format_elapsed
 import time
 
 import itertools
+import json
+import os
 import pathlib
 from collections import deque
 
@@ -307,6 +309,92 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
         ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
 
+# ============================================================================
+# Output directory guard
+# ============================================================================
+
+RUN_MANIFEST_NAME = "run_manifest.json"
+
+
+def check_run_manifest(output_dir, input_dir, reference_file):
+    """
+    Guard against writing a run into an output directory that holds the output
+    of a different galaxy (QA plots and dither tables of the old run would be
+    overwritten or mixed with the new ones).
+
+    The first run writes a small manifest (reference file and input directory)
+    to `output_dir`. A later run into the same directory is refused if its
+    reference file has a different name. A different input directory with the
+    same reference file only gives a warning (the data may have been moved).
+
+    Parameters
+    ----------
+    output_dir : str or pathlib.Path
+        The output directory of the run.
+
+    input_dir : str
+        The input directory of the run.
+
+    reference_file : str
+        The reference file of the run.
+
+    Returns
+    -------
+    warning : str or None
+        A warning message to be logged, or None.
+
+    Raises
+    ------
+    ValueError
+        If the output directory holds the output of a run with a different
+        reference file.
+    """
+
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / RUN_MANIFEST_NAME
+
+    current = {
+        "reference_file": os.path.abspath(str(reference_file)),
+        "input_dir": os.path.abspath(str(input_dir)),
+    }
+
+    warning = None
+    if manifest_path.exists():
+        try:
+            with open(manifest_path) as f:
+                previous = json.load(f)
+        except (OSError, ValueError):
+            previous = None
+
+        if previous is None:
+            warning = (
+                f"Could not read the run manifest {manifest_path}, it will be "
+                f"overwritten."
+            )
+        else:
+            previous_reference = os.path.basename(previous.get("reference_file", ""))
+            if previous_reference != os.path.basename(current["reference_file"]):
+                raise ValueError(
+                    f"The output directory {output_dir} holds the output of a run "
+                    f"with reference file {previous.get('reference_file')}, but "
+                    f"this run uses {current['reference_file']}. Use a different "
+                    f"output directory (or remove {manifest_path} if the old "
+                    f"output is not needed)."
+                )
+            if previous.get("input_dir") != current["input_dir"]:
+                warning = (
+                    f"The output directory {output_dir} was used before with the "
+                    f"same reference file but input directory "
+                    f"{previous.get('input_dir')} (now {current['input_dir']})."
+                )
+
+    with open(manifest_path, "w") as f:
+        json.dump(current, f, indent=2)
+
+    return warning
+
+
 class AlignmentPipeline:
     """
     Class to run the alignment pipeline.
@@ -366,7 +454,14 @@ class AlignmentPipeline:
                 f"dither_mode must be 'full' or 'targeted', got {dither_mode!r}"
             )
 
+        # refuse to mix the output of different galaxies in one directory,
+        # before the log file is created there
+        manifest_warning = check_run_manifest(output_dir, input_dir, reference_file)
+
         self.logger = get_logger(output_dir)
+
+        if manifest_warning is not None:
+            self.logger.warning(manifest_warning)
 
         self.config_dict = config_dict
         self.input_dir = input_dir
@@ -1973,8 +2068,10 @@ class AlignmentPipeline:
         Run the alignment pipeline.
 
         For now simple. The work is done in `_run`; this wrapper only logs the
-        total execution time as the last line of the log (also if the run
-        crashes, so the log shows how far it got and how long it took).
+        total execution time as the last line of the log. If the run crashes or
+        is interrupted, it logs "ABORTED" with the traceback instead of
+        "finished" (so the log shows how far it got and how long it took), and
+        re-raises.
 
         skip_dithers: bool
             For debugging, dev stuff, don't touch.
@@ -1982,11 +2079,19 @@ class AlignmentPipeline:
         start_time = time.perf_counter()
         try:
             self._run(skip_dithers=skip_dithers)
-        finally:
-            self.logger.info(
-                f"Alignment pipeline ({self.method.__name__}) finished, total "
-                f"execution time: {format_elapsed(time.perf_counter() - start_time)}"
+        except BaseException as e:
+            # a crash (or KeyboardInterrupt / a killed job) must not look like a
+            # finished run in the log - log the traceback and re-raise
+            self.logger.exception(
+                f"Alignment pipeline ({self.method.__name__}) ABORTED "
+                f"({type(e).__name__}) after "
+                f"{format_elapsed(time.perf_counter() - start_time)}."
             )
+            raise
+        self.logger.info(
+            f"Alignment pipeline ({self.method.__name__}) finished, total "
+            f"execution time: {format_elapsed(time.perf_counter() - start_time)}"
+        )
 
     def _run(self, skip_dithers = False):
         """

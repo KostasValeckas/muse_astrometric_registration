@@ -222,7 +222,9 @@ The optional flags are:
   repository (not with ```spacepylot```'s own homography step, which refers the
   translation to the corner of its cropped frame and whose translation-only fit is
   broken with ```skimage``` >= 0.26). Errors come from a spatial block bootstrap of
-  the flow vectors (5x5 tiles). Every alignment gets a flow field QA plot
+  the flow vectors (5x5 tiles). If the inliers lie in too few tiles for the
+  bootstrap, a conservative fallback is used (residual scatter of the flow vectors
+  over sqrt(number of tiles)), never 0. Every alignment gets a flow field QA plot
   ```flow_field_*.png```: the measured flow, the fitted rigid model, the residual flow
   and the residual vectors.
 
@@ -307,11 +309,20 @@ and the translation per angle with its trend and residuals.
 
 **FFT with the angle scan** (the default for the primary method of the hybrid run):
 
-* The direct fit is run first. If it fails, the alignment fails without running the
-  (slow) scan.
+* The direct fit is run first. If it fails in the translation, the alignment fails
+  without running the (slow) scan. If only its rotation estimate fails (no valid
+  entry in the per-sigma rotation table), a translation-only fit at 0 degrees is
+  tried, and if it works the scan is run anyway with that translation
+  (```scan_on_rotation_failure```).
 * If the direct fit agrees with the initial guess (translation within 1 px, rotation
   within 0.1 degrees), the scan only searches the sigmas around the ones the direct
   fit agreed on (+/- 5 grid steps), which makes every scanned angle much cheaper.
+  If this narrowed scan fails, it is redone once with the full sigma range.
+* If the scan fails after a successful direct fit (e.g. the ternary search ends at
+  the boundary of the angle range), the direct fit is returned instead
+  (```fallback_to_direct_fit```); the round-trip and dither checks still apply.
+* If no translation is found, the log lists the acceptance criteria every sigma
+  failed (direct and final estimates only, not every scanned angle).
 * The final translation is the trend at the final angle (error: rms scatter of the
   individual translations around the trend), marked with stars in the angle-scan QA
   plot. No extra translation estimate is made at the end.
@@ -449,7 +460,12 @@ Every run (and every method directory of a hybrid run) contains:
   and a one-page report per pointing. A failed alignment only gets its failed
   difference image (```failed_aligment_*.png```): the other QA plots of an alignment
   are held back until it succeeds.
-* ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together).
+* ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together). A crashed or interrupted run ends with "ABORTED" and the traceback instead of "finished".
+* ```run_manifest.json``` - the reference file and input directory of the run. A run
+  into an output directory that holds the output of a different reference file is
+  refused (use a new output directory, or delete the manifest if the old output is
+  not needed); a different input directory with the same reference only gives a
+  warning.
 
 ------------------------------------------------------------------------------
 
