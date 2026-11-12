@@ -15,7 +15,12 @@ from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate, gaussian_filter
 import numpy.fft as fft
 from scipy.ndimage import maximum_filter
-from geometry import reproject_image_to_target_wcs, make_window_wcs, matrix_to_parameters
+from geometry import (
+    reproject_image_to_target_wcs,
+    make_window_wcs,
+    matrix_to_parameters,
+    transformation_matrix,
+)
 from skimage.transform import warp_polar, EuclideanTransform
 from skimage.measure import ransac
 from skimage.registration import phase_cross_correlation
@@ -46,6 +51,7 @@ import spacepylot.alignment as align
 import spacepylot.plotting as pl
 from spacepylot.alignment_utilities import TranslationTransform
 import spacepylot.alignment_utilities as spacepylot_utils
+from spacepylot.params import pcc_params as spacepylot_filter_params
 import logging
 
 from stats import ternary_search, robust_residual_threshold
@@ -118,6 +124,8 @@ class AligmentMethod(ABC):
         angle_scan_steps=100,
         ternary_eps=0.2,
         window_compare_size=100,
+        scan_max_shift=10,
+        scan_shift_slack=3,
         fine_scan_halfwidth=0.15,
         fine_scan_points=50,
         fit_outlier_sigma=1.5,
@@ -161,6 +169,24 @@ class AligmentMethod(ABC):
         window_compare_size : int
             Half-size (pixels) of the central window used to compute the
             difference-image metric during the scan.
+
+        scan_max_shift : int
+            The comparison window of the scan is clipped so that it stays
+            covered by the input for translations up to this many pixels
+            (default 10). Without this, on frames smaller than
+            2 x `window_compare_size` the window is the whole frame and any
+            non-zero translation leaves the angle unscored. This is the
+            minimum: for larger translations the room is set from the
+            expected translation of the scan, see `scan_shift_slack`.
+
+        scan_shift_slack : int
+            Extra room (pixels) on top of the expected translation of a scan
+            (default 3), for the drift of the translation with the angle.
+            The expected translation is the one known before the scan (e.g.
+            the direct fit or the initial guess), otherwise the first
+            translation measured in the scan. The room is then
+            max(`scan_max_shift`, max(|tx|, |ty|) + `scan_shift_slack`), the
+            same window for every angle of the scan.
 
         ternary_eps : float
             The ternary search stops when its interval is narrower than this
@@ -267,6 +293,8 @@ class AligmentMethod(ABC):
         self.angle_scan_steps = angle_scan_steps
         self.ternary_eps = ternary_eps
         self.window_compare_size = window_compare_size
+        self.scan_max_shift = scan_max_shift
+        self.scan_shift_slack = scan_shift_slack
         self.fine_scan_halfwidth = fine_scan_halfwidth
         self.fine_scan_points = fine_scan_points
         self.fit_outlier_sigma = fit_outlier_sigma
@@ -289,6 +317,10 @@ class AligmentMethod(ABC):
         # filled by _scan_difference_metric
         self._scan_translations = {}
         self._scan_frames = None
+
+        # room (pixels) for the translation in the comparison window of the
+        # current scan, see `_scan_shift_room`
+        self._scan_room = None
 
         self.angle_scan_array = np.linspace(
             self.angle_scan_start, self.angle_scan_end, self.angle_scan_steps
@@ -893,6 +925,11 @@ class AligmentMethod(ABC):
         if record:
             self._scan_translations[float(angle)] = (float(tx), float(ty))
 
+        # room for the translation in the comparison window: fixed for the
+        # whole scan, from the expected translation or else the first one
+        if self._scan_room is None:
+            self._scan_room = self._scan_shift_room((tx, ty), source="first measured")
+
         footprint = (
             shift(
                 footprint.astype(float),
@@ -922,11 +959,14 @@ class AligmentMethod(ABC):
             reference_blurred = reference_filled
             input_blurred = shifted_input
 
-        # central comparison window, clipped to the frame size
+        # central comparison window, clipped to the frame size minus room for
+        # the blur margin and the translation (`_scan_room`, the same window
+        # for every angle)
         ny, nx = reference_data.shape
         cy, cx = ny // 2, nx // 2
-        half_y = int(min(self.window_compare_size, cy))
-        half_x = int(min(self.window_compare_size, cx))
+        room = int(np.ceil(4 * self.scan_blur_sigma)) + int(self._scan_room)
+        half_y = int(max(min(self.window_compare_size, cy - room), min(10, cy)))
+        half_x = int(max(min(self.window_compare_size, cx - room), min(10, cx)))
 
         window = (
             slice(cy - half_y, cy + half_y),
@@ -1953,12 +1993,46 @@ class AligmentMethod(ABC):
         else:
             plt.close(fig)
 
+    def _scan_shift_room(self, expected_shift, source="expected"):
+        """
+        Room (pixels) for the translation in the comparison window of the
+        angle scan: max(`scan_max_shift`, max(|tx|, |ty|) + `scan_shift_slack`).
+        Returns None if `expected_shift` is None or not finite (the room is
+        then set from the first translation measured in the scan).
+        """
+        room = int(self.scan_max_shift)
+
+        if expected_shift is None:
+            return None
+
+        expected_shift = np.asarray(
+            [np.nan if v is None else v for v in expected_shift], dtype=float
+        )
+
+        if not np.all(np.isfinite(expected_shift)):
+            return None
+
+        needed = int(np.ceil(np.max(np.abs(expected_shift)))) + int(self.scan_shift_slack)
+
+        if needed > room:
+            room = needed
+
+            if self.logger:
+                self.logger.info(
+                    f"Angle scan: comparison window leaves room for translations "
+                    f"up to {room} px ({source} translation ({expected_shift[0]:.2f}, "
+                    f"{expected_shift[1]:.2f}) px + {self.scan_shift_slack} px)"
+                )
+
+        return room
+
     def _scan_for_best_angle(
         self,
         evaluate_angle,
         obs_name,
         save_QA=True,
         show_QA=False,
+        expected_shift=None,
     ):
         """
         Run the shared coarse + fine angle scan.
@@ -1975,6 +2049,12 @@ class AligmentMethod(ABC):
         save_QA, show_QA : bool
             Save/show the angle-scan QA plot.
 
+        expected_shift : tuple or None
+            Translation (tx, ty) expected for the scan (e.g. the direct fit or
+            the initial guess). Sets the room for the translation in the
+            comparison window (`_scan_shift_room`). If None, the first
+            translation measured in the scan is used.
+
         Returns
         -------
         dict or None
@@ -1985,6 +2065,10 @@ class AligmentMethod(ABC):
         # translations per angle are recorded by _scan_difference_metric
         self._scan_translations = {}
         self._scan_frames = None
+
+        # room for the translation in the comparison window, the same for
+        # every angle of this scan (None: set from the first translation)
+        self._scan_room = self._scan_shift_room(expected_shift)
 
         min_angle, _, tried = ternary_search(
             evaluate_angle,
@@ -2367,6 +2451,7 @@ class NoAlignment(AligmentMethod):
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
+                expected_shift=(0.0, 0.0),
             )
 
             if scan_result is None:
@@ -3676,6 +3761,7 @@ class PointSources(AligmentMethod):
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
+                expected_shift=initial_guess_translation,
             )
 
             if scan_result is None:
@@ -5585,6 +5671,10 @@ class FFT(AligmentMethod):
             # angle; narrowed below if the direct fit agrees with the guess
             scan_sigmas = sigma_grid
 
+            # translation expected for the scan (room in its comparison
+            # window): the direct fit, else the initial guess
+            expected_shift = initial_guess_translation
+
             # cheap check first: the direct fit. If even that fails, the slow
             # angle scan is not run and the alignment is concluded as failed
             # (the direct fit already wrote the failed alignment QA plot).
@@ -5626,6 +5716,8 @@ class FFT(AligmentMethod):
                         f"(rotation {direct_result[1]:.4f} degrees), "
                         f"running the angle scan ..."
                     )
+
+                expected_shift = direct_result[0]
 
                 scan_sigmas = self._narrow_scan_sigmas(
                     sigma_grid,
@@ -5676,6 +5768,7 @@ class FFT(AligmentMethod):
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
+                expected_shift=expected_shift,
             )
 
             if scan_result is None:
@@ -5909,6 +6002,11 @@ class OpticalFlow(AligmentMethod):
 
     Uncertainties: the errors reported by `run` come from a spatial block
     bootstrap of the fitted flow vectors, see `bootstrap_uncertainty`.
+
+    The filtered frames are scaled to unit standard deviation before TV-L1
+    (otherwise the flow can stay frozen at zero), and every result is checked
+    with a control-shift test (`_control_shift_check`): if it fails, the
+    alignment is set as failed.
     """
 
     def __init__(
@@ -5921,12 +6019,38 @@ class OpticalFlow(AligmentMethod):
         bootstrap_samples=200,
         bootstrap_seed=1,
         bootstrap_min_tiles=10,
+        normalise_flow_input=True,
+        validate=True,
+        control_offset=(1.7, -2.3),
+        control_tolerance=0.3,
         logger=None,
         QA_path=None,
     ):
         """
         Parameters
         ----------
+        normalise_flow_input : bool
+            Scale the filtered frames (after spacepylot's histogram
+            equalisation and difference-of-gaussians high-pass) to unit
+            standard deviation before TV-L1 (default True). The filtered frames
+            of smooth (e.g. galaxy) fields only span ~1e-2, and then the TV-L1
+            data term is too weak against the smoothness term: the flow stays
+            at its starting value of zero (a synthetic 3.6 px shift came out
+            as 0.02 px). The TV-L1 parameters are tuned for unit-scale images.
+
+        validate : bool
+            Run the control-shift check on every result (default True), see
+            `_control_shift_check`. A result that fails it is set as failed.
+
+        control_offset : tuple
+            Known shift (x, y) in px applied to the aligned input for the
+            control-shift check (default (1.7, -2.3)).
+
+        control_tolerance : float
+            Maximum error (px) of the recovered control shift (default 0.3).
+            A flow that does not respond to the image (e.g. frozen at zero)
+            fails by the full control shift, 2.9 px.
+
         num_per_dimension : int
             Number of flow vectors per axis that are sampled from the dense flow
             field and fitted by spacepylot (default 50, spacepylot's default,
@@ -5976,6 +6100,10 @@ class OpticalFlow(AligmentMethod):
         self.bootstrap_samples = bootstrap_samples
         self.bootstrap_seed = bootstrap_seed
         self.bootstrap_min_tiles = bootstrap_min_tiles
+        self.normalise_flow_input = normalise_flow_input
+        self.validate = validate
+        self.control_offset = tuple(float(v) for v in control_offset)
+        self.control_tolerance = control_tolerance
 
         if self.logger:
             self.logger.info(
@@ -6240,6 +6368,103 @@ class OpticalFlow(AligmentMethod):
         )
 
     # ------------------------------------------------------------------
+    # Flow input and control-shift check
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _highpass_unit_std(image, highpass=None, **highpass_kwargs):
+        """
+        spacepylot's high-pass filter followed by scaling to unit standard
+        deviation (see `normalise_flow_input`).
+        """
+        if highpass is not None:
+            image = highpass(image, **highpass_kwargs)
+
+        std = np.nanstd(image)
+
+        if np.isfinite(std) and std > 0:
+            image = (image - np.nanmean(image)) / std
+
+        return image
+
+    def _flow_filter_params(self):
+        """
+        Filter parameters handed to spacepylot: its defaults, with the
+        high-pass followed by the unit-std scaling if `normalise_flow_input`.
+        """
+        params = dict(spacepylot_filter_params)
+
+        if self.normalise_flow_input:
+            params["hpf"] = functools.partial(
+                self._highpass_unit_std, highpass=spacepylot_filter_params["hpf"]
+            )
+
+        return params
+
+    def _single_flow_fit(self, reference_frame, input_frame, rotation):
+        """
+        TV-L1 flow field (spacepylot) and its rigid fit
+        (`fit_flow_transform`). Returns the fit dict or None.
+        """
+        op = align.AlignOpticalFlow(
+            input_frame, reference_frame, filter_params=self._flow_filter_params()
+        )
+
+        # (redirect spacepylot prints to logger)
+        with redirect_stdout_to_logger(logger):
+            return self.fit_flow_transform(op, reference_frame.shape, rotation=rotation)
+
+    def _control_shift_check(self, reference_frame, input_frame, result):
+        """
+        Control-shift check of an alignment result (tx, ty, rot).
+
+        The input is aligned with the result and then shifted by the known
+        `control_offset` (one interpolation, rotation about the frame centre
+        then shift, as in `shift_image`; NaNs filled with the median). A
+        translation-only flow fit of this frame must recover the control
+        shift: the measured correction must be within `control_tolerance` of
+        -`control_offset`. A flow that does not follow the image (e.g. frozen
+        at zero) fails this by the full control shift.
+
+        Returns (passed, error), error = distance (px) between the recovered
+        and the applied control shift (inf if the fit failed).
+        """
+        cx, cy = self.control_offset
+        centre = ((input_frame.shape[1] - 1) / 2.0, (input_frame.shape[0] - 1) / 2.0)
+
+        tx, ty, rot = matrix_to_parameters(
+            transformation_matrix(cx, cy, 0.0, centre)
+            @ transformation_matrix(*result, centre),
+            centre,
+        )
+
+        data = np.ma.filled(np.asanyarray(input_frame, dtype=float), np.nan)
+        median = np.nanmedian(data)
+        data = np.nan_to_num(data, nan=float(median) if np.isfinite(median) else 0.0)
+
+        if rot != 0:
+            data = rotate(data, angle=rot, reshape=False, order=3, mode="nearest")
+        controlled = shift(data, shift=(ty, tx), order=3, mode="nearest")
+
+        control_fit = self._single_flow_fit(reference_frame, controlled, rotation=False)
+
+        if control_fit is None:
+            error = np.inf
+        else:
+            error = float(np.hypot(control_fit["tx"] + cx, control_fit["ty"] + cy))
+
+        passed = error <= self.control_tolerance
+
+        if self.logger:
+            self.logger.info(
+                f"Optical flow control-shift check: control shift ({cx:g}, {cy:g}) px "
+                f"recovered within {error:.3f} px (tolerance "
+                f"{self.control_tolerance:g} px): {'passed' if passed else 'FAILED'}"
+            )
+
+        return passed, error
+
+    # ------------------------------------------------------------------
     # Uncertainties: spatial block bootstrap of the inliers
     # ------------------------------------------------------------------
 
@@ -6409,6 +6634,7 @@ class OpticalFlow(AligmentMethod):
         errors=None,
         scan_rotation=None,
         failed_reason=None,
+        notes=None,
         save=True,
         show=False,
     ):
@@ -6462,6 +6688,9 @@ class OpticalFlow(AligmentMethod):
 
         failed_reason : str, optional
             Why the alignment was set as failed (shown in the title).
+
+        notes : list of str, optional
+            Extra title lines (pre-warp, iterations, validation checks).
 
         save, show : bool
             Save to `flow_field_{obs_name}_{name}.png` / show the plot.
@@ -6665,9 +6894,13 @@ class OpticalFlow(AligmentMethod):
                 f"rotated by {scan_rotation:.4f} deg, translation only)"
             )
 
+        for note in notes or []:
+            title += f"\n{note}"
+
         fig.suptitle(title, fontsize=13)
-        # leave room for the (up to three line) title
-        fig.tight_layout(rect=(0, 0, 1, 0.94))
+        # leave room for the (multi-line) title
+        n_lines = title.count("\n") + 1
+        fig.tight_layout(rect=(0, 0, 1, 1.0 - 0.017 * max(3, n_lines)))
 
         if save:
             filename = f"{self.QA_path}/flow_field_{obs_name}_{self.name}.png"
@@ -6759,7 +6992,26 @@ class OpticalFlow(AligmentMethod):
         reference_frame = reference_frame.copy()
         input_frame = input_frame.copy()
 
-        if np.nansum(np.abs(reference_frame - input_frame)) < 1e-6:
+        # an empty (all-NaN) frame cannot be aligned. It has to be caught
+        # before the identity check below: the difference to an empty frame
+        # is all NaN, its nansum 0, and the pair would pass as identical
+        reference_finite = np.isfinite(
+            np.ma.filled(np.asanyarray(reference_frame, dtype=float), np.nan)
+        )
+        input_finite = np.isfinite(
+            np.ma.filled(np.asanyarray(input_frame, dtype=float), np.nan)
+        )
+
+        if not (reference_finite & input_finite).any():
+            self.logger.warning(
+                f"No common finite pixels between the reference and input frame "
+                f"for {obs_name} (empty or corrupt frame) - setting aligment as failed."
+            )
+            return self.FAILED_RETURN
+
+        if np.array_equal(reference_finite, input_finite) and (
+            np.nansum(np.abs(reference_frame - input_frame)) < 1e-6
+        ):
             self.logger.info(
                 "Reference and input frames have identical nansum = assuming this is identifal frames, skipping..."
             )
@@ -6792,13 +7044,7 @@ class OpticalFlow(AligmentMethod):
         # spacepylot only computes the flow field, the transform is fitted by
         # `fit_flow_transform` (see there for why)
         def _fit(frame, rotation):
-            op = align.AlignOpticalFlow(frame, reference_frame)
-
-            # (redirect spacepylot prints to logger)
-            with redirect_stdout_to_logger(logger):
-                return self.fit_flow_transform(
-                    op, reference_frame.shape, rotation=rotation
-                )
+            return self._single_flow_fit(reference_frame, frame, rotation)
 
         if scan_for_angles:
 
@@ -6901,6 +7147,25 @@ class OpticalFlow(AligmentMethod):
             )
             return self.FAILED_RETURN
 
+        # control-shift check: the flow must recover a known shift of the
+        # aligned input, otherwise the result is not trusted
+        control_error = None
+        if self.validate:
+            passed, control_error = self._control_shift_check(
+                reference_frame, input_frame, (tx, ty, rot)
+            )
+            if not passed:
+                self.logger.warning(
+                    f"Optical flow for {obs_name} failed the control-shift check "
+                    f"(control shift recovered within {control_error:.2f} px, "
+                    f"tolerance {self.control_tolerance:g} px) - setting aligment "
+                    f"as failed."
+                )
+                self.plot_failed_aligment(
+                    reference_frame, input_frame, obs_name, show=show_QA
+                )
+                return self.FAILED_RETURN
+
         # uncertainties from the spatial block bootstrap of the inliers; for the
         # angle scan only tx, ty (the rotation error comes from the scan)
         bootstrap = self.bootstrap_uncertainty(fit, obs_name=obs_name)
@@ -6910,7 +7175,19 @@ class OpticalFlow(AligmentMethod):
         if fit["rotation"]:
             rot_err = bootstrap["errors"][2]
 
-        _flow_QA(fit, result=(tx, ty, rot), errors=(tx_err, ty_err, rot_err))
+        _flow_QA(
+            fit,
+            result=(tx, ty, rot),
+            errors=(tx_err, ty_err, rot_err),
+            notes=(
+                [
+                    f"Control-shift check passed: control shift recovered within "
+                    f"{control_error:.3f} px (tolerance {self.control_tolerance:g} px)"
+                ]
+                if control_error is not None
+                else None
+            ),
+        )
 
         # plot difference image
 

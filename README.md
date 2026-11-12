@@ -226,6 +226,15 @@ The optional flags are:
   ```flow_field_*.png```: the measured flow, the fitted rigid model, the residual flow
   and the residual vectors.
 
+  Because TV-L1 can fail silently (flow frozen at zero, which is perfectly smooth and
+  passes the forward/reverse consistency check):
+  * The filtered frames are scaled to unit standard deviation before TV-L1. Without
+    this the flow of smooth fields stays at zero (a 3.6 px shift came out as 0.02 px).
+  * Control-shift check: the input aligned with the result is shifted by a known
+    (1.7, -2.3) px, and the flow must recover that shift within 0.3 px. If not, the
+    alignment is set as failed (only ```failed_aligment_*.png```); the log states the
+    recovered error.
+
 Both ```PointSources``` and ```OpticalFlow``` reject outliers iteratively with an
 adaptive threshold on the length of the residual vector: 3 robust sigmas of the
 residual scatter (sigma = median residual length / 1.1774, the Rayleigh median, so
@@ -270,7 +279,10 @@ of the WCS, not the raw rotations.
 
 Instead of each method's own rotation estimator, the rotation can be found by
 minimising the difference between the reference and the rotated + shifted input
-(mean absolute difference of the blurred frames, over a fixed central window):
+(mean absolute difference of the blurred frames, over a fixed central window, kept small enough to stay covered for
+the translation: at least `scan_max_shift` = 10 px, or the expected translation + `scan_shift_slack` = 3 px if larger.
+The expected translation is the direct fit (FFT) or the initial guess (PointSources), otherwise the first translation
+measured in the scan):
 
 1. A ternary search over [-1, 1] degrees finds the rough minimum. It reports failure
    if it ends at the edge of the range or if all evaluations give the same value
