@@ -93,6 +93,10 @@ if __name__ == "__main__":
     # before importing any other modules that use it
 
     from pipeline import AlignmentPipeline
+    from logger import exit_on_sigterm
+
+    # a batch time limit (SIGTERM) is logged as ABORTED instead of silently
+    exit_on_sigterm()
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
 
     # TODO: this method selection needs to be refactored

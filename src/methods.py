@@ -53,7 +53,9 @@ from spacepylot.alignment_utilities import TranslationTransform
 import spacepylot.alignment_utilities as spacepylot_utils
 from spacepylot.params import pcc_params as spacepylot_filter_params
 import logging
+import time
 
+from logger import format_elapsed
 from stats import ternary_search, robust_residual_threshold
 
 
@@ -329,6 +331,10 @@ class AligmentMethod(ABC):
         # this is the return value when the alignment fails
         self.FAILED_RETURN = (None, None), None, (None, None), None, False
 
+        # number of run() calls that raised an unexpected error (logged and
+        # set as failed, see `_buffer_QA_during_run`)
+        self.n_crashed_runs = 0
+
         # QA plots made during `run` are buffered and only written if the
         # alignment succeeds, see `_buffer_QA_during_run`
         self._QA_buffer = None
@@ -362,17 +368,48 @@ class AligmentMethod(ABC):
             outermost = getattr(self, "_QA_depth", 0) == 0
             if outermost:
                 self._QA_buffer = []
+                start_time = time.perf_counter()
             self._QA_depth = getattr(self, "_QA_depth", 0) + 1
+
+            # run(reference_frame, input_frame, obs_name, ...)
+            obs_name = kwargs.get("obs_name", args[2] if len(args) > 2 else "?")
 
             try:
                 result = run(self, *args, **kwargs)
+            except Exception:
+                self._QA_depth -= 1
+                if not outermost:
+                    raise
+                self._QA_buffer = None
+
+                # an unexpected error in one alignment must not end a long run:
+                # it is logged with the traceback and counted, and the
+                # alignment is set as failed
+                self.n_crashed_runs = getattr(self, "n_crashed_runs", 0) + 1
+                if self.logger:
+                    self.logger.exception(
+                        f"Unexpected error in the {self.name} alignment of "
+                        f"{obs_name} after "
+                        f"{format_elapsed(time.perf_counter() - start_time)} - "
+                        f"setting aligment as failed and continuing."
+                    )
+                return self.FAILED_RETURN
             except BaseException:
+                # KeyboardInterrupt, SystemExit: stop the run
                 self._QA_depth -= 1
                 if outermost:
                     self._QA_buffer = None
                 raise
 
             self._QA_depth -= 1
+
+            if outermost and self.logger:
+                success = bool(result[-1]) if isinstance(result, tuple) else False
+                self.logger.info(
+                    f"{self.name} alignment of {obs_name} "
+                    f"{'succeeded' if success else 'failed'} in "
+                    f"{format_elapsed(time.perf_counter() - start_time)}"
+                )
 
             if outermost:
                 buffered, self._QA_buffer = self._QA_buffer, None

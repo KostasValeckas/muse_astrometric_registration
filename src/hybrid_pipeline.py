@@ -362,7 +362,10 @@ if __name__ == "__main__":
 
     from pipeline import AlignmentPipeline
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
-    from logger import get_logger, format_elapsed
+    from logger import get_logger, format_elapsed, exit_on_sigterm
+
+    # a batch time limit (SIGTERM) is logged as ABORTED instead of silently
+    exit_on_sigterm()
 
     switcher = {
         "NoAlignment": NoAlignment,
@@ -400,6 +403,9 @@ if __name__ == "__main__":
     # finished pipelines per role, used for the final difference images
     pipelines = {}
 
+    # roles whose run raised an error (see below)
+    crashed_roles = []
+
     # 1) secondary and tertiary: isolated runs, no initial guesses
 
     for role, method_name, scan_for_angles, dither_mode in (
@@ -433,7 +439,17 @@ if __name__ == "__main__":
             f"({dither_mode} dither table)."
         )
 
-        pipeline.run()
+        # a crashed method must not stop the hybrid run: the next method and
+        # the final table only lose its results (pipeline.run already logged
+        # the traceback as ABORTED)
+        try:
+            pipeline.run()
+        except Exception:
+            crashed_roles.append(role)
+            pipeline.logger.error(
+                f"Hybrid pipeline: the {role} method {method_name} crashed, "
+                f"continuing without its (remaining) results."
+            )
 
         pipelines[role] = pipeline
 
@@ -461,7 +477,14 @@ if __name__ == "__main__":
         f"({args.primary_dither_mode} dither table)."
     )
 
-    pipeline.run()
+    try:
+        pipeline.run()
+    except Exception:
+        crashed_roles.append("primary")
+        pipeline.logger.error(
+            f"Hybrid pipeline: the primary method {args.primary} crashed, "
+            f"constructing the final table from the other methods."
+        )
 
     pipelines["primary"] = pipeline
 
@@ -471,11 +494,20 @@ if __name__ == "__main__":
 
     logger.info("Hybrid pipeline: constructing final results table...")
 
+    # a crashed run may have left no table, or an old one from an earlier run
+    # in the same directory: its table is not used
+    for role in crashed_roles:
+        logger.warning(
+            f"Hybrid pipeline: not using the {role} results (the run crashed)."
+        )
+
     results = [
         (
             role,
             method_name,
-            read_results_table(output_dirs[role], method_name, logger=logger),
+            None
+            if role in crashed_roles
+            else read_results_table(output_dirs[role], method_name, logger=logger),
         )
         for role, method_name in (
             ("primary", args.primary),
@@ -493,14 +525,36 @@ if __name__ == "__main__":
     logger.info(f"Successfully wrote hybrid results to {output_filename}")
 
     # 4) the difference images of the reported results, all in one directory
+    #    (the table is already written, so a problem here only costs the copies)
 
-    collect_difference_images(
-        config,
-        roles_used,
-        pipelines,
-        os.path.join(args.output_dir, FINAL_IMAGES_DIR),
-        logger=logger,
+    try:
+        collect_difference_images(
+            config,
+            roles_used,
+            pipelines,
+            os.path.join(args.output_dir, FINAL_IMAGES_DIR),
+            logger=logger,
+        )
+    except Exception:
+        logger.exception(
+            "Hybrid pipeline: copying the final difference images failed (the "
+            "hybrid table is written)."
+        )
+
+    n_rows = len(merged)
+    usage = {
+        name: int(np.sum(merged[METHOD_COLUMN] == name))
+        for name in dict.fromkeys(list(merged[METHOD_COLUMN]))
+    }
+    logger.info(
+        f"Hybrid summary: {n_rows} exposures, results from "
+        + ", ".join(f"{name}: {count}" for name, count in usage.items())
     )
+    if crashed_roles:
+        logger.warning(
+            f"Hybrid summary: the {', '.join(crashed_roles)} run(s) crashed, see "
+            f"ABORTED in their logs."
+        )
 
     logger.info(
         f"Hybrid pipeline finished, total execution time (all three runs): "

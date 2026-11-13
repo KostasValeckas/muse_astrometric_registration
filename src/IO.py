@@ -201,13 +201,25 @@ def write_final_results(output_table, method_name="", path=".", logger=None):
 
     """
 
+    # integer columns cannot hold None (a header entry missing in a file, or
+    # an exposure that could not be read): write -1 instead of failing the
+    # whole table
+    def _int_column(index, name):
+        values = [row[index] for row in output_table]
+        n_missing = sum(v is None for v in values)
+        if n_missing and logger:
+            logger.warning(
+                f"{n_missing} row(s) have no {name}, writing -1 for them."
+            )
+        return np.array([-1 if v is None else v for v in values], dtype=np.int32)
+
     # Build columns explicitly so dtypes are correct (esp. the string columns)
     columns = {
         "DATE_OBS": np.array([row[0] for row in output_table], dtype="U23"),
         "MJD_OBS": np.array([row[1] for row in output_table], dtype=np.float64),
         "TPL_START": np.array([row[2] for row in output_table], dtype="U19"),
-        "IEXPO_OBS": np.array([row[3] for row in output_table], dtype=np.int32),
-        "POINTING_OBS": np.array([row[4] for row in output_table], dtype=np.int32),
+        "IEXPO_OBS": _int_column(3, "IEXPO_OBS"),
+        "POINTING_OBS": _int_column(4, "POINTING_OBS"),
         "RA_OFFSET": np.array([row[5] for row in output_table], dtype=np.float64),
         "RA_OFFSET_ERROR": np.array([row[6] for row in output_table], dtype=np.float64),
         "DEC_OFFSET": np.array([row[7] for row in output_table], dtype=np.float64),

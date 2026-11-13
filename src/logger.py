@@ -108,3 +108,126 @@ def format_elapsed(seconds):
     if minutes >= 1:
         return f"{int(minutes)} min {secs:04.1f} s"
     return f"{secs:.1f} s"
+
+
+def log_run_environment(logger):
+    """
+    Log what is needed to reproduce / debug a run: the git commit of the code
+    (and whether it has local changes), host, Python and package versions, the
+    command line, the working directory and the batch job id (SLURM).
+
+    Never raises: anything that cannot be determined is logged as unknown.
+    """
+    import os
+    import platform
+    import subprocess
+    import sys
+
+    repo_dir = Path(__file__).resolve().parent
+
+    def _git(*args):
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(repo_dir), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return out.stdout.strip() if out.returncode == 0 else None
+        except Exception:
+            return None
+
+    commit = _git("log", "-1", "--format=%h %cd %s", "--date=iso")
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    changes = _git("status", "--porcelain", "--untracked-files=no")
+
+    if commit is None:
+        logger.warning(f"Code version: unknown (no git repository at {repo_dir}).")
+    else:
+        logger.info(f"Code version: {commit} (branch {branch}), from {repo_dir}")
+        if changes:
+            logger.warning(
+                "Code has uncommitted local changes:\n      "
+                + "\n      ".join(changes.splitlines())
+            )
+
+    logger.info(
+        f"Host: {platform.node()}, Python {platform.python_version()} "
+        f"({sys.executable})"
+    )
+
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+    except ImportError:
+        version = None
+
+    packages = (
+        "numpy",
+        "scipy",
+        "astropy",
+        "reproject",
+        "scikit-image",
+        "matplotlib",
+        "astroalign",
+        "sep",
+        "spacepylot",
+    )
+    versions = []
+    for package in packages:
+        try:
+            versions.append(f"{package} {version(package)}")
+        except Exception:
+            versions.append(f"{package} ?")
+    logger.info("Packages: " + ", ".join(versions))
+
+    logger.info(f"Command line: {' '.join(sys.argv)}")
+    logger.info(f"Working directory: {os.getcwd()}")
+
+    job = {
+        key: os.environ[key]
+        for key in (
+            "SLURM_JOB_ID",
+            "SLURM_JOB_NAME",
+            "SLURM_CPUS_PER_TASK",
+            "SLURM_MEM_PER_NODE",
+            "OMP_NUM_THREADS",
+        )
+        if key in os.environ
+    }
+    if job:
+        logger.info("Batch environment: " + ", ".join(f"{k}={v}" for k, v in job.items()))
+
+
+def exit_on_sigterm():
+    """
+    Turn SIGTERM (sent e.g. by SLURM when the time limit is reached, before
+    the job is killed) into a SystemExit, so the pipeline logs the run as
+    ABORTED with the traceback (where it was) instead of dying silently.
+    """
+    import signal
+
+    def _handler(signum, frame):
+        raise SystemExit(f"Received signal {signum} (SIGTERM), stopping.")
+
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except (ValueError, OSError):
+        # not in the main thread / not supported: keep the default
+        pass
+
+
+def peak_memory_mb():
+    """
+    Peak resident memory of this process in MB (Linux / macOS), or NaN if it
+    cannot be determined. Logged per pointing, so a memory leak (or a job
+    killed for memory) can be traced in the log.
+    """
+    try:
+        import resource
+        import sys
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # kilobytes on Linux, bytes on macOS
+        return peak / (1024.0**2) if sys.platform == "darwin" else peak / 1024.0
+    except Exception:
+        return float("nan")

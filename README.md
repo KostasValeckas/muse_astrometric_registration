@@ -460,7 +460,8 @@ Every run (and every method directory of a hybrid run) contains:
   and a one-page report per pointing. A failed alignment only gets its failed
   difference image (```failed_aligment_*.png```): the other QA plots of an alignment
   are held back until it succeeds.
-* ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together). A crashed or interrupted run ends with "ABORTED" and the traceback instead of "finished".
+* ```aligment_log_*.log``` - the log of the run. The last line gives the total execution time (for the hybrid run, the top-level log gives the time of all three runs together). A crashed or interrupted run ends with "ABORTED" and the traceback instead of "finished" (also when a batch system stops the job with SIGTERM, e.g. at the SLURM time limit). The log starts with the code version (git commit, and a warning if the code has local changes), host, package versions, command line, the pipeline settings and the method parameters; every alignment logs its duration, every pointing its duration and the peak memory, and the run ends with a summary.
+* Unexpected errors do not end a run: an alignment that raises is logged with the traceback and set as failed, a pointing that raises (e.g. an unreadable file) is written as failed, and in the hybrid run a method that crashes only loses its own results. Search the logs for "Unexpected error" and check the summary lines at the end.
 * ```run_manifest.json``` - the reference file and input directory of the run. A run
   into an output directory that holds the output of a different reference file is
   refused (use a new output directory, or delete the manifest if the old output is

@@ -1,4 +1,4 @@
-from logger import get_logger, format_elapsed
+from logger import get_logger, format_elapsed, log_run_environment, peak_memory_mb
 
 import time
 
@@ -11,6 +11,7 @@ from collections import deque
 from methods import NoAlignment
 
 from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
+from astropy.io import fits
 from geometry import (
     reproject_image_to_target_wcs,
     transformation_matrix,
@@ -307,6 +308,26 @@ def _draw_dither_matrix(ax, matrix, title, n, text_fn, status=False, **imshow_kw
         )
     else:
         ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+
+def _format_parameters(obj):
+    """
+    The scalar settings of an alignment method (its public attributes that are
+    numbers, strings, booleans, None or short tuples of these), as
+    "name = value" pairs for the log.
+    """
+    scalar = (bool, int, float, str, type(None), np.integer, np.floating)
+    items = []
+    for name, value in sorted(vars(obj).items()):
+        if name.startswith("_") or name in ("logger", "FAILED_RETURN", "QA_path"):
+            continue
+        if isinstance(value, scalar) or (
+            isinstance(value, tuple)
+            and len(value) <= 6
+            and all(isinstance(v, scalar) for v in value)
+        ):
+            items.append(f"{name} = {value!r}")
+    return ", ".join(items)
 
 
 # ============================================================================
@@ -2063,6 +2084,71 @@ class AlignmentPipeline:
                 f"dither {i+1} is still not clean (status {st[i][6]})."
             )
 
+    def _failed_table_row(self, filename):
+        """
+        Output table row (header entries and None values) for an exposure of a
+        pointing that could not be processed. The header entries are read from
+        the file if possible, so the row still identifies the exposure (and the
+        hybrid run can match it with the other methods); otherwise they are
+        None as well.
+        """
+        try:
+            with fits.open(filename) as hdul:
+                entry = make_table_entry(
+                    hdul,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    output_table_entries=self.output_table_entries.values(),
+                    logger=self.logger,
+                )
+            return tuple(entry.values())
+        except Exception:
+            self.logger.exception(
+                f"Could not read the header of {filename} either, writing an "
+                f"empty row."
+            )
+            return tuple([None] * (len(self.output_table_entries) + 6))
+
+    def _log_run_summary(self, output_table):
+        """
+        Last lines of a run before the total time: how many exposures have a
+        result, and anything that went wrong unexpectedly (alignments or
+        pointings that raised an error), so a long run can be checked from the
+        end of its log.
+        """
+        n_headers = len(self.output_table_entries)
+        n_ok = sum(
+            1
+            for row in output_table
+            if row[n_headers] is not None and np.isfinite(row[n_headers])
+        )
+
+        self.logger.info(
+            f"Summary ({self.aligner.name}): {n_ok} of {len(output_table)} "
+            f"exposures aligned, {len(output_table) - n_ok} without a result. "
+            f"Peak memory {peak_memory_mb():.0f} MB."
+        )
+
+        n_crashed = getattr(self.aligner, "n_crashed_runs", 0)
+        if n_crashed:
+            self.logger.warning(
+                f"Summary ({self.aligner.name}): {n_crashed} alignment(s) raised an "
+                f"unexpected error and were set as failed (search the log for "
+                f"'Unexpected error')."
+            )
+
+        if self.crashed_pointings:
+            self.logger.warning(
+                f"Summary ({self.aligner.name}): pointing(s) "
+                f"{', '.join(str(p) for p in self.crashed_pointings)} raised an "
+                f"unexpected error and were written as failed (search the log for "
+                f"'Unexpected error')."
+            )
+
     def run(self, skip_dithers = False):
         """
         Run the alignment pipeline.
@@ -2100,7 +2186,32 @@ class AlignmentPipeline:
 
         self.logger.info("Starting alignment pipeline...")
 
+        # code version, host, packages, command line: to reproduce and debug
+        log_run_environment(self.logger)
+
         self.logger.info(f"Reference file: {self.reference_file}")
+        self.logger.info(f"Input directory: {self.input_dir}")
+        self.logger.info(f"Output directory: {self.output_dir}")
+
+        n_exposures = sum(
+            len(exposures)
+            for pointing, exposures in self.config_dict.items()
+            if pointing != "headers"
+        )
+        self.logger.info(
+            f"Configuration: {len(self.config_dict) - 1} pointings, "
+            f"{n_exposures} exposures"
+        )
+        self.logger.info(
+            f"Pipeline settings: method {self.method.__name__}, distance_threshold "
+            f"{self.distance_threshold}, write_inconsistent {self.write_inconsistent}, "
+            f"skip_rotation_estimation {self.skip_rotation_estimation}, "
+            f"scan_for_angles {self.scan_for_angles}, dither_mode {self.dither_mode}, "
+            f"initial guesses from {self.initial_guess_sources or 'none'}"
+        )
+
+        # pointings that raised an unexpected error (written as failed)
+        self.crashed_pointings = []
 
         # output containers
         output_table = []
@@ -2123,6 +2234,10 @@ class AlignmentPipeline:
         # make an aligner with dither QA path
         self.aligner = self.method(QA_path=QA_dir_dithers, logger=self.logger)
 
+        self.logger.info(
+            f"{self.aligner.name} parameters: " + _format_parameters(self.aligner)
+        )
+
         # prepare the reference frame and its WCS
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
         reference_frame, _ = read_fits_image(self.reference_file, logger=self.logger)
@@ -2136,284 +2251,320 @@ class AlignmentPipeline:
             if pointing == "headers":
                 continue
 
-            science_tables[pointing] = {}
+            # rows of this pointing start here (removed again if the pointing
+            # crashes, see below)
+            n_rows_before = len(output_table)
+            pointing_start_time = time.perf_counter()
 
-            self.logger.info(f"Processing pointing: {pointing}")
+            # an unexpected error in one pointing (I/O, reprojection, recovery,
+            # QA report) must not end the run: it is logged, the exposures of
+            # the pointing are written as failed, and the next pointing is run
+            try:
 
-            dither_frame_arrays = []
-            dither_frame_wcs = []
-            dither_hduls = []
+                science_tables[pointing] = {}
 
-            dither_frames = [
-                pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
-            ]
+                self.logger.info(f"Processing pointing: {pointing}")
 
-            # I/O for dithers
-            for dither_frame in dither_frames:
-                self.logger.info(f"Reading dither frame: {dither_frame}")
+                dither_frame_arrays = []
+                dither_frame_wcs = []
+                dither_hduls = []
 
-                input_WCS = extract_image_wcs(
-                    dither_frame, logger=self.logger, wcs_extension=1
-                )
+                dither_frames = [
+                    pathlib.Path(self.input_dir) / exposure[2] for exposure in exposures
+                ]
 
-                input_frame, hdul = read_fits_image(
-                    dither_frame, logger=self.logger, data_extension=1
-                )
+                # I/O for dithers
+                for dither_frame in dither_frames:
+                    self.logger.info(f"Reading dither frame: {dither_frame}")
 
-                dither_frame_arrays.append(input_frame)
-                dither_hduls.append(hdul)
-                dither_frame_wcs.append(input_WCS)
+                    input_WCS = extract_image_wcs(
+                        dither_frame, logger=self.logger, wcs_extension=1
+                    )
 
-            # just for good measure, make sure QA path is reset to dithers:
+                    input_frame, hdul = read_fits_image(
+                        dither_frame, logger=self.logger, data_extension=1
+                    )
 
-            self.aligner.QA_path = QA_dir_dithers
+                    dither_frame_arrays.append(input_frame)
+                    dither_hduls.append(hdul)
+                    dither_frame_wcs.append(input_WCS)
 
-            # bring dithers to the same WCS and shape using reprojection
-            dither_frame_arrays, dither_frame_wcs = reproject_dithers(
-                dither_frame_arrays,
-                dither_frame_wcs,
-                logger=self.logger,
-                method="interpolation",
-            )
-
-            # remove nan edge
-
-            # TODO we keep this and use it for reprojection in a bit of a hack
-
-            original_shape = dither_frame_arrays[0].shape
-
-            dither_frame_arrays, edge_cut_value = remove_nan_edges_dithers(
-                dither_frame_arrays, logger=self.logger
-            )
-
-            if not skip_dithers and self.dither_mode == "full":
-
-                # ... and run the dither aligment
-                (
-                    x_table,
-                    x_error_table,
-                    y_table,
-                    y_error_table,
-                    rotation_table,
-                    rotation_error_table,
-                    success_table,
-                ) = self.align_dithers(
-                    dither_frame_arrays, dither_frame_wcs, self.aligner, obs_name=pointing
-                )
-
-            # targeted mode: the dither tables are filled after the science
-            # alignment; skipped dithers: empty tables (no links)
-
-            else:
-
-                (
-                    x_table,
-                    x_error_table,
-                    y_table,
-                    y_error_table,
-                    rotation_table,
-                    rotation_error_table,
-                    success_table,
-                ) = self._empty_dither_tables(
-                    len(dither_frame_arrays), status=NOT_ATTEMPTED
-                )
-
-            # now science aligment
-
-            # set the QA path for the science alignment to the science QA directory
-            self.aligner.QA_path = QA_dir_science
-
-            # all the WCS are now the same, so we only need to reproject the reference frame once per dither
-
-            reprojected_reference_frame, _ = reproject_image_to_target_wcs(
-                reference_frame,
-                reference_WCS,
-                dither_frame_wcs[0],
-                shape_out=original_shape,
-            )
-
-            reference_WCS_reprojected = dither_frame_wcs[
-                0
-            ]  # update reference WCS to match the dither WCS
-
-            # also crop the same edges as the dither frames to ensure consistency
-            reprojected_reference_frame = reprojected_reference_frame[
-                edge_cut_value : reprojected_reference_frame.shape[0] - edge_cut_value,
-                edge_cut_value : reprojected_reference_frame.shape[1] - edge_cut_value,
-            ]
-
-            # keep this for plotting later
-            reprojected_reference_frames[pointing] = reprojected_reference_frame
-
-            # 1) align every dither to the reference both ways and check consistency
-            for i in range(len(dither_frame_arrays)):
-
-                self.logger.info(
-                    f"Aligning dither frame {dither_frames[i]} to reference frame {self.reference_file}"
-                )
-
-                science_tables[pointing][i] = self._science_forward_reverse(
-                    pointing,
-                    i,
-                    reprojected_reference_frame,
-                    dither_frame_arrays[i],
-                    reference_WCS_reprojected,
-                    dither_frame_wcs[i],
-                )
-
-            # targeted mode: align only the dither links needed to recover the
-            # science alignments that are not clean
-            if not skip_dithers and self.dither_mode == "targeted":
+                # just for good measure, make sure QA path is reset to dithers:
 
                 self.aligner.QA_path = QA_dir_dithers
 
-                (
-                    x_table,
-                    x_error_table,
-                    y_table,
-                    y_error_table,
-                    rotation_table,
-                    rotation_error_table,
-                    success_table,
-                ) = self.align_dithers_targeted(
+                # bring dithers to the same WCS and shape using reprojection
+                dither_frame_arrays, dither_frame_wcs = reproject_dithers(
                     dither_frame_arrays,
                     dither_frame_wcs,
-                    self.aligner,
-                    science_tables[pointing],
-                    obs_name=pointing,
+                    logger=self.logger,
+                    method="interpolation",
                 )
 
+                # remove nan edge
+
+                # TODO we keep this and use it for reprojection in a bit of a hack
+
+                original_shape = dither_frame_arrays[0].shape
+
+                dither_frame_arrays, edge_cut_value = remove_nan_edges_dithers(
+                    dither_frame_arrays, logger=self.logger
+                )
+
+                if not skip_dithers and self.dither_mode == "full":
+
+                    # ... and run the dither aligment
+                    (
+                        x_table,
+                        x_error_table,
+                        y_table,
+                        y_error_table,
+                        rotation_table,
+                        rotation_error_table,
+                        success_table,
+                    ) = self.align_dithers(
+                        dither_frame_arrays, dither_frame_wcs, self.aligner, obs_name=pointing
+                    )
+
+                # targeted mode: the dither tables are filled after the science
+                # alignment; skipped dithers: empty tables (no links)
+
+                else:
+
+                    (
+                        x_table,
+                        x_error_table,
+                        y_table,
+                        y_error_table,
+                        rotation_table,
+                        rotation_error_table,
+                        success_table,
+                    ) = self._empty_dither_tables(
+                        len(dither_frame_arrays), status=NOT_ATTEMPTED
+                    )
+
+                # now science aligment
+
+                # set the QA path for the science alignment to the science QA directory
                 self.aligner.QA_path = QA_dir_science
 
-            dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
+                # all the WCS are now the same, so we only need to reproject the reference frame once per dither
 
-            # 2) extrapolate: recover failed / inconsistent entries by composing
-            #    transformations through other dithers
-            self._recover_science_alignments(
-                pointing,
-                len(dither_frames),
-                dither_frame_arrays,
-                reprojected_reference_frames,
-                science_tables,
-                success_table,
-                x_table,
-                y_table,
-                rotation_table,
-                x_error_table,
-                y_error_table,
-                rotation_error_table,
-            )
-
-            # one-page QA report; the grid size follows the number of dithers
-            self._plot_combined_report(
-                pointing,
-                dither_frames,
-                dither_frame_arrays,
-                reprojected_reference_frames,
-                science_tables,
-                QA_dir_science,
-                QA_dir_combined,
-                success_table,
-                x_table,
-                y_table,
-                rotation_table,
-            )
-
-            # now make the output tuples and add to the output table
-
-            for i in range(len(dither_frames)):
-                (
-                    tx,
-                    ty,
-                    rotation_angle,
-                    tx_error,
-                    ty_error,
-                    rotation_error,
-                    success,
-                    composed,
-                    composed_from,
-                ) = science_tables[pointing][i]
-
-                # 1 and 0.5 are always written; a still-inconsistent (0.7) entry
-                # is written only if write_inconsistent is set; 0 is never written
-                writable = success in (1, 0.5) or (
-                    self.write_inconsistent and success == 0.7
+                reprojected_reference_frame, _ = reproject_image_to_target_wcs(
+                    reference_frame,
+                    reference_WCS,
+                    dither_frame_wcs[0],
+                    shape_out=original_shape,
                 )
-                has_values = all(
-                    v is not None and np.isfinite(v)
-                    for v in (
+
+                reference_WCS_reprojected = dither_frame_wcs[
+                    0
+                ]  # update reference WCS to match the dither WCS
+
+                # also crop the same edges as the dither frames to ensure consistency
+                reprojected_reference_frame = reprojected_reference_frame[
+                    edge_cut_value : reprojected_reference_frame.shape[0] - edge_cut_value,
+                    edge_cut_value : reprojected_reference_frame.shape[1] - edge_cut_value,
+                ]
+
+                # keep this for plotting later
+                reprojected_reference_frames[pointing] = reprojected_reference_frame
+
+                # 1) align every dither to the reference both ways and check consistency
+                for i in range(len(dither_frame_arrays)):
+
+                    self.logger.info(
+                        f"Aligning dither frame {dither_frames[i]} to reference frame {self.reference_file}"
+                    )
+
+                    science_tables[pointing][i] = self._science_forward_reverse(
+                        pointing,
+                        i,
+                        reprojected_reference_frame,
+                        dither_frame_arrays[i],
+                        reference_WCS_reprojected,
+                        dither_frame_wcs[i],
+                    )
+
+                # targeted mode: align only the dither links needed to recover the
+                # science alignments that are not clean
+                if not skip_dithers and self.dither_mode == "targeted":
+
+                    self.aligner.QA_path = QA_dir_dithers
+
+                    (
+                        x_table,
+                        x_error_table,
+                        y_table,
+                        y_error_table,
+                        rotation_table,
+                        rotation_error_table,
+                        success_table,
+                    ) = self.align_dithers_targeted(
+                        dither_frame_arrays,
+                        dither_frame_wcs,
+                        self.aligner,
+                        science_tables[pointing],
+                        obs_name=pointing,
+                    )
+
+                    self.aligner.QA_path = QA_dir_science
+
+                dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
+
+                # 2) extrapolate: recover failed / inconsistent entries by composing
+                #    transformations through other dithers
+                self._recover_science_alignments(
+                    pointing,
+                    len(dither_frames),
+                    dither_frame_arrays,
+                    reprojected_reference_frames,
+                    science_tables,
+                    success_table,
+                    x_table,
+                    y_table,
+                    rotation_table,
+                    x_error_table,
+                    y_error_table,
+                    rotation_error_table,
+                )
+
+                # one-page QA report; the grid size follows the number of dithers
+                self._plot_combined_report(
+                    pointing,
+                    dither_frames,
+                    dither_frame_arrays,
+                    reprojected_reference_frames,
+                    science_tables,
+                    QA_dir_science,
+                    QA_dir_combined,
+                    success_table,
+                    x_table,
+                    y_table,
+                    rotation_table,
+                )
+
+                # now make the output tuples and add to the output table
+
+                for i in range(len(dither_frames)):
+                    (
                         tx,
                         ty,
                         rotation_angle,
                         tx_error,
                         ty_error,
                         rotation_error,
+                        success,
+                        composed,
+                        composed_from,
+                    ) = science_tables[pointing][i]
+
+                    # 1 and 0.5 are always written; a still-inconsistent (0.7) entry
+                    # is written only if write_inconsistent is set; 0 is never written
+                    writable = success in (1, 0.5) or (
+                        self.write_inconsistent and success == 0.7
                     )
-                )
-
-                if not (writable and has_values):
-                    self.logger.warning(
-                        f"Alignment for pointing {pointing}, dither {i+1} failed "
-                        f"(status {success}). Writing None values."
+                    has_values = all(
+                        v is not None and np.isfinite(v)
+                        for v in (
+                            tx,
+                            ty,
+                            rotation_angle,
+                            tx_error,
+                            ty_error,
+                            rotation_error,
+                        )
                     )
 
-                    dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = (
-                        rotation_error
-                    ) = None
-
-                    self.reported_science_images[(pointing, i)] = None
-
-                else:
-                    if success == 0.7:
+                    if not (writable and has_values):
                         self.logger.warning(
-                            f"Pointing {pointing}, dither {i+1}: writing an inconsistent "
-                            f"alignment (no recovery possible)."
+                            f"Alignment for pointing {pointing}, dither {i+1} failed "
+                            f"(status {success}). Writing None values."
                         )
 
-                    # convert offsets and offset errors from detector pixels to sky coordinates (degrees)
+                        dRA = dRA_sigma = dDEC = dDEC_sigma = rotation_angle = (
+                            rotation_error
+                        ) = None
 
-                    dRA, dDEC = detector_translation_to_sky_translation(
-                        dither_frame_wcs[i], tx, ty, logger=self.logger
-                    )
+                        self.reported_science_images[(pointing, i)] = None
 
-                    # errors are propagated through the WCS Jacobian, not
-                    # converted like a displacement (see the function)
-                    dRA_sigma, dDEC_sigma = detector_errors_to_sky_errors(
-                        dither_frame_wcs[i], tx_error, ty_error
-                    )
-
-                    # book-keep the difference image of the reported result
-                    if composed:
-                        image_obs_name = (
-                            f"{pointing}_dither_{i+1}_to_reference_composed_via_"
-                            f"{composed_from.replace(' ', '_')}"
-                        )
-                    elif self.science_directions.get((pointing, i)) == "reverse":
-                        image_obs_name = f"{pointing}_reference_to_dither_{i+1}"
                     else:
-                        image_obs_name = f"{pointing}_dither_{i+1}_to_reference"
+                        if success == 0.7:
+                            self.logger.warning(
+                                f"Pointing {pointing}, dither {i+1}: writing an inconsistent "
+                                f"alignment (no recovery possible)."
+                            )
 
-                    self.reported_science_images[(pointing, i)] = (
-                        QA_dir_science
-                        / f"difference_image_{image_obs_name}_{self.aligner.name}.png"
+                        # convert offsets and offset errors from detector pixels to sky coordinates (degrees)
+
+                        dRA, dDEC = detector_translation_to_sky_translation(
+                            dither_frame_wcs[i], tx, ty, logger=self.logger
+                        )
+
+                        # errors are propagated through the WCS Jacobian, not
+                        # converted like a displacement (see the function)
+                        dRA_sigma, dDEC_sigma = detector_errors_to_sky_errors(
+                            dither_frame_wcs[i], tx_error, ty_error
+                        )
+
+                        # book-keep the difference image of the reported result
+                        if composed:
+                            image_obs_name = (
+                                f"{pointing}_dither_{i+1}_to_reference_composed_via_"
+                                f"{composed_from.replace(' ', '_')}"
+                            )
+                        elif self.science_directions.get((pointing, i)) == "reverse":
+                            image_obs_name = f"{pointing}_reference_to_dither_{i+1}"
+                        else:
+                            image_obs_name = f"{pointing}_dither_{i+1}_to_reference"
+
+                        self.reported_science_images[(pointing, i)] = (
+                            QA_dir_science
+                            / f"difference_image_{image_obs_name}_{self.aligner.name}.png"
+                        )
+
+                    table_entry = make_table_entry(
+                        dither_hduls[i],
+                        dRA,
+                        dRA_sigma,
+                        dDEC,
+                        dDEC_sigma,
+                        rotation_angle,
+                        rotation_error,
+                        output_table_entries=self.output_table_entries.values(),
+                        logger=self.logger,
                     )
 
-                table_entry = make_table_entry(
-                    dither_hduls[i],
-                    dRA,
-                    dRA_sigma,
-                    dDEC,
-                    dDEC_sigma,
-                    rotation_angle,
-                    rotation_error,
-                    output_table_entries=self.output_table_entries.values(),
-                    logger=self.logger,
-                )
+                    # unpack the values and append
+                    output_table.append(tuple(value for _, value in table_entry.items()))
 
-                # unpack the values and append
-                output_table.append(tuple(value for _, value in table_entry.items()))
+            except Exception:
+                self.logger.exception(
+                    f"Unexpected error while processing pointing {pointing} - "
+                    f"writing its {len(exposures)} exposures as failed and "
+                    f"continuing with the next pointing."
+                )
+                self.crashed_pointings.append(pointing)
+
+                del output_table[n_rows_before:]
+                for i, exposure in enumerate(exposures):
+                    self.reported_science_images[(pointing, i)] = None
+                    output_table.append(
+                        self._failed_table_row(
+                            pathlib.Path(self.input_dir) / exposure[2]
+                        )
+                    )
+
+            self.logger.info(
+                f"Pointing {pointing} done in "
+                f"{format_elapsed(time.perf_counter() - pointing_start_time)}, "
+                f"peak memory so far {peak_memory_mb():.0f} MB"
+            )
+
 
         # write the final results to a FITS table
         write_final_results(
             output_table, self.aligner.name, self.output_dir, logger=self.logger
         )
+
+        self._log_run_summary(output_table)
