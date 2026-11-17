@@ -56,7 +56,10 @@ def get_logger(output_path, logger_name="muse_astrometric_registration"):
 
     # Create a custom formatter - this allows different colors for different log levels
     class CustomFormatter(logging.Formatter):
+        """Formatter that colours the level name by level (used for the console only)."""
+
         def format(self, record):
+            """Format a copy of the record with a coloured level name."""
             # color a copy of the record - the record is shared between the
             # handlers, and changing it here would put the color codes into
             # the log file as well
@@ -126,6 +129,7 @@ def log_run_environment(logger):
     repo_dir = Path(__file__).resolve().parent
 
     def _git(*args):
+        """Run a git command in the code directory and return its output, or None if it fails."""
         try:
             out = subprocess.run(
                 ["git", "-C", str(repo_dir), *args],
@@ -195,7 +199,9 @@ def log_run_environment(logger):
         if key in os.environ
     }
     if job:
-        logger.info("Batch environment: " + ", ".join(f"{k}={v}" for k, v in job.items()))
+        logger.info(
+            "Batch environment: " + ", ".join(f"{k}={v}" for k, v in job.items())
+        )
 
 
 def exit_on_sigterm():
@@ -207,6 +213,7 @@ def exit_on_sigterm():
     import signal
 
     def _handler(signum, frame):
+        """Turn SIGTERM into SystemExit, so the run is logged as ABORTED."""
         raise SystemExit(f"Received signal {signum} (SIGTERM), stopping.")
 
     try:

@@ -505,9 +505,11 @@ if __name__ == "__main__":
         (
             role,
             method_name,
-            None
-            if role in crashed_roles
-            else read_results_table(output_dirs[role], method_name, logger=logger),
+            (
+                None
+                if role in crashed_roles
+                else read_results_table(output_dirs[role], method_name, logger=logger)
+            ),
         )
         for role, method_name in (
             ("primary", args.primary),
@@ -518,7 +520,9 @@ if __name__ == "__main__":
 
     merged, roles_used = merge_results(results, logger=logger)
 
-    output_filename = os.path.join(args.output_dir, "Hybrid_alignment_output_table.fits")
+    output_filename = os.path.join(
+        args.output_dir, "Hybrid_alignment_output_table.fits"
+    )
 
     merged.write(output_filename, format="fits", overwrite=True)
 

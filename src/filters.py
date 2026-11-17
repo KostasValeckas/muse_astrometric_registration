@@ -1,3 +1,5 @@
+"""Module for filtering and processing images."""
+
 from venv import logger
 from stats import longest_run
 from scipy.ndimage import gaussian_filter, map_coordinates
@@ -6,10 +8,6 @@ from scipy.signal.windows import tukey
 from scipy.interpolate import griddata
 
 import numpy as np
-
-"""
-Module for filtering and processing images.
-"""
 
 
 def remove_nans(image, fill_value=0, logger=None):
@@ -21,6 +19,7 @@ def remove_nans(image, fill_value=0, logger=None):
         logger.info(f"Replacing NaN values in the image with fill_value: {fill_value}")
 
     return np.nan_to_num(image, nan=fill_value)
+
 
 def interpolate_nans(image, logger=None):
     """
@@ -142,6 +141,7 @@ def _shrink(finite, window, min_run, logger=None):
     top, bottom, left, right = window
 
     def ok(edge):
+        """True if the edge is usable: no NaN at all (`min_run` None), or a long enough finite run."""
         if min_run is None:
             return edge.all()
         return longest_run(edge) >= min(min_run, edge.size)
@@ -175,6 +175,26 @@ def _shrink(finite, window, min_run, logger=None):
 
 
 def estimate_nan_window(image, min_run=100, logger=None):
+    """
+    Find the window of the image whose edges are free of NaNs.
+
+    The edges are shrunk in two passes: first until every edge has at least
+    `min_run` consecutive finite pixels, then until no edge contains a NaN.
+
+    Parameters
+    ----------
+    image : 2D array
+        Image with non-finite borders.
+    min_run : int
+        Minimum number of consecutive finite pixels per edge in the first pass.
+    logger : logging.Logger, optional
+        Logger for the progress messages.
+
+    Returns
+    -------
+    (top, bottom, left, right), (height, width)
+        Number of rows / columns cut from each side, and the size of the window.
+    """
 
     if logger:
         logger.info(
@@ -274,4 +294,5 @@ def radial_window(shape, taper=0.4):
 
 
 def tukey2d(shape, taper=0.25):
+    """2D Tukey (tapered cosine) window of `shape`, the outer product of two 1D windows."""
     return np.outer(tukey(shape[0], taper), tukey(shape[1], taper))

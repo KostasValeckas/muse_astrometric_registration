@@ -1,3 +1,5 @@
+"""Reading of FITS images and their WCS, and writing of the alignment output tables."""
+
 from astropy.io import fits
 from astropy.wcs import WCS
 import numpy as np
@@ -205,12 +207,11 @@ def write_final_results(output_table, method_name="", path=".", logger=None):
     # an exposure that could not be read): write -1 instead of failing the
     # whole table
     def _int_column(index, name):
+        """Integer column from field `index` of the output rows, -1 where the value is None."""
         values = [row[index] for row in output_table]
         n_missing = sum(v is None for v in values)
         if n_missing and logger:
-            logger.warning(
-                f"{n_missing} row(s) have no {name}, writing -1 for them."
-            )
+            logger.warning(f"{n_missing} row(s) have no {name}, writing -1 for them.")
         return np.array([-1 if v is None else v for v in values], dtype=np.int32)
 
     # Build columns explicitly so dtypes are correct (esp. the string columns)

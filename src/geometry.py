@@ -1,11 +1,9 @@
+"""Module for reprojections and WCS conversions."""
+
 import numpy as np
 from astropy.wcs import WCS
 from reproject import reproject_interp, reproject_exact, reproject_adaptive
 from filters import estimate_nan_window
-
-"""
-Module for reprojections and WCS conversions.
-"""
 
 
 def make_window_wcs(wcs, shape, window, oversample_factor=1):
@@ -369,22 +367,20 @@ def detector_errors_to_sky_errors(wcs, sigma_x, sigma_y, logger=None):
     y0 = wcs.wcs.crpix[1] - 1
 
     def sky(x, y):
+        """Pixel (x, y) to (RA, Dec) in degrees."""
         ra, dec = wcs.pixel_to_world_values(x, y)
         return float(ra), float(dec)
 
     def difference(a, b):
+        """Sky difference a - b in degrees, with the RA difference wrapped to [-180, 180]."""
         # RA difference wrapped to [-180, +180] degrees, Dec plain
         return (
             (a[0] - b[0] + 180.0) % 360.0 - 180.0,
             a[1] - b[1],
         )
 
-    dRA_dx, dDec_dx = (
-        v / 2.0 for v in difference(sky(x0 + 1, y0), sky(x0 - 1, y0))
-    )
-    dRA_dy, dDec_dy = (
-        v / 2.0 for v in difference(sky(x0, y0 + 1), sky(x0, y0 - 1))
-    )
+    dRA_dx, dDec_dx = (v / 2.0 for v in difference(sky(x0 + 1, y0), sky(x0 - 1, y0)))
+    dRA_dy, dDec_dy = (v / 2.0 for v in difference(sky(x0, y0 + 1), sky(x0, y0 - 1)))
 
     sigma_RA = float(np.hypot(dRA_dx * sigma_x, dRA_dy * sigma_y))
     sigma_Dec = float(np.hypot(dDec_dx * sigma_x, dDec_dy * sigma_y))

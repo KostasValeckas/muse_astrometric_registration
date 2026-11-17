@@ -1,3 +1,15 @@
+"""
+Sort the MUSE frames of a directory into the JSON configuration file of the
+pipeline.
+
+The FITS files are grouped by the pointing keyword. Within a pointing they are
+sorted by exposure number, template start, date and file name, and numbered
+1, 2, ... (so exposures of different templates get their own numbers). The
+keywords used are stored under "headers".
+
+Usage: python sorter.py /path/to/directory/with/muse/data [options]
+"""
+
 import json
 import sys
 import os
@@ -101,7 +113,9 @@ if __name__ == "__main__":
                 print(f"Warning: {DATE_OBS_KEYWORD} not found in {file}. Skipping.")
                 continue
             if TPL_START_OBS is None:
-                print(f"Warning: {TPL_START_OBS_KEYWORD} not found in {file}. Skipping.")
+                print(
+                    f"Warning: {TPL_START_OBS_KEYWORD} not found in {file}. Skipping."
+                )
                 continue
 
             print(
@@ -111,8 +125,9 @@ if __name__ == "__main__":
             if POINTING_OBS not in sorted_files:
                 sorted_files[POINTING_OBS] = []
 
-            sorted_files[POINTING_OBS].append((IEXPO_OBS, TPL_START_OBS, DATE_OBS, file))
-
+            sorted_files[POINTING_OBS].append(
+                (IEXPO_OBS, TPL_START_OBS, DATE_OBS, file)
+            )
 
     # sort the files within each pointing by exposure number, then template start
     for pointing in sorted_files:
@@ -128,7 +143,9 @@ if __name__ == "__main__":
         # renumber the exposures so different template starts count as extra slots
         sorted_files[pointing] = [
             (exposure_number, date_obs, file)
-            for exposure_number, (_, _, date_obs, file) in enumerate(sorted_files[pointing], start=1)
+            for exposure_number, (_, _, date_obs, file) in enumerate(
+                sorted_files[pointing], start=1
+            )
         ]
 
     # lastly, for bookingeeping, we add the headers used to sort the files to the dictionary
@@ -137,7 +154,7 @@ if __name__ == "__main__":
         "mjd_keyword": args.mjd_keyword,
         "tpl_start_keyword": args.tpl_start_keyword,
         "exp_keyword": IEXPO_OBS_KEYWORD,
-        "pointing_keyword": POINTING_OBS_KEYWORD
+        "pointing_keyword": POINTING_OBS_KEYWORD,
     }
 
     # if .json extension does not exist to the output filename, add it

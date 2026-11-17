@@ -1,5 +1,8 @@
+"""Statistics and search helpers: runs, correlation, ternary search and robust thresholds."""
+
 import numpy as np
 import math
+
 
 def longest_run(mask):
     """Length of the longest run of True in a 1D boolean array."""
@@ -13,6 +16,7 @@ def longest_run(mask):
 
 
 def masked_ncc(a, b, mask):
+    """Normalised cross-correlation of `a` and `b` over the pixels where `mask` is True (0 if either is constant)."""
     a = a[mask].astype(np.float64)
     b = b[mask].astype(np.float64)
     a -= a.mean()
@@ -40,6 +44,7 @@ def ternary_search(f, left, right, eps=1e-1, nan_default=1.0, logger=None):
     left_0, right_0 = left, right
 
     def evaluate(x):
+        """Evaluate `f` at x (NaN counts as `nan_default`) and record the point."""
         y = f(x)
         if math.isnan(y):
             y = nan_default
@@ -87,6 +92,7 @@ def ternary_search(f, left, right, eps=1e-1, nan_default=1.0, logger=None):
         return None, None, None
 
     return x_min, y_min, tried
+
 
 def robust_residual_threshold(
     residuals, n_sigma=3.0, minimum=0.05, maximum=0.5, min_points=5, n_parameters=0

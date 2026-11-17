@@ -1,3 +1,9 @@
+"""
+Alignment methods: the shared base class `AligmentMethod` (angle scan, QA
+plots, error handling) and the methods NoAlignment, PointSources, FFT and
+OpticalFlow.
+"""
+
 from abc import ABC, abstractmethod
 from asyncio.log import logger
 import os
@@ -33,7 +39,7 @@ from filters import (
     polar_rings,
     radial_window,
     tukey2d,
-    interpolate_nans
+    interpolate_nans,
 )
 from numpy.fft import rfft, irfft, rfftfreq, fft2, ifft2, fftfreq
 from scipy.ndimage import shift as ndi_shift
@@ -88,13 +94,22 @@ ARROW_OUTLINE = dict(edgecolor="black", linewidth=0.6)
 # this is used to redirect printing from external methods to the logger, so that we can capture all output in the log file
 @contextmanager
 def redirect_stdout_to_logger(logger, level=logging.INFO):
+    """
+    Context manager that sends everything printed to stdout to `logger` at
+    `level`, so the output of external packages ends up in the log file.
+    """
+
     class LoggerWriter:
+        """File-like object that writes to the logger."""
+
         def write(self, message):
+            """Log the message, if it is not empty."""
             message = message.rstrip()
             if message:
                 logger.log(level, message)
 
         def flush(self):
+            """Nothing to flush (needed for the file interface)."""
             pass
 
     original_stdout = sys.stdout
@@ -357,14 +372,25 @@ class AligmentMethod(ABC):
     # ------------------------------------------------------------------
 
     def __init_subclass__(cls, **kwargs):
+        """Wrap the `run` method of every subclass with `_buffer_QA_during_run`."""
         super().__init_subclass__(**kwargs)
         if "run" in cls.__dict__:
             cls.run = AligmentMethod._buffer_QA_during_run(cls.__dict__["run"])
 
     @staticmethod
     def _buffer_QA_during_run(run):
+        """
+        Decorator for the `run` method of the alignment methods.
+
+        QA figures saved during the run are buffered and only written if the run
+        succeeds (see the comment above). An unexpected error in the outermost run is
+        logged with the traceback and the alignment is returned as failed
+        (`FAILED_RETURN`); KeyboardInterrupt and SystemExit are passed on.
+        """
+
         @functools.wraps(run)
         def wrapper(self, *args, **kwargs):
+            """Run `run` with the QA buffer and the error handling described above."""
             outermost = getattr(self, "_QA_depth", 0) == 0
             if outermost:
                 self._QA_buffer = []
@@ -700,7 +726,9 @@ class AligmentMethod(ABC):
             plt.suptitle(
                 f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg\n"
             )
-        self._save_QA_figure(f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png")
+        self._save_QA_figure(
+            f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png"
+        )
 
         if self.logger:
             self.logger.info(
@@ -744,7 +772,9 @@ class AligmentMethod(ABC):
         # np.nanpercentile ignores the mask and can crash), so masked pixels
         # are turned into NaNs on plain arrays
 
-        reference_frame = np.ma.filled(np.asanyarray(reference_frame, dtype=float), np.nan)
+        reference_frame = np.ma.filled(
+            np.asanyarray(reference_frame, dtype=float), np.nan
+        )
         input_frame = np.ma.filled(np.asanyarray(input_frame, dtype=float), np.nan)
 
         # normalize both images to unity
@@ -1198,11 +1228,7 @@ class AligmentMethod(ABC):
         for model, reason in rejected.items():
             if self.logger:
                 # with "auto" one rejected model is no problem, the other is used
-                level = (
-                    self.logger.info
-                    if len(candidates) > 0
-                    else self.logger.warning
-                )
+                level = self.logger.info if len(candidates) > 0 else self.logger.warning
                 level(f"Fine scan {model} fit rejected: {reason}")
 
         if len(candidates) == 0:
@@ -1426,6 +1452,7 @@ class AligmentMethod(ABC):
         p0[1] = max(p0[1], 1e-12)
 
         def residuals(p):
+            """Residuals of the scan model with parameters p."""
             return self._angle_model_eval(p, x) - d
 
         try:
@@ -1597,7 +1624,16 @@ class AligmentMethod(ABC):
         return 1.5 * spacing / long, reference
 
     def _draw_flow_quiver(
-        self, ax, fig, src, vectors, sub, spacing, magnification, reference, label,
+        self,
+        ax,
+        fig,
+        src,
+        vectors,
+        sub,
+        spacing,
+        magnification,
+        reference,
+        label,
         width=0.003,
     ):
         """Arrows of `vectors` at `src[sub]`, `magnification` times longer,
@@ -1655,7 +1691,9 @@ class AligmentMethod(ABC):
 
         n_fine = len(fine_angles)
         coarse_translations = np.asarray(
-            scan_result.get("coarse_translations", np.full((len(coarse_angles), 2), np.nan)),
+            scan_result.get(
+                "coarse_translations", np.full((len(coarse_angles), 2), np.nan)
+            ),
             float,
         )
         fine_translations = np.asarray(
@@ -1669,7 +1707,9 @@ class AligmentMethod(ABC):
             bool,
         )
         smoothed = bool(scan_result.get("smoothed", False))
-        fine_diffs_raw = np.asarray(scan_result.get("fine_diffs_raw", fine_diffs), float)
+        fine_diffs_raw = np.asarray(
+            scan_result.get("fine_diffs_raw", fine_diffs), float
+        )
         trend_translations = np.asarray(
             scan_result.get("trend_translations", np.full((n_fine, 2), np.nan)), float
         )
@@ -1678,6 +1718,7 @@ class AligmentMethod(ABC):
         coarse_ok = np.isfinite(coarse_diffs)
 
         def _draw_angle_scan(ax):
+            """Draw the scan points, the fitted model and the minimum on `ax`."""
             ax.plot(
                 coarse_angles[coarse_ok],
                 coarse_diffs[coarse_ok],
@@ -2049,7 +2090,9 @@ class AligmentMethod(ABC):
         if not np.all(np.isfinite(expected_shift)):
             return None
 
-        needed = int(np.ceil(np.max(np.abs(expected_shift)))) + int(self.scan_shift_slack)
+        needed = int(np.ceil(np.max(np.abs(expected_shift)))) + int(
+            self.scan_shift_slack
+        )
 
         if needed > room:
             room = needed
@@ -2118,15 +2161,12 @@ class AligmentMethod(ABC):
         if min_angle is None or tried is None:
             if self.logger:
                 self.logger.warning(
-                    f"Failed to find minimum angle for {obs_name} "
-                    f"({self.name})"
+                    f"Failed to find minimum angle for {obs_name} " f"({self.name})"
                 )
             return None
 
         ternary_min_angle = float(min_angle)
-        coarse_angles, coarse_diffs = (
-            np.asarray(v, float) for v in zip(*tried)
-        )
+        coarse_angles, coarse_diffs = (np.asarray(v, float) for v in zip(*tried))
 
         if self.logger:
             self.logger.info(
@@ -2151,6 +2191,7 @@ class AligmentMethod(ABC):
         )
 
         def _translations(angles):
+            """Translations measured in the scan at `angles` (NaN where none), shape (n, 2)."""
             return np.array(
                 [
                     self._scan_translations.get(float(angle), (np.nan, np.nan))
@@ -2163,7 +2204,9 @@ class AligmentMethod(ABC):
         fine_translations = _translations(fine_angles)
 
         # reject fine scan angles whose translation is far from the median
-        scored = np.isfinite(fine_diffs) & np.all(np.isfinite(fine_translations), axis=1)
+        scored = np.isfinite(fine_diffs) & np.all(
+            np.isfinite(fine_translations), axis=1
+        )
         translation_outliers = np.zeros(len(fine_angles), dtype=bool)
         median_translation = np.array([np.nan, np.nan])
 
@@ -2277,8 +2320,8 @@ class AligmentMethod(ABC):
                 # spacing of the fine scan
                 angle_err = fit["vertex_err_formal"]
                 if not np.isfinite(angle_err):
-                    angle_err = 2 * self.fine_scan_halfwidth / max(
-                        self.fine_scan_points - 1, 1
+                    angle_err = (
+                        2 * self.fine_scan_halfwidth / max(self.fine_scan_points - 1, 1)
                     )
             if self.logger:
                 self.logger.info(
@@ -2425,6 +2468,7 @@ class NoAlignment(AligmentMethod):
     """
 
     def __init__(self, logger=None, QA_path=None):
+        """Set up the dummy method."""
         super().__init__("NoAlignment", "0.0.0", logger=logger, QA_path=QA_path)
 
         if self.logger:
@@ -2468,6 +2512,7 @@ class NoAlignment(AligmentMethod):
             # scanned. This keeps the dummy method usable for testing the
             # shared scan plumbing.
             def _zero_translation(_rotated_input):
+                """Translation estimate for the angle scan that always returns zero shift."""
                 return dict(
                     shift=(0.0, 0.0),
                     shift_err=(0.0, 0.0),
@@ -2475,6 +2520,7 @@ class NoAlignment(AligmentMethod):
                 )
 
             def _evaluate_angle(angle):
+                """Angle scan metric at `angle` with zero translation."""
                 diff, _ = self._scan_difference_metric(
                     reference_frame,
                     input_frame,
@@ -2517,6 +2563,16 @@ class NoAlignment(AligmentMethod):
 
 
 class PointSources(AligmentMethod):
+    """
+    Alignment with matched point sources.
+
+    astroalign matches point sources between the input and the reference frame
+    (triangle matching), and its transform is used to re-match all sources
+    detected in both frames. A rotation + translation (or translation only) is
+    fitted to the matched pairs by least squares, with iterative outlier
+    rejection; the errors come from the least-squares fit. An alignment needs at
+    least `min_sources` accepted sources.
+    """
 
     def __init__(
         self,
@@ -2679,6 +2735,7 @@ class PointSources(AligmentMethod):
         a = source - centre
 
         def _residuals(p):
+            """Residuals of the rotation (theta, in radians) + translation model, flattened."""
             theta, tx, ty = p
 
             c = np.cos(theta)
@@ -2729,7 +2786,9 @@ class PointSources(AligmentMethod):
             covariance,
         )
 
-    def fit_translation(self, source, target, p0=[0.0, 0.0], loss="linear", f_scale=1.0):
+    def fit_translation(
+        self, source, target, p0=[0.0, 0.0], loss="linear", f_scale=1.0
+    ):
         # TODO: mostly taken from ChatGPT, seems correct but check! (K.V.)
         """
         Fit translation (fixed rotation counterpart to `fit_euclidean_transform`).
@@ -2762,6 +2821,7 @@ class PointSources(AligmentMethod):
         target = np.asarray(target, dtype=float)
 
         def _residuals(p):
+            """Residuals of the translation-only model, flattened."""
             tx, ty = p
 
             prediction = source + np.array([tx, ty])
@@ -2920,9 +2980,7 @@ class PointSources(AligmentMethod):
 
             residuals = target - (rotated_all + offset)
 
-            threshold, _ = self._outlier_threshold(
-                residuals[good_mask], n_parameters=2
-            )
+            threshold, _ = self._outlier_threshold(residuals[good_mask], n_parameters=2)
 
             new_good_mask = np.linalg.norm(residuals, axis=1) <= threshold
 
@@ -2962,6 +3020,7 @@ class PointSources(AligmentMethod):
     )  # class-level, captured once at import time
 
     def _seeded_default_rng(self, *args, **kwargs):
+        """np.random.default_rng that always uses seed 42, so astroalign gives reproducible results."""
         return PointSources._original_default_rng(42)
 
     # ------------------------------------------------------------------
@@ -3037,11 +3096,10 @@ class PointSources(AligmentMethod):
         ax_res, ax_scatter, ax_hist = axes[1]
 
         def _show(ax, frame, title, alpha=1.0):
+            """Show `frame` on `ax` with percentile display limits."""
             data = np.ma.filled(np.ma.asarray(frame, dtype=float), np.nan)
             finite = data[np.isfinite(data)]
-            vmin, vmax = (
-                np.percentile(finite, [5, 99]) if len(finite) else (0.0, 1.0)
-            )
+            vmin, vmax = np.percentile(finite, [5, 99]) if len(finite) else (0.0, 1.0)
             ax.imshow(
                 data,
                 cmap="gray",
@@ -3056,6 +3114,7 @@ class PointSources(AligmentMethod):
             ax.set_ylabel("y [px]")
 
         def _mark(ax, positions):
+            """Mark the accepted (and rejected) sources at `positions` on `ax`."""
             ax.scatter(
                 positions[good_mask, 0],
                 positions[good_mask, 1],
@@ -3063,7 +3122,9 @@ class PointSources(AligmentMethod):
                 facecolors="none",
                 edgecolors="cyan",
                 linewidths=1.2,
-                label=f"accepted ({int(good_mask.sum())})" if fitted else f"matched ({n})",
+                label=(
+                    f"accepted ({int(good_mask.sum())})" if fitted else f"matched ({n})"
+                ),
             )
             if fitted and bad_mask.any():
                 ax.scatter(
@@ -3083,7 +3144,9 @@ class PointSources(AligmentMethod):
                     textcoords="offset points",
                     fontsize=9,
                     color="red" if (fitted and bad_mask[k]) else "yellow",
-                    bbox=dict(boxstyle="round,pad=0.1", fc="black", ec="none", alpha=0.6),
+                    bbox=dict(
+                        boxstyle="round,pad=0.1", fc="black", ec="none", alpha=0.6
+                    ),
                 )
             ax.legend(loc="lower right", fontsize=8)
 
@@ -3107,8 +3170,16 @@ class PointSources(AligmentMethod):
             displacement[good_mask], spacing
         )
         self._draw_flow_quiver(
-            ax_disp, fig, target_list, displacement, good_mask, spacing,
-            magnification, reference, "|displacement| [px]", width=0.006,
+            ax_disp,
+            fig,
+            target_list,
+            displacement,
+            good_mask,
+            spacing,
+            magnification,
+            reference,
+            "|displacement| [px]",
+            width=0.006,
         )
         ax_disp.scatter(target_list[:, 0], target_list[:, 1], s=8, color="white")
         if fitted and bad_mask.any():
@@ -3134,20 +3205,35 @@ class PointSources(AligmentMethod):
             for ax in (ax_res, ax_scatter, ax_hist):
                 ax.axis("off")
                 ax.text(
-                    0.5, 0.5, "no fit", ha="center", va="center", fontsize=16,
+                    0.5,
+                    0.5,
+                    "no fit",
+                    ha="center",
+                    va="center",
+                    fontsize=16,
                     transform=ax.transAxes,
                 )
         else:
             lengths = np.linalg.norm(residuals, axis=1)
             good_lengths = lengths[good_mask]
-            rms = float(np.sqrt(np.mean(good_lengths**2))) if good_mask.any() else np.nan
+            rms = (
+                float(np.sqrt(np.mean(good_lengths**2))) if good_mask.any() else np.nan
+            )
 
             # ---- 4) residual arrows ----------------------------------------
             _show(ax_res, reference_frame, "", alpha=0.6)
             res_mag, res_ref = self._arrow_magnification(residuals[good_mask], spacing)
             self._draw_flow_quiver(
-                ax_res, fig, target_list, residuals, good_mask, spacing,
-                res_mag, res_ref, "|residual| [px]", width=0.006,
+                ax_res,
+                fig,
+                target_list,
+                residuals,
+                good_mask,
+                spacing,
+                res_mag,
+                res_ref,
+                "|residual| [px]",
+                width=0.006,
             )
             ax_res.scatter(target_list[:, 0], target_list[:, 1], s=8, color="white")
             if bad_mask.any():
@@ -3155,7 +3241,9 @@ class PointSources(AligmentMethod):
                 clip = 2 * 1.5 * spacing
                 drawn = residuals[bad_mask] * res_mag
                 drawn_len = np.linalg.norm(drawn, axis=1)
-                scale = np.where(drawn_len > clip, clip / np.maximum(drawn_len, 1e-12), 1.0)
+                scale = np.where(
+                    drawn_len > clip, clip / np.maximum(drawn_len, 1e-12), 1.0
+                )
                 drawn = drawn * scale[:, None]
                 ax_res.quiver(
                     target_list[bad_mask, 0],
@@ -3201,9 +3289,10 @@ class PointSources(AligmentMethod):
                         label=f"rejected ({int(on_scale.sum())})",
                     )
                 if off_scale.any():
-                    edge = residuals[off_scale] * (
-                        0.97 * limit / lengths[off_scale]
-                    )[:, None]
+                    edge = (
+                        residuals[off_scale]
+                        * (0.97 * limit / lengths[off_scale])[:, None]
+                    )
                     ax_scatter.scatter(
                         edge[:, 0],
                         edge[:, 1],
@@ -3219,14 +3308,21 @@ class PointSources(AligmentMethod):
                 for k in np.flatnonzero(bad_mask):
                     xy = residuals[k] * min(1.0, 0.97 * limit / max(lengths[k], 1e-12))
                     ax_scatter.annotate(
-                        str(k), xy, xytext=(5, 5), textcoords="offset points",
-                        fontsize=7, color="red",
+                        str(k),
+                        xy,
+                        xytext=(5, 5),
+                        textcoords="offset points",
+                        fontsize=7,
+                        color="red",
                     )
 
             if threshold is not None:
                 ax_scatter.add_patch(
                     plt.Circle(
-                        (0, 0), threshold, fill=False, color="yellow",
+                        (0, 0),
+                        threshold,
+                        fill=False,
+                        color="yellow",
                         linestyle="--",
                         label=f"threshold {threshold:.3f} px",
                     )
@@ -3234,7 +3330,11 @@ class PointSources(AligmentMethod):
             if sigma is not None and np.isfinite(sigma):
                 ax_scatter.add_patch(
                     plt.Circle(
-                        (0, 0), sigma, fill=False, color="white", linestyle=":",
+                        (0, 0),
+                        sigma,
+                        fill=False,
+                        color="white",
+                        linestyle=":",
                         label=f"1 sigma ({sigma:.3f} px per axis)",
                     )
                 )
@@ -3274,7 +3374,9 @@ class PointSources(AligmentMethod):
                 )
             if threshold is not None:
                 ax_hist.axvline(
-                    threshold, color="yellow", linestyle="--",
+                    threshold,
+                    color="yellow",
+                    linestyle="--",
                     label=f"threshold {threshold:.3f} px",
                 )
             ax_hist.set_xlabel("|residual| [px]")
@@ -3289,14 +3391,11 @@ class PointSources(AligmentMethod):
             f" (astroalign, {match_info})" if match_info else ""
         )
         if fitted:
-            title += (
-                f", {int(good_mask.sum())} accepted, {int(bad_mask.sum())} rejected"
-                + (
-                    f" (threshold {threshold:.3f} px = {self.outlier_sigma:g} sigma, "
-                    f"limits [{self.outlier_threshold_min:g}, {self.outlier_threshold:g}] px)"
-                    if threshold is not None
-                    else ""
-                )
+            title += f", {int(good_mask.sum())} accepted, {int(bad_mask.sum())} rejected" + (
+                f" (threshold {threshold:.3f} px = {self.outlier_sigma:g} sigma, "
+                f"limits [{self.outlier_threshold_min:g}, {self.outlier_threshold:g}] px)"
+                if threshold is not None
+                else ""
             )
 
         if failed_reason is not None:
@@ -3535,7 +3634,6 @@ class PointSources(AligmentMethod):
 
         return None
 
-
     def run(
         self,
         reference_frame,
@@ -3710,6 +3808,7 @@ class PointSources(AligmentMethod):
         # ------------------------------------------------------------------
 
         def _sources_QA(**plot_kwargs):
+            """Make the point source QA plot, if QA is requested."""
             if save_QA or show_QA:
                 self.plot_point_sources(
                     reference_frame,
@@ -3773,6 +3872,7 @@ class PointSources(AligmentMethod):
         if scan_for_angles:
 
             def _evaluate_angle(angle):
+                """Angle scan metric at `angle`, with the translation fitted to the matched sources (NaN if the fit fails)."""
                 translation = self._fit_translation_at_angle(
                     source_list,
                     target_list,
@@ -3935,9 +4035,7 @@ class PointSources(AligmentMethod):
                 residuals_all[good_mask], n_parameters=n_parameters
             )
 
-            new_good_mask = (
-                np.linalg.norm(residuals_all, axis=1) <= rejection_threshold
-            )
+            new_good_mask = np.linalg.norm(residuals_all, axis=1) <= rejection_threshold
 
             rejected_indices = np.flatnonzero(good_mask & ~new_good_mask)
             readmitted_indices = np.flatnonzero(~good_mask & new_good_mask)
@@ -4134,6 +4232,17 @@ class PointSources(AligmentMethod):
 
 
 class FFT(AligmentMethod):
+    """
+    Alignment with phase correlation (FFT).
+
+    The frames are band-passed with a difference of Gaussians over a range of
+    filter scales (sigmas), and the translation is measured by phase correlation,
+    with a known control offset as a self-check. A translation is accepted when
+    several consecutive sigmas agree, the control offset is recovered within
+    `control_tol`, and the peak is similar in SNR and shape to the control peak.
+    The rotation comes from the direct estimator (`estimate_rotation_fixed_scale`)
+    or from the angle scan.
+    """
 
     def __init__(
         self,
@@ -4144,11 +4253,11 @@ class FFT(AligmentMethod):
         sigma_start=0.6,
         sigma_end=16,
         sigma_num=126,
-        angle_scan_start = -1,
-        angle_scan_end = 1,
-        angle_scan_steps = 100,
+        angle_scan_start=-1,
+        angle_scan_end=1,
+        angle_scan_steps=100,
         ternary_eps=0.2,
-        window_compare_size = 100,
+        window_compare_size=100,
         fine_scan_halfwidth=0.15,
         fine_scan_points=25,
         fit_outlier_sigma=1.5,
@@ -4547,7 +4656,9 @@ class FFT(AligmentMethod):
         capped at half the control offset, so the fit region never reaches the
         zero-lag artefacts.
         """
-        cap = max(2, int(np.floor(min(abs(control_offset[0]), abs(control_offset[1])) / 2)))
+        cap = max(
+            2, int(np.floor(min(abs(control_offset[0]), abs(control_offset[1])) / 2))
+        )
 
         return int(np.clip(np.ceil(1.5 * sigma), 2, cap))
 
@@ -4610,9 +4721,17 @@ class FFT(AligmentMethod):
 
         p0 = [1.0, peak[0], peak[1], sigma0, sigma0, 0.0]
         lower = [0.0, peak[0] - 1.5, peak[1] - 1.5, 0.1, 0.1, -np.pi]
-        upper = [np.inf, peak[0] + 1.5, peak[1] + 1.5, 4.0 * halfwidth, 4.0 * halfwidth, np.pi]
+        upper = [
+            np.inf,
+            peak[0] + 1.5,
+            peak[1] + 1.5,
+            4.0 * halfwidth,
+            4.0 * halfwidth,
+            np.pi,
+        ]
 
         def _residuals(params):
+            """Residuals of the elliptical Gaussian model, flattened."""
             return (self._elliptical_gaussian(params, x, y) - z).ravel()
 
         try:
@@ -4688,6 +4807,7 @@ class FFT(AligmentMethod):
         Xs = X / scale
 
         def neg_c(t):
+            """Negative band-limited correlation at shift t and its gradient (for the minimiser)."""
             ey = np.exp(2j * np.pi * ky * t[1])
             ex = np.exp(2j * np.pi * kx * t[0])
             v = ey @ Xs @ ex
@@ -4884,6 +5004,7 @@ class FFT(AligmentMethod):
         fwhm_factor = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
         def _fwhm_ellipse(fit, centre, color, label):
+            """FWHM ellipse of a peak fit, for drawing."""
             return Ellipse(
                 xy=centre,
                 width=fwhm_factor * fit["sigma_major"],
@@ -4896,6 +5017,7 @@ class FFT(AligmentMethod):
             )
 
         def _draw_peak(ax, peak_data, title):
+            """Draw a correlation peak with its expected position and the fitted FWHM ellipses."""
             image = ax.imshow(
                 peak_data["corr"],
                 origin="lower",
@@ -4934,9 +5056,7 @@ class FFT(AligmentMethod):
             fit = peak_data.get("fit")
             if fit is not None and fit["success"]:
                 ax.add_patch(
-                    _fwhm_ellipse(
-                        fit, (fit["x0"], fit["y0"]), "magenta", "Fitted FWHM"
-                    )
+                    _fwhm_ellipse(fit, (fit["x0"], fit["y0"]), "magenta", "Fitted FWHM")
                 )
             ax.set_title(title)
             ax.set_xlabel("X lag (pixels)")
@@ -5272,7 +5392,9 @@ class FFT(AligmentMethod):
                           (`_log_translation_rejections`).
         """
         if n_agree < 2:
-            raise ValueError("n_agree must be >= 2: the std with ddof=1 needs two points")
+            raise ValueError(
+                "n_agree must be >= 2: the std with ddof=1 needs two points"
+            )
 
         # we take copies before we start altering the frames
         reference = reference.copy()
@@ -5396,11 +5518,20 @@ class FFT(AligmentMethod):
                 ("main peak outside the guess region", in_region),
                 ("main peak refinement failed", ok_m_all),
                 ("control peak refinement failed", bool(ok_c)),
-                ("control offset not recovered", bool(np.all(np.abs(tc - c_vec) < ctrl_tol))),
+                (
+                    "control offset not recovered",
+                    bool(np.all(np.abs(tc - c_vec) < ctrl_tol)),
+                ),
                 (f"snr_main <= {snr_min:g}", bool(snr_m > snr_min)),
                 (f"snr_ctrl <= {snr_min:g}", bool(snr_c > snr_min)),
-                (f"window not settled (> {window_tol:g} px)", bool(win_delta <= window_tol)),
-                (f"snr_main / snr_ctrl < {snr_ratio_min:g}", bool(snr_ratio >= snr_ratio_min)),
+                (
+                    f"window not settled (> {window_tol:g} px)",
+                    bool(win_delta <= window_tol),
+                ),
+                (
+                    f"snr_main / snr_ctrl < {snr_ratio_min:g}",
+                    bool(snr_ratio >= snr_ratio_min),
+                ),
                 (f"peak shape deviation > {shape_tol:g}", bool(shape_dev <= shape_tol)),
             )
             failed_criteria = [name for name, passed in criteria if not passed]
@@ -5527,7 +5658,9 @@ class FFT(AligmentMethod):
 
         return result
 
-    def _log_translation_rejections(self, rejections, table, n_agree, agree_tol, obs_name):
+    def _log_translation_rejections(
+        self, rejections, table, n_agree, agree_tol, obs_name
+    ):
         """
         Log why `estimate_translation` found no translation: how many sigmas
         failed each acceptance criterion, and the criteria failed per sigma.
@@ -5552,7 +5685,11 @@ class FFT(AligmentMethod):
             eps = table[k, 5:7] if k < len(table) else (np.nan, np.nan)
             lines.append(
                 f"  sigma {sigma:.3f}: eps = ({eps[0]:.3f}, {eps[1]:.3f}) px, "
-                + ("accepted" if len(failed) == 0 else "rejected - " + "; ".join(failed))
+                + (
+                    "accepted"
+                    if len(failed) == 0
+                    else "rejected - " + "; ".join(failed)
+                )
             )
 
         if n_accepted >= n_agree:
@@ -5761,6 +5898,7 @@ class FFT(AligmentMethod):
             obs_name=None,
             sigmas=None,
         ):
+            """FFT translation estimate with the settings of this run (sigma grid, control offset, initial guess)."""
             return self.estimate_translation(
                 reference,
                 rotated_input,
@@ -5791,9 +5929,7 @@ class FFT(AligmentMethod):
         if skip_rotation_estimation:
 
             if self.logger:
-                self.logger.info(
-                    "Skipping rotation estimation as per user request."
-                )
+                self.logger.info("Skipping rotation estimation as per user request.")
 
             rot = 0.0
             rot_err = 0.0
@@ -5923,6 +6059,7 @@ class FFT(AligmentMethod):
                     return self.FAILED_RETURN
 
             def _evaluate_angle(angle, sigmas):
+                """Angle scan metric at `angle`, with the FFT translation of the rotated input over `sigmas`."""
                 diff, result = self._scan_difference_metric(
                     reference_frame_backup,
                     input_frame_backup,
@@ -6080,9 +6217,7 @@ class FFT(AligmentMethod):
                 reference_frame_backup,
                 input_frame_backup,
                 extra_rotation=self.extra_rotation,
-                sigmas=np.geomspace(
-                    self.sigma_start, self.sigma_end, self.sigma_num
-                ),
+                sigmas=np.geomspace(self.sigma_start, self.sigma_end, self.sigma_num),
                 ratio=1.6,
                 ctrl_tol=self.control_tol,
                 snr_min=10.0,
@@ -6182,9 +6317,8 @@ class FFT(AligmentMethod):
         input_frame = input_frame_backup
 
         rotated_input_frame = rotate(
-                        input_frame, rot, reshape=False, order=3, cval=median
-                    )
-        
+            input_frame, rot, reshape=False, order=3, cval=median
+        )
 
         # Only the final translation estimate gets the peak QA plot; the many
         # calls made during the angle scans use the default save_QA=False.
@@ -6197,7 +6331,7 @@ class FFT(AligmentMethod):
         )
         self._last_translation_result = result
 
-        if  not result["success"]:
+        if not result["success"]:
             if self.logger:
                 self.logger.warning(
                     f"Failed FFT aligment for {obs_name}: final translation "
@@ -6211,7 +6345,7 @@ class FFT(AligmentMethod):
             self._last_failure_stage = "translation"
             return self.FAILED_RETURN
 
-        self.plot_translation_progression(result, obs_name, show = show_QA)
+        self.plot_translation_progression(result, obs_name, show=show_QA)
 
         tx, ty = result["shift"]
         tx_err, ty_err = result["shift_err"]
@@ -6506,8 +6640,8 @@ class OpticalFlow(AligmentMethod):
 
         border = float(op.filter_params.get("remove_boundary_pixels", 0))
 
-        y_sparse, x_sparse, v_sparse, u_sparse = spacepylot_utils.get_sparse_vector_grid(
-            op.v, op.u, self.num_per_dimension
+        y_sparse, x_sparse, v_sparse, u_sparse = (
+            spacepylot_utils.get_sparse_vector_grid(op.v, op.u, self.num_per_dimension)
         )
 
         src = np.column_stack([np.ravel(x_sparse), np.ravel(y_sparse)]) + border
@@ -6524,6 +6658,7 @@ class OpticalFlow(AligmentMethod):
             return None
 
         def residuals(params):
+            """Distance between the moved source points and the targets for a transform matrix (inf where not finite)."""
             res = np.full(len(src), np.inf)
             moved = src[finite] @ params[:2, :2].T + params[:2, 2]
             res[finite] = np.linalg.norm(moved - dst[finite], axis=1)
@@ -6545,7 +6680,8 @@ class OpticalFlow(AligmentMethod):
         else:
             median_flow = np.median(dst[finite] - src[finite], axis=0)
             inliers = finite & (
-                np.linalg.norm(dst - src - median_flow, axis=1) < self.residual_threshold
+                np.linalg.norm(dst - src - median_flow, axis=1)
+                < self.residual_threshold
             )
 
         # 3) refine with least squares and an adaptive threshold until the
@@ -6842,7 +6978,11 @@ class OpticalFlow(AligmentMethod):
                     f"conservative fallback errors (residual scatter "
                     f"{sigma:.3f} px / sqrt({n_independent} tiles)): tx_err = "
                     f"ty_err = {fallback_t_err:.4f} px"
-                    + (f", rot_err = {fallback_rot_err:.5f} degrees" if rotation else "")
+                    + (
+                        f", rot_err = {fallback_rot_err:.5f} degrees"
+                        if rotation
+                        else ""
+                    )
                     + "."
                 )
             return fail
@@ -6992,6 +7132,7 @@ class OpticalFlow(AligmentMethod):
         vmin, vmax = np.nanpercentile(reference_frame, [5, 95])
 
         def _background(ax):
+            """Draw the reference frame as a faint background on `ax`."""
             ax.imshow(
                 reference_frame,
                 cmap="gray",
@@ -7012,7 +7153,14 @@ class OpticalFlow(AligmentMethod):
 
         _background(ax_flow)
         self._draw_flow_quiver(
-            ax_flow, fig, src, flow, sub, spacing, magnification, reference,
+            ax_flow,
+            fig,
+            src,
+            flow,
+            sub,
+            spacing,
+            magnification,
+            reference,
             "|flow| [px]",
         )
 
@@ -7056,8 +7204,15 @@ class OpticalFlow(AligmentMethod):
             sub_all, _ = self._quiver_subsample(src, finite)
             _background(ax_model)
             self._draw_flow_quiver(
-                ax_model, fig, src, model_flow, sub_all, spacing, magnification,
-                reference, "|model flow| [px]",
+                ax_model,
+                fig,
+                src,
+                model_flow,
+                sub_all,
+                spacing,
+                magnification,
+                reference,
+                "|model flow| [px]",
             )
             ax_model.set_title(
                 f"Fitted rigid model flow (reference -> input), arrows "
@@ -7071,7 +7226,14 @@ class OpticalFlow(AligmentMethod):
 
             _background(ax_res)
             self._draw_flow_quiver(
-                ax_res, fig, src, residual, sub, spacing, res_mag, res_ref,
+                ax_res,
+                fig,
+                src,
+                residual,
+                sub,
+                spacing,
+                res_mag,
+                res_ref,
                 "|residual| [px]",
             )
             if np.any(finite & ~inliers):
@@ -7302,6 +7464,7 @@ class OpticalFlow(AligmentMethod):
         self._last_flow = None
 
         def _flow_QA(fit, **plot_kwargs):
+            """Make the flow field QA plot, if QA is requested."""
             # flow field QA plot (successful alignments only; a failed
             # alignment only gets the failed difference image)
             if save_QA or show_QA:
@@ -7318,11 +7481,13 @@ class OpticalFlow(AligmentMethod):
         # spacepylot only computes the flow field, the transform is fitted by
         # `fit_flow_transform` (see there for why)
         def _fit(frame, rotation):
+            """Flow fit of `frame` to the reference, with or without rotation."""
             return self._single_flow_fit(reference_frame, frame, rotation)
 
         if scan_for_angles:
 
             def _translation_only(rotated_input):
+                """Translation estimate for the angle scan: a flow fit without rotation."""
                 fit = _fit(rotated_input, rotation=False)
 
                 if fit is None:
@@ -7337,6 +7502,7 @@ class OpticalFlow(AligmentMethod):
                 )
 
             def _evaluate_angle(angle):
+                """Angle scan metric at `angle`, with the optical flow translation."""
                 diff, _ = self._scan_difference_metric(
                     reference_frame,
                     input_frame,

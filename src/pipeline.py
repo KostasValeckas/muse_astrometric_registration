@@ -1,3 +1,9 @@
+"""
+Alignment pipeline: aligns every dither of every pointing to the reference with
+one alignment method, checks the results for consistency, recovers failed
+alignments through the other dithers, and writes the output table and QA plots.
+"""
+
 from logger import get_logger, format_elapsed, log_run_environment, peak_memory_mb
 
 import time
@@ -239,6 +245,7 @@ def _display_limits(image, lo=5, hi=95):
 
 
 def _dither_tick_labels(n):
+    """Axis labels for n dithers (short form for more than 6)."""
     return [f"Dither {i + 1}" if n <= 6 else f"D{i + 1}" for i in range(n)]
 
 
@@ -688,7 +695,9 @@ class AlignmentPipeline:
                     # the inverse of a rotation about the centre is not (-tx, -ty, -rot)
                     centre = _image_centre(shape)
                     T = transformation_matrix(tx, ty, rot, centre)
-                    tx, ty, rot = matrix_to_parameters(inverse_transformation(T), centre)
+                    tx, ty, rot = matrix_to_parameters(
+                        inverse_transformation(T), centre
+                    )
 
             if not np.all(np.isfinite([tx, ty, rot])):
                 continue
@@ -890,6 +899,7 @@ class AlignmentPipeline:
         long_labels = n_dithers <= 8
 
         def status_text(v):
+            """Cell text for a status code in the dither status matrix."""
             if v == NOT_ATTEMPTED:
                 return "NOT RUN" if long_labels else "-"
             if v == 0:
@@ -901,6 +911,7 @@ class AlignmentPipeline:
             return "OK"
 
         def number(v):
+            """Cell text for a number in the dither matrices."""
             return f"{v:.3f}"
 
         _draw_dither_matrix(
@@ -1110,9 +1121,7 @@ class AlignmentPipeline:
         )
 
         for prefix, header, table in zip(prefixes, headers, tables):
-            filename = (
-                f"{prefix}_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
-            )
+            filename = f"{prefix}_dither_table_{str(obs_name)}_{self.aligner.name}.csv"
             np.savetxt(
                 pathlib.Path(self.output_dir) / filename,
                 table,
@@ -1283,9 +1292,11 @@ class AlignmentPipeline:
             links = {}
 
             def key(a, b):
+                """Key of the link between dithers a and b, independent of the direction."""
                 return (min(a, b), max(a, b))
 
             def link(a, b):
+                """Align the link a - b (both directions, verified) once, and return the cached result."""
                 if key(a, b) not in links:
                     links[key(a, b)] = self._verified_dither_link(
                         a, b, dither_set, wcs_set, method, obs_name, tables, shape
@@ -1293,9 +1304,11 @@ class AlignmentPipeline:
                 return links[key(a, b)]
 
             def path_links(path):
+                """Consecutive dither pairs along a path."""
                 return list(zip(path[:-1], path[1:]))
 
             def path_order(path):
+                """Sort key for candidate paths: fewest links not aligned yet, then best guess score, then the path itself."""
                 pairs = path_links(path)
                 untested = sum(key(a, b) not in links for a, b in pairs)
                 score = sum(self._guess_link_score(obs_name, a, b) for a, b in pairs)
@@ -1305,9 +1318,7 @@ class AlignmentPipeline:
 
                 # possible intermediate dithers: a path through another anchor
                 # contains a shorter path from that anchor, tried before
-                others = [
-                    k for k in range(n_dithers) if k != goal and k not in anchors
-                ]
+                others = [k for k in range(n_dithers) if k != goal and k not in anchors]
                 found = None
 
                 # number of intermediate dithers on the path
@@ -1433,6 +1444,7 @@ class AlignmentPipeline:
         # measurements (a mirrored direct measurement is a path of length one)
 
         def is_link(a, b):
+            """True if dithers a and b are joined by a direct, consistent measurement."""
             return self._is_direct_dither_link(succes_table, a, b)
 
         for i in range(n_dithers):
@@ -1597,6 +1609,7 @@ class AlignmentPipeline:
             )
 
         def panel_axes(k):
+            """Image axes and plot axes of panel k in the QA figure."""
             block, col = divmod(k, n_cols)
             return axes[2 * block, col], axes[2 * block + 1, col]
 
@@ -1718,6 +1731,7 @@ class AlignmentPipeline:
         ref_ax.tick_params(labelbottom=False, labelleft=False)
 
         def _short_status(s):
+            """Short label for a status code."""
             if s == 1:
                 return "OK"
             if s == 0.5:
@@ -2021,6 +2035,7 @@ class AlignmentPipeline:
         anchors = [k for k in range(n) if st[k][6] == 1]
 
         def is_link(a, b):
+            """True if dithers a and b are joined by a direct, consistent measurement."""
             return self._is_direct_dither_link(success_table, a, b)
 
         for i in list(pending):
@@ -2149,7 +2164,7 @@ class AlignmentPipeline:
                 f"'Unexpected error')."
             )
 
-    def run(self, skip_dithers = False):
+    def run(self, skip_dithers=False):
         """
         Run the alignment pipeline.
 
@@ -2179,7 +2194,7 @@ class AlignmentPipeline:
             f"execution time: {format_elapsed(time.perf_counter() - start_time)}"
         )
 
-    def _run(self, skip_dithers = False):
+    def _run(self, skip_dithers=False):
         """
         The alignment pipeline itself, see `run`.
         """
@@ -2323,7 +2338,10 @@ class AlignmentPipeline:
                         rotation_error_table,
                         success_table,
                     ) = self.align_dithers(
-                        dither_frame_arrays, dither_frame_wcs, self.aligner, obs_name=pointing
+                        dither_frame_arrays,
+                        dither_frame_wcs,
+                        self.aligner,
+                        obs_name=pointing,
                     )
 
                 # targeted mode: the dither tables are filled after the science
@@ -2363,8 +2381,10 @@ class AlignmentPipeline:
 
                 # also crop the same edges as the dither frames to ensure consistency
                 reprojected_reference_frame = reprojected_reference_frame[
-                    edge_cut_value : reprojected_reference_frame.shape[0] - edge_cut_value,
-                    edge_cut_value : reprojected_reference_frame.shape[1] - edge_cut_value,
+                    edge_cut_value : reprojected_reference_frame.shape[0]
+                    - edge_cut_value,
+                    edge_cut_value : reprojected_reference_frame.shape[1]
+                    - edge_cut_value,
                 ]
 
                 # keep this for plotting later
@@ -2410,7 +2430,12 @@ class AlignmentPipeline:
 
                     self.aligner.QA_path = QA_dir_science
 
-                dither_tables[pointing] = (x_table, y_table, rotation_table, success_table)
+                dither_tables[pointing] = (
+                    x_table,
+                    y_table,
+                    rotation_table,
+                    success_table,
+                )
 
                 # 2) extrapolate: recover failed / inconsistent entries by composing
                 #    transformations through other dithers
@@ -2536,7 +2561,9 @@ class AlignmentPipeline:
                     )
 
                     # unpack the values and append
-                    output_table.append(tuple(value for _, value in table_entry.items()))
+                    output_table.append(
+                        tuple(value for _, value in table_entry.items())
+                    )
 
             except Exception:
                 self.logger.exception(
@@ -2560,7 +2587,6 @@ class AlignmentPipeline:
                 f"{format_elapsed(time.perf_counter() - pointing_start_time)}, "
                 f"peak memory so far {peak_memory_mb():.0f} MB"
             )
-
 
         # write the final results to a FITS table
         write_final_results(
