@@ -1,8 +1,9 @@
 # muse_astrometric_registration
 
-### DEVELOPMENT GROUNDS ###
+This repository holds code for a Python pipeline that can be used to perform astrometric registration on astronomical images. Currently configured to support frames from MUSE. This code is developed under the ESO SSDF1-26C project.
 
-# KEEP PRIVATE #
+### Currently in open-beta state - functionality not fully tested
+
 
 # Installation
 
@@ -19,7 +20,7 @@ git submodule update --init --recursive
 
 ```
 
-The submodule link is setup to use https, so if you want to use ssh instead, you can change the link in the ```.gitmodules``` file.
+The submodule link is set up to use https, so if you want to use ssh instead, you can change the link in the ```.gitmodules``` file.
 
 -------------------------
 
@@ -142,9 +143,10 @@ From experience, for some datasets, the headers might differ. The following flag
 
 ```
 
-Furthermore, these flags can specify output filename, and two more headers that are used 
+Furthermore, these flags can specify the output directory and filename, and two more headers that are used 
 for the output table of the pipeline (not needed for initial sorting):
 
+```
   --output_dir OUTPUT_DIR
                         Directory to save the results. Default is current working directory.
   --output_filename OUTPUT_FILENAME
@@ -153,8 +155,7 @@ for the output table of the pipeline (not needed for initial sorting):
                         Keyword for the observation MJD. Default is 'MJD-OBS'.
   --tpl_start_keyword TPL_START_KEYWORD
                         Keyword for the template start. Default is 'HIERARCH ESO TPL START'.
-
-
+```
 
 ------------------------------------------------------------------------------
 
@@ -250,11 +251,11 @@ points are recomputed in every pass, so a rejected point can come back.
   loss, so mismatches do not set the first threshold. An alignment needs at least
   5 accepted sources to count as successful; if astroalign finds fewer matches, its
   settings are loosened step by step before giving up.
-* ```FFT``` - phase correlation on band-passed (difference of gaussians) frames, over
+* ```FFT``` - phase correlation on band-passed (difference of Gaussians) frames, over
   a range of filter scales (sigmas), with a known control offset as a self-check. A
   translation is accepted when several consecutive sigmas agree, the control offset is
   recovered (```control_tol```, 0.05 px), and the peak has at least 90% of the control
-  peak SNR and a similar shape (elliptical gaussian fits, shown in the
+  peak SNR and a similar shape (elliptical Gaussian fits, shown in the
   ```translation_peak_*.png``` QA plots). With an initial guess, the peak is only
   searched within +/- 1 px of it.
 
@@ -454,8 +455,8 @@ Every run (and every method directory of a hybrid run) contains:
   ```success_dither_table_{pointing}_{method}.csv``` - the dither-to-dither
   tables (```table[a, b]``` is the alignment of dither a -> dither b). These are
   also what the hybrid run reads for the initial guesses.
-* ```aligment_QA/dithers```, ```aligment_QA/science``` and ```aligment_QA/combined```
-  - the QA plots: difference images (also for failed, mirrored and composed
+* ```aligment_QA/dithers```, ```aligment_QA/science``` and ```aligment_QA/combined``` -
+  the QA plots: difference images (also for failed, mirrored and composed
   alignments), angle scans, FFT peak and progression plots, optical flow fields, point source matches,
   and a one-page report per pointing. A failed alignment only gets its failed
   difference image (```failed_aligment_*.png```): the other QA plots of an alignment
@@ -470,9 +471,5 @@ Every run (and every method directory of a hybrid run) contains:
 
 ------------------------------------------------------------------------------
 
-
-### Repository structure
-
-![Alignment Repository Sketch](./docs/alignment_repo_sketch.png)
 
 

@@ -1,9 +1,119 @@
 {
+    "1": [
+        [
+            1,
+            "2023-05-14T04:04:43.794",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2023-05-14T04:04:24_0001.fits"
+        ],
+        [
+            2,
+            "2023-05-14T04:19:34.410",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2023-05-14T04:04:24_0002.fits"
+        ],
+        [
+            3,
+            "2023-05-14T04:30:57.661",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2023-05-14T04:04:24_0003.fits"
+        ],
+        [
+            4,
+            "2023-05-14T04:45:48.157",
+            "IMAGE_FOV_prealign_OB001_LEGACY_R_2023-05-14T04:04:24_0004.fits"
+        ]
+    ],
+    "2": [
+        [
+            1,
+            "2023-05-16T04:43:45.099",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2023-05-16T04:43:27_0001.fits"
+        ],
+        [
+            2,
+            "2023-05-16T04:58:32.056",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2023-05-16T04:43:27_0002.fits"
+        ],
+        [
+            3,
+            "2023-05-16T05:09:53.155",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2023-05-16T04:43:27_0003.fits"
+        ],
+        [
+            4,
+            "2023-05-16T05:24:39.310",
+            "IMAGE_FOV_prealign_OB002_LEGACY_R_2023-05-16T04:43:27_0004.fits"
+        ]
+    ],
+    "3": [
+        [
+            1,
+            "2023-04-19T07:17:54.077",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2023-04-19T07:17:36_0001.fits"
+        ],
+        [
+            2,
+            "2023-04-19T07:32:41.158",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2023-04-19T07:17:36_0002.fits"
+        ],
+        [
+            3,
+            "2023-04-19T07:44:01.560",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2023-04-19T07:17:36_0003.fits"
+        ],
+        [
+            4,
+            "2023-04-19T07:58:49.345",
+            "IMAGE_FOV_prealign_OB003_LEGACY_R_2023-04-19T07:17:36_0004.fits"
+        ]
+    ],
+    "4": [
+        [
+            1,
+            "2023-05-21T04:25:34.326",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2023-05-21T04:25:14_0001.fits"
+        ],
+        [
+            2,
+            "2023-05-21T04:40:26.157",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2023-05-21T04:25:14_0002.fits"
+        ],
+        [
+            3,
+            "2023-05-21T04:51:47.763",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2023-05-21T04:25:14_0003.fits"
+        ],
+        [
+            4,
+            "2023-05-21T05:06:38.960",
+            "IMAGE_FOV_prealign_OB004_LEGACY_R_2023-05-21T04:25:14_0004.fits"
+        ]
+    ],
+    "5": [
+        [
+            1,
+            "2023-04-01T07:27:18.716",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-04-01T07:26:59_0001.fits"
+        ],
+        [
+            2,
+            "2023-04-01T07:42:29.522",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-04-01T07:26:59_0002.fits"
+        ],
+        [
+            3,
+            "2023-04-01T07:53:53.305",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-04-01T07:26:59_0003.fits"
+        ],
+        [
+            4,
+            "2023-04-01T08:09:02.723",
+            "IMAGE_FOV_prealign_OB005_LEGACY_R_2023-04-01T07:26:59_0004.fits"
+        ]
+    ],
     "headers": {
         "date_keyword": "DATE-OBS",
         "mjd_keyword": "MJD-OBS",
         "tpl_start_keyword": "HIERARCH ESO TPL START",
         "exp_keyword": "HIERARCH MUSEPIPE_IEXPO",
-        "pointing_keyword": "HIERARCH MUSEPIPE_POINTING"
+        "pointing_keyword": "MUSEPIPE_DATASET"
     }
 }
