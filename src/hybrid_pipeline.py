@@ -343,6 +343,15 @@ if __name__ == "__main__":
             f"alignments. Default is '{default}'.",
         )
 
+    parser.add_argument(
+        "--pymusepipe_filter",
+        type=str,
+        default="WFI_BB",
+        help="Filter of the images, for pymusepipe's unit conversion of the "
+        "reference when it computes FLUX_SCALE and BACKGROUND of the pymusepipe "
+        "offset table. Default is 'WFI_BB'.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -363,6 +372,7 @@ if __name__ == "__main__":
     from pipeline import AlignmentPipeline
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
     from logger import get_logger, format_elapsed, exit_on_sigterm
+    from IO import write_pymusepipe_offset_table
 
     # a batch time limit (SIGTERM) is logged as ABORTED instead of silently
     exit_on_sigterm()
@@ -432,6 +442,8 @@ if __name__ == "__main__":
             skip_rotation_estimation=args.skip_rotation_estimation,
             scan_for_angles=scan_for_angles,
             dither_mode=dither_mode,
+            # only the final hybrid table gets the pymusepipe flux normalisation
+            pymusepipe_flux=False,
         )
 
         pipeline.logger.info(
@@ -469,6 +481,7 @@ if __name__ == "__main__":
             (output_dirs["tertiary"], args.tertiary),
         ],
         dither_mode=args.primary_dither_mode,
+        pymusepipe_flux=False,
     )
 
     pipeline.logger.info(
@@ -527,6 +540,19 @@ if __name__ == "__main__":
     merged.write(output_filename, format="fits", overwrite=True)
 
     logger.info(f"Successfully wrote hybrid results to {output_filename}")
+
+    # FLUX_SCALE and BACKGROUND computed by pymusepipe on the final offsets
+    write_pymusepipe_offset_table(
+        merged,
+        os.path.join(args.output_dir, "Hybrid_pymusepipe_offset_table.fits"),
+        pymusepipe_flux=dict(
+            config_dict=config,
+            input_dir=args.input_dir,
+            reference_file=args.ref_file_path,
+            filter_name=args.pymusepipe_filter,
+        ),
+        logger=logger,
+    )
 
     # 4) the difference images of the reported results, all in one directory
     #    (the table is already written, so a problem here only costs the copies)

@@ -16,7 +16,13 @@ from collections import deque
 
 from methods import NoAlignment
 
-from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
+from IO import (
+    read_fits_image,
+    extract_image_wcs,
+    make_table_entry,
+    write_final_results,
+    PYMUSEPIPE_FILTER_NAME,
+)
 from astropy.io import fits
 from geometry import (
     reproject_image_to_target_wcs,
@@ -441,6 +447,8 @@ class AlignmentPipeline:
         scan_for_angles=False,
         initial_guess_sources=None,
         dither_mode="full",
+        pymusepipe_flux=True,
+        pymusepipe_filter=PYMUSEPIPE_FILTER_NAME,
     ):
         """
         Initialize the AlignmentPipeline.
@@ -475,6 +483,12 @@ class AlignmentPipeline:
                 alignments that are not clean, searching for the shortest
                 composition one path length at a time. Pairs that are never
                 aligned get status NOT_ATTEMPTED (-1) in the dither tables.
+            pymusepipe_flux (bool): If True (default), the FLUX_SCALE and
+                BACKGROUND columns of the pymusepipe offset table are computed
+                with pymusepipe (see ``IO.pymusepipe_flux_columns``) after the
+                run; if False they are 1 and 0.
+            pymusepipe_filter (str): Filter of the images for pymusepipe's unit
+                conversion of the reference. Default is "WFI_BB".
         """
 
         if dither_mode not in ("full", "targeted"):
@@ -495,6 +509,8 @@ class AlignmentPipeline:
         self.input_dir = input_dir
         self.reference_file = reference_file
         self.output_dir = output_dir
+        self.pymusepipe_flux = pymusepipe_flux
+        self.pymusepipe_filter = pymusepipe_filter
 
         self.output_table_entries = config_dict["headers"]
 
@@ -2222,7 +2238,9 @@ class AlignmentPipeline:
             f"{self.distance_threshold}, write_inconsistent {self.write_inconsistent}, "
             f"skip_rotation_estimation {self.skip_rotation_estimation}, "
             f"scan_for_angles {self.scan_for_angles}, dither_mode {self.dither_mode}, "
-            f"initial guesses from {self.initial_guess_sources or 'none'}"
+            f"initial guesses from {self.initial_guess_sources or 'none'}, "
+            f"pymusepipe flux normalisation {self.pymusepipe_flux} "
+            f"(filter {self.pymusepipe_filter})"
         )
 
         # pointings that raised an unexpected error (written as failed)
@@ -2590,7 +2608,20 @@ class AlignmentPipeline:
 
         # write the final results to a FITS table
         write_final_results(
-            output_table, self.aligner.name, self.output_dir, logger=self.logger
+            output_table,
+            self.aligner.name,
+            self.output_dir,
+            logger=self.logger,
+            pymusepipe_flux=(
+                dict(
+                    config_dict=self.config_dict,
+                    input_dir=self.input_dir,
+                    reference_file=self.reference_file,
+                    filter_name=self.pymusepipe_filter,
+                )
+                if self.pymusepipe_flux
+                else None
+            ),
         )
 
         self._log_run_summary(output_table)

@@ -75,6 +75,15 @@ if __name__ == "__main__":
         "recover failed science alignments. Default is 'full'.",
     )
 
+    parser.add_argument(
+        "--pymusepipe_filter",
+        type=str,
+        default="WFI_BB",
+        help="Filter of the images, for pymusepipe's unit conversion of the "
+        "reference when it computes FLUX_SCALE and BACKGROUND of the pymusepipe "
+        "offset table. Default is 'WFI_BB'.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -133,6 +142,7 @@ if __name__ == "__main__":
                 skip_rotation_estimation=args.skip_rotation_estimation,
                 scan_for_angles=args.scan_for_angles,
                 dither_mode=args.dither_mode,
+                pymusepipe_filter=args.pymusepipe_filter,
             )
 
             pipeline.run()
@@ -151,6 +161,7 @@ if __name__ == "__main__":
             skip_rotation_estimation=args.skip_rotation_estimation,
             scan_for_angles=args.scan_for_angles,
             dither_mode=args.dither_mode,
+            pymusepipe_filter=args.pymusepipe_filter,
         )
 
         pipeline.run()

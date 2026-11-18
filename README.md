@@ -436,6 +436,7 @@ NGC1365_HYBRID/
     primary_FFT/                    full output of the primary run
     final_difference_images/        difference images of the reported results
     Hybrid_alignment_output_table.fits
+    Hybrid_pymusepipe_offset_table.fits
     aligment_log_*.log
 ```
 
@@ -451,6 +452,29 @@ Every run (and every method directory of a hybrid run) contains:
   Offsets and their errors are in degrees of RA and Dec; the pixel errors are
   propagated through the WCS Jacobian, so they are always positive and correct for
   any position angle. Failed and inconsistent alignments have null values.
+* ```{method}_pymusepipe_offset_table.fits``` (```Hybrid_pymusepipe_offset_table.fits```
+  for the hybrid run) - the same results as an OFFSET table for pymusepipe
+  (```name_offset_table``` of ```finalise_reduction``` / ```mosaic```):
+  ```DATE_OBS, MJD_OBS, TPL_START, IEXPO_OBS, DATASET_OBS, RA_OFFSET, DEC_OFFSET,
+  ROTANGLE, FLUX_SCALE, BACKGROUND```, plus the errors (and ```ALIGNMENT_METHOD```)
+  as extra columns. pymusepipe matches the rows to the pixel tables by MJD-OBS and
+  DATE-OBS. Exposures without a result are left out (so pymusepipe does not
+  combine them). ```ROTANGLE``` is our rotation times ```PYMUSEPIPE_ROTATION_SIGN```
+  in ```IO.py``` (-1, from the pymusepipe code, not yet verified on data; also in
+  the table header as ```ROTSIGN```).
+
+  ```FLUX_SCALE``` and ```BACKGROUND``` are computed by pymusepipe itself (which must
+  be installed), after the run, on our final offsets: pymusepipe's
+  ```AlignMuseDataset``` with ```firstguess="fits"``` shifts every MUSE image by the
+  offsets, reprojects the reference onto it (unit conversion for
+  ```--pymusepipe_filter```, default ```WFI_BB```) and fits
+  ```reference = FLUX_SCALE * (MUSE + BACKGROUND)```, the same code the pymusepipe
+  alignment uses for these columns. pymusepipe's working files go to
+  ```pymusepipe_flux/``` next to the table. If this step fails (e.g. pymusepipe is not
+  installed), the error is logged and the columns are written as 1 and 0; the table
+  header keyword ```FLUXSRC``` says which (```pymusepipe``` or ```none```). In the
+  hybrid run only the final ```Hybrid_pymusepipe_offset_table.fits``` gets the
+  pymusepipe values; the tables of the three method runs have 1 and 0.
 * ```{x,y,rotation}[_error]_dither_table_{pointing}_{method}.csv``` and
   ```success_dither_table_{pointing}_{method}.csv``` - the dither-to-dither
   tables (```table[a, b]``` is the alignment of dither a -> dither b). These are
