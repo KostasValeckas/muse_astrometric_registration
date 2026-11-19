@@ -182,7 +182,14 @@ def make_table_entry(
     return table_entry
 
 
-def write_final_results(output_table, method_name="", path=".", logger=None):
+# flux normalisation columns (only with --scale-ref), as in pymusepipe's
+# OFFSET table: reference = FLUX_SCALE * (MUSE + BACKGROUND)
+FLUX_COLUMNS = ["FLUX_SCALE", "BACKGROUND"]
+
+
+def write_final_results(
+    output_table, method_name="", path=".", logger=None, flux_columns=None
+):
     """
     Writes the final results to a FITS table file.
 
@@ -200,7 +207,9 @@ def write_final_results(output_table, method_name="", path=".", logger=None):
     logger : logging.Logger, optional
         The logger to use for logging messages. If None, no logging will be performed.
 
-
+    flux_columns : list of tuples, optional
+        (FLUX_SCALE, BACKGROUND) for every row of `output_table`. If given, they
+        are written as the columns ``FLUX_COLUMNS`` after the alignment columns.
     """
 
     # integer columns cannot hold None (a header entry missing in a file, or
@@ -232,6 +241,17 @@ def write_final_results(output_table, method_name="", path=".", logger=None):
     }
 
     table = Table(columns, names=OUTPUT_TABLE_HEADERS)
+
+    if flux_columns is not None:
+        if len(flux_columns) != len(output_table):
+            raise ValueError(
+                f"{len(flux_columns)} flux normalisations for {len(output_table)} rows."
+            )
+        for k, name in enumerate(FLUX_COLUMNS):
+            table[name] = np.array(
+                [np.nan if v[k] is None else v[k] for v in flux_columns],
+                dtype=np.float64,
+            )
 
     if logger:
         logger.info(f"Writing final results to {path}")

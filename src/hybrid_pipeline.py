@@ -40,6 +40,10 @@ VALUE_COLUMNS = [
     "ROTATION_ERROR",
 ]
 
+# flux normalisation columns (only with --scale-ref), taken from the same
+# method as the alignment values (they are fitted with its offsets)
+FLUX_COLUMNS = ["FLUX_SCALE", "BACKGROUND"]
+
 # name of the method column in the hybrid table
 METHOD_COLUMN = "ALIGNMENT_METHOD"
 
@@ -83,7 +87,9 @@ def merge_results(results, logger=None):
     merged : astropy.table.Table
         Same columns as the per-method tables, plus `METHOD_COLUMN`. For every
         row, the values are taken from the first method with finite values; if
-        none has them, the values are NaN and the method is "None".
+        none has them, the values are NaN and the method is "None". The
+        `FLUX_COLUMNS` (if present) are taken from the same method; rows
+        without a result keep those of the first available table.
 
     roles_used : list
         For every row, the role ("primary", "secondary", "tertiary") the values
@@ -132,6 +138,9 @@ def merge_results(results, logger=None):
             if np.all(np.isfinite(values)):
                 for column, value in zip(VALUE_COLUMNS, values):
                     merged[column][row] = value
+                for column in FLUX_COLUMNS:
+                    if column in merged.colnames and column in table.colnames:
+                        merged[column][row] = table[column][row]
                 method_used = name
                 role_used = role
                 break
@@ -343,6 +352,26 @@ if __name__ == "__main__":
             f"alignments. Default is '{default}'.",
         )
 
+    parser.add_argument(
+        "--scale-ref",
+        "--scale_ref",
+        dest="scale_ref",
+        action="store_true",
+        help="If set, bring the reference to the flux scale of every exposure before "
+        "its science alignment, as pymusepipe does (unit conversion for --ref_filter, "
+        "pixel area, and the fit reference = FLUX_SCALE * (exposure + BACKGROUND)), "
+        "and write FLUX_SCALE and BACKGROUND to the output table. Dither alignments "
+        "are not affected. Default is False.",
+    )
+
+    parser.add_argument(
+        "--ref_filter",
+        type=str,
+        default="WFI_BB",
+        help="Filter of the reference image, for the unit conversion of --scale-ref "
+        "(see REFERENCE_FILTERS in flux.py). Default is 'WFI_BB'.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -432,6 +461,8 @@ if __name__ == "__main__":
             skip_rotation_estimation=args.skip_rotation_estimation,
             scan_for_angles=scan_for_angles,
             dither_mode=dither_mode,
+            scale_ref=args.scale_ref,
+            ref_filter=args.ref_filter,
         )
 
         pipeline.logger.info(
@@ -469,6 +500,8 @@ if __name__ == "__main__":
             (output_dirs["tertiary"], args.tertiary),
         ],
         dither_mode=args.primary_dither_mode,
+        scale_ref=args.scale_ref,
+        ref_filter=args.ref_filter,
     )
 
     pipeline.logger.info(

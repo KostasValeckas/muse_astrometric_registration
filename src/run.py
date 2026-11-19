@@ -75,6 +75,26 @@ if __name__ == "__main__":
         "recover failed science alignments. Default is 'full'.",
     )
 
+    parser.add_argument(
+        "--scale-ref",
+        "--scale_ref",
+        dest="scale_ref",
+        action="store_true",
+        help="If set, bring the reference to the flux scale of every exposure before "
+        "its science alignment, as pymusepipe does (unit conversion for --ref_filter, "
+        "pixel area, and the fit reference = FLUX_SCALE * (exposure + BACKGROUND)), "
+        "and write FLUX_SCALE and BACKGROUND to the output table. Dither alignments "
+        "are not affected. Default is False.",
+    )
+
+    parser.add_argument(
+        "--ref_filter",
+        type=str,
+        default="WFI_BB",
+        help="Filter of the reference image, for the unit conversion of --scale-ref "
+        "(see REFERENCE_FILTERS in flux.py). Default is 'WFI_BB'.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -133,6 +153,8 @@ if __name__ == "__main__":
                 skip_rotation_estimation=args.skip_rotation_estimation,
                 scan_for_angles=args.scan_for_angles,
                 dither_mode=args.dither_mode,
+            scale_ref=args.scale_ref,
+            ref_filter=args.ref_filter,
             )
 
             pipeline.run()
@@ -151,6 +173,8 @@ if __name__ == "__main__":
             skip_rotation_estimation=args.skip_rotation_estimation,
             scan_for_angles=args.scan_for_angles,
             dither_mode=args.dither_mode,
+            scale_ref=args.scale_ref,
+            ref_filter=args.ref_filter,
         )
 
         pipeline.run()

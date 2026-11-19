@@ -576,20 +576,38 @@ class AligmentMethod(ABC):
         reference_frame,
         input_frame,
         title,
-        n_levels=2,
-        lower_per=50,
+        n_levels=4,
+        lower_per=60,
         upper_per=99,
+        shared_levels=False,
     ):
         """
         Overlay contour maps of two frames on a single axis.
 
-        Contour levels are set per image from percentiles of its own pixel
-        distribution, so the same structures are traced in both images.
-        Reference contours are red, input contours are blue.
+        By default the contour levels are set per image from percentiles of its
+        own pixel distribution, so the same structures are traced in both
+        images even if they are on different flux scales. With
+        `shared_levels`, both images are contoured at the same levels (the
+        percentiles of the reference), for frames on the same flux scale (flux
+        normalised difference images), so the contours also show flux
+        differences. Reference contours are red, input contours are blue.
         """
+
+        reference_levels = np.unique(
+            np.nanpercentile(
+                reference_frame, np.linspace(lower_per, upper_per, n_levels)
+            )
+        )
+
         for frame, color in ((reference_frame, "red"), (input_frame, "blue")):
-            levels = np.unique(
-                np.nanpercentile(frame, np.linspace(lower_per, upper_per, n_levels))
+            levels = (
+                reference_levels
+                if shared_levels
+                else np.unique(
+                    np.nanpercentile(
+                        frame, np.linspace(lower_per, upper_per, n_levels)
+                    )
+                )
             )
             if len(levels) < 2:
                 # Flat or degenerate image, nothing sensible to contour
@@ -614,6 +632,7 @@ class AligmentMethod(ABC):
         custom_title=None,
         v_lower_per=15,
         v_upper_per=85,
+        flux_normalisation=None,
     ):
         """
         Plot the difference image before and after alignment.
@@ -643,12 +662,24 @@ class AligmentMethod(ABC):
 
         custom_title: str, optional
             Custom title for the plot. If None, a default title will be used.
+
+        flux_normalisation: tuple, optional
+            (FLUX_SCALE, BACKGROUND) of the input frame, with the reference in
+            the MUSE unit (see ``flux.py``). If given, the reference is put on
+            the flux scale of the input (``reference / FLUX_SCALE -
+            BACKGROUND``) and the frames are not normalised to their maximum,
+            so the difference images show the remaining flux in MUSE units
+            (colour scale symmetric around 0). If None (default), both frames
+            are normalised to their maximum.
         """
 
-        # normalize both images to unity
-
-        reference_frame = reference_frame / np.nanmax(reference_frame)
-        input_frame = input_frame / np.nanmax(input_frame)
+        if flux_normalisation is not None:
+            flux_scale, background = flux_normalisation
+            reference_frame = reference_frame / flux_scale - background
+        else:
+            # normalize both images to unity
+            reference_frame = reference_frame / np.nanmax(reference_frame)
+            input_frame = input_frame / np.nanmax(input_frame)
 
         aligned_frame = self.shift_image(input_frame, dx, dy, dtheta)
 
@@ -680,25 +711,29 @@ class AligmentMethod(ABC):
         axes[0, 1].set_xlabel("X Pixel")
         axes[0, 1].set_ylabel("Y Pixel")
 
-        axes[1, 0].imshow(
-            diff_prior,
-            cmap="gray",
-            vmin=np.nanpercentile(diff_prior, v_lower_per),
-            vmax=np.nanpercentile(diff_prior, v_upper_per),
-        )
-        axes[1, 0].set_title("Difference Before Alignment")
-        axes[1, 0].set_xlabel("X Pixel")
-        axes[1, 0].set_ylabel("Y Pixel")
-
-        axes[1, 1].imshow(
-            diff_post,
-            cmap="gray",
-            vmin=np.nanpercentile(diff_post, v_lower_per),
-            vmax=np.nanpercentile(diff_post, v_upper_per),
-        )
-        axes[1, 1].set_title("Difference After Alignment")
-        axes[1, 1].set_xlabel("X Pixel")
-        axes[1, 1].set_ylabel("Y Pixel")
+        for ax, diff, when in (
+            (axes[1, 0], diff_prior, "Before"),
+            (axes[1, 1], diff_post, "After"),
+        ):
+            if flux_normalisation is not None:
+                # flux in MUSE units: symmetric around 0, so a remaining
+                # scale or background difference shows as an overall tint
+                limit = np.nanpercentile(np.abs(diff), 99)
+                shown = ax.imshow(diff, cmap="gray", vmin=-limit, vmax=limit)
+                plt.colorbar(shown, ax=ax, fraction=0.046, pad=0.04)
+                ax.set_title(
+                    f"Difference {when} Alignment\n(flux scaled, 1e-20 erg/s/cm2/A)"
+                )
+            else:
+                ax.imshow(
+                    diff,
+                    cmap="gray",
+                    vmin=np.nanpercentile(diff, v_lower_per),
+                    vmax=np.nanpercentile(diff, v_upper_per),
+                )
+                ax.set_title(f"Difference {when} Alignment")
+            ax.set_xlabel("X Pixel")
+            ax.set_ylabel("Y Pixel")
 
         # Third column: overlayed contour maps
         self._plot_contour_overlay(
@@ -706,25 +741,37 @@ class AligmentMethod(ABC):
             reference_frame,
             input_frame,
             "Contours Before Alignment (Red = Reference, Blue = Input)",
+            shared_levels=flux_normalisation is not None,
         )
         self._plot_contour_overlay(
             axes[1, 2],
             reference_frame,
             aligned_frame,
             "Contours After Alignment (Red = Reference, Blue = Aligned)",
+            shared_levels=flux_normalisation is not None,
         )
 
         for ax in axes.ravel():
             ax.set_aspect("equal")
 
+        flux_text = (
+            f"\n FLUX_SCALE={flux_normalisation[0]:.4g}, "
+            f"BACKGROUND={flux_normalisation[1]:.4g}"
+            if flux_normalisation is not None
+            else ""
+        )
+
         if custom_title is not None:
             plt.suptitle(
                 custom_title
                 + f"\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg, method: {self.name}"
+                + flux_text
             )
         else:
             plt.suptitle(
-                f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg\n"
+                f"Difference Image for {obs_name}, method: {self.name}\n Offsets: dx={dx:.2f}, dy={dy:.2f}, dtheta={dtheta:.2f} deg"
+                + flux_text
+                + "\n"
             )
         self._save_QA_figure(
             f"{self.QA_path}/difference_image_{obs_name}_{self.name}.png"

@@ -17,6 +17,14 @@ from collections import deque
 from methods import NoAlignment
 
 from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
+from flux import (
+    DEFAULT_REFERENCE_FILTER,
+    REFERENCE_FILTERS,
+    reference_conversion_factor,
+    pixel_area_factor,
+    fit_flux_normalisation,
+    shift_image_with_nans,
+)
 from astropy.io import fits
 from geometry import (
     reproject_image_to_target_wcs,
@@ -441,6 +449,8 @@ class AlignmentPipeline:
         scan_for_angles=False,
         initial_guess_sources=None,
         dither_mode="full",
+        scale_ref=False,
+        ref_filter=DEFAULT_REFERENCE_FILTER,
     ):
         """
         Initialize the AlignmentPipeline.
@@ -475,11 +485,30 @@ class AlignmentPipeline:
                 alignments that are not clean, searching for the shortest
                 composition one path length at a time. Pairs that are never
                 aligned get status NOT_ATTEMPTED (-1) in the dither tables.
+            scale_ref (bool): If True (as pymusepipe, see ``flux.py``): before
+                the alignment, the reference is converted to the MUSE unit
+                when it is read (unit from its BUNIT, pivot wavelength of
+                `ref_filter`) and multiplied by the pixel area ratio after the
+                reprojection. After the alignment, ``reference = FLUX_SCALE *
+                (exposure + BACKGROUND)`` is fitted with the exposure shifted by
+                its final offsets; FLUX_SCALE and BACKGROUND are written to the
+                output table (NaN without a result) and used for the final
+                difference image. The dither alignments are not affected.
+                Default False.
+            ref_filter (str): Filter of the reference, for the pivot wavelength
+                of the unit conversion (and its unit if the reference has no
+                BUNIT); one of ``flux.REFERENCE_FILTERS``. Default "WFI_BB".
         """
 
         if dither_mode not in ("full", "targeted"):
             raise ValueError(
                 f"dither_mode must be 'full' or 'targeted', got {dither_mode!r}"
+            )
+
+        if scale_ref and ref_filter not in REFERENCE_FILTERS:
+            raise ValueError(
+                f"Unknown reference filter {ref_filter!r}. Choose from "
+                f"{', '.join(REFERENCE_FILTERS)}."
             )
 
         # refuse to mix the output of different galaxies in one directory,
@@ -504,6 +533,13 @@ class AlignmentPipeline:
         self.skip_rotation_estimation = skip_rotation_estimation
         self.scan_for_angles = scan_for_angles
         self.dither_mode = dither_mode
+        self.scale_ref = scale_ref
+        self.ref_filter = ref_filter
+
+        # flux normalisation of every exposure with a result, per (pointing,
+        # dither): (FLUX_SCALE, BACKGROUND), NaN if the fit is not usable
+        # (only with scale_ref)
+        self.flux_normalisation = {}
 
         self.initial_guess_sources = (
             list(initial_guess_sources) if initial_guess_sources is not None else []
@@ -2099,6 +2135,106 @@ class AlignmentPipeline:
                 f"dither {i+1} is still not clean (status {st[i][6]})."
             )
 
+    # ------------------------------------------------------------------
+    # Flux scaling of the reference (scale_ref)
+    # ------------------------------------------------------------------
+
+    def _fit_flux_normalisation(
+        self, pointing, i, reference_frame, dither_frame, parameters
+    ):
+        """
+        Fit the flux normalisation ``reference = FLUX_SCALE * (dither +
+        BACKGROUND)`` of dither `i`, with the dither shifted by its final
+        alignment `parameters` (tx, ty, rot), as pymusepipe fits it after the
+        alignment. The result (NaN if not usable) is kept in
+        `flux_normalisation`.
+
+        Parameters
+        ----------
+        reference_frame : np.2darray
+            The reference, unit converted and reprojected to the frame of the
+            pointing (same shape as `dither_frame`).
+
+        dither_frame : np.2darray
+            The dither.
+
+        parameters : tuple
+            (tx, ty, rot) of the reported alignment.
+        """
+
+        tx, ty, rotation_angle = parameters
+
+        flux_scale, background = fit_flux_normalisation(
+            shift_image_with_nans(dither_frame, tx, ty, rotation_angle),
+            reference_frame,
+            logger=self.logger,
+            name=f"(pointing {pointing}, dither {i+1})",
+        )
+
+        self.flux_normalisation[(pointing, i)] = (flux_scale, background)
+
+        if not np.isfinite(flux_scale):
+            self.logger.warning(
+                f"Pointing {pointing}, dither {i+1}: flux normalisation not usable, "
+                f"writing NaN FLUX_SCALE and BACKGROUND."
+            )
+
+    def _plot_final_difference_image(
+        self, pointing, i, reference_frame, dither_frame, parameters, composed_from
+    ):
+        """
+        Difference image of the reported result of dither `i`, always in the
+        forward convention (dither shifted onto the reference) with the final
+        offsets, whatever they were measured with (forward, inverted reverse,
+        or composed). With scale_ref and a usable flux normalisation, the
+        reference is put on the flux scale of the dither and the difference is
+        shown in MUSE units (see ``AligmentMethod.plot_difference_image``).
+
+        Returns the path of the image, or None if it could not be made (the
+        alignment result is not affected).
+        """
+
+        tx, ty, rotation_angle = parameters
+        obs_name = f"{pointing}_dither_{i+1}_final"
+
+        flux = self.flux_normalisation.get((pointing, i)) if self.scale_ref else None
+        if flux is not None and not np.isfinite(flux[0]):
+            flux = None
+
+        source = {
+            None: "measured",
+            "forward": "measured",
+            "reverse": "inverse of the reverse measurement",
+        }.get(self.science_directions.get((pointing, i)), "measured")
+        if composed_from is not None:
+            source = f"composed via {composed_from}"
+
+        try:
+            self.aligner.plot_difference_image(
+                reference_frame,
+                dither_frame,
+                tx,
+                ty,
+                rotation_angle,
+                obs_name,
+                show=False,
+                custom_title=(
+                    f"Final alignment of pointing {pointing}, dither {i+1} ({source})"
+                ),
+                flux_normalisation=flux,
+            )
+        except Exception:
+            self.logger.exception(
+                f"Could not make the final difference image of pointing {pointing}, "
+                f"dither {i+1}; reporting the image of the measurement instead."
+            )
+            return None
+
+        return (
+            pathlib.Path(self.aligner.QA_path)
+            / f"difference_image_{obs_name}_{self.aligner.name}.png"
+        )
+
     def _failed_table_row(self, filename):
         """
         Output table row (header entries and None values) for an exposure of a
@@ -2222,7 +2358,9 @@ class AlignmentPipeline:
             f"{self.distance_threshold}, write_inconsistent {self.write_inconsistent}, "
             f"skip_rotation_estimation {self.skip_rotation_estimation}, "
             f"scan_for_angles {self.scan_for_angles}, dither_mode {self.dither_mode}, "
-            f"initial guesses from {self.initial_guess_sources or 'none'}"
+            f"initial guesses from {self.initial_guess_sources or 'none'}, "
+            f"scale_ref {self.scale_ref}"
+            + (f" (reference filter {self.ref_filter})" if self.scale_ref else "")
         )
 
         # pointings that raised an unexpected error (written as failed)
@@ -2230,6 +2368,8 @@ class AlignmentPipeline:
 
         # output containers
         output_table = []
+        # (FLUX_SCALE, BACKGROUND) of every row of output_table (scale_ref only)
+        output_flux = []
         dither_tables = {}
         science_tables = {}
         reprojected_reference_frames = {}
@@ -2255,7 +2395,16 @@ class AlignmentPipeline:
 
         # prepare the reference frame and its WCS
         reference_WCS = extract_image_wcs(self.reference_file, logger=self.logger)
-        reference_frame, _ = read_fits_image(self.reference_file, logger=self.logger)
+        reference_frame, reference_hdul = read_fits_image(
+            self.reference_file, logger=self.logger
+        )
+
+        # flux scaling: only the unit conversion before the alignment, the
+        # flux normalisation is fitted after it (see the output loop)
+        if self.scale_ref:
+            reference_frame = reference_frame * reference_conversion_factor(
+                self.ref_filter, header=reference_hdul[0].header, logger=self.logger
+            )
 
         # this is the actual aligment loop
 
@@ -2378,6 +2527,18 @@ class AlignmentPipeline:
                 reference_WCS_reprojected = dither_frame_wcs[
                     0
                 ]  # update reference WCS to match the dither WCS
+
+                # keep the flux per pixel (reproject interpolates surface
+                # brightness): scale by the pixel area ratio, as pymusepipe
+                if self.scale_ref:
+                    area_factor = pixel_area_factor(dither_frame_wcs[0], reference_WCS)
+                    self.logger.info(
+                        f"Pointing {pointing}: reference pixel area factor "
+                        f"{area_factor:.6g}"
+                    )
+                    reprojected_reference_frame = (
+                        reprojected_reference_frame * area_factor
+                    )
 
                 # also crop the same edges as the dither frames to ensure consistency
                 reprojected_reference_frame = reprojected_reference_frame[
@@ -2532,7 +2693,18 @@ class AlignmentPipeline:
                             dither_frame_wcs[i], tx_error, ty_error
                         )
 
-                        # book-keep the difference image of the reported result
+                        # flux normalisation with the final offsets
+                        if self.scale_ref:
+                            self._fit_flux_normalisation(
+                                pointing,
+                                i,
+                                reprojected_reference_frame,
+                                dither_frame_arrays[i],
+                                (tx, ty, rotation_angle),
+                            )
+
+                        # the difference image of the reported result: the
+                        # final one (below), else the one of the measurement
                         if composed:
                             image_obs_name = (
                                 f"{pointing}_dither_{i+1}_to_reference_composed_via_"
@@ -2547,6 +2719,17 @@ class AlignmentPipeline:
                             QA_dir_science
                             / f"difference_image_{image_obs_name}_{self.aligner.name}.png"
                         )
+
+                        final_image = self._plot_final_difference_image(
+                            pointing,
+                            i,
+                            reprojected_reference_frame,
+                            dither_frame_arrays[i],
+                            (tx, ty, rotation_angle),
+                            composed_from if composed else None,
+                        )
+                        if final_image is not None:
+                            self.reported_science_images[(pointing, i)] = final_image
 
                     table_entry = make_table_entry(
                         dither_hduls[i],
@@ -2564,6 +2747,9 @@ class AlignmentPipeline:
                     output_table.append(
                         tuple(value for _, value in table_entry.items())
                     )
+                    output_flux.append(
+                        self.flux_normalisation.get((pointing, i), (np.nan, np.nan))
+                    )
 
             except Exception:
                 self.logger.exception(
@@ -2574,6 +2760,7 @@ class AlignmentPipeline:
                 self.crashed_pointings.append(pointing)
 
                 del output_table[n_rows_before:]
+                del output_flux[n_rows_before:]
                 for i, exposure in enumerate(exposures):
                     self.reported_science_images[(pointing, i)] = None
                     output_table.append(
@@ -2581,6 +2768,7 @@ class AlignmentPipeline:
                             pathlib.Path(self.input_dir) / exposure[2]
                         )
                     )
+                    output_flux.append((np.nan, np.nan))
 
             self.logger.info(
                 f"Pointing {pointing} done in "
@@ -2590,7 +2778,11 @@ class AlignmentPipeline:
 
         # write the final results to a FITS table
         write_final_results(
-            output_table, self.aligner.name, self.output_dir, logger=self.logger
+            output_table,
+            self.aligner.name,
+            self.output_dir,
+            logger=self.logger,
+            flux_columns=output_flux if self.scale_ref else None,
         )
 
         self._log_run_summary(output_table)
