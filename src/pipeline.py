@@ -24,6 +24,7 @@ from flux import (
     pixel_area_factor,
     fit_flux_normalisation,
     shift_image_with_nans,
+    check_flux_scales,
 )
 from astropy.io import fits
 from geometry import (
@@ -451,6 +452,7 @@ class AlignmentPipeline:
         dither_mode="full",
         scale_ref=False,
         ref_filter=DEFAULT_REFERENCE_FILTER,
+        ref_unit=None,
     ):
         """
         Initialize the AlignmentPipeline.
@@ -498,6 +500,9 @@ class AlignmentPipeline:
             ref_filter (str): Filter of the reference, for the pivot wavelength
                 of the unit conversion (and its unit if the reference has no
                 BUNIT); one of ``flux.REFERENCE_FILTERS``. Default "WFI_BB".
+            ref_unit (str): Unit of the reference (e.g. "uJy"), used instead of
+                its BUNIT, for references with a wrong BUNIT. Default None
+                (BUNIT).
         """
 
         if dither_mode not in ("full", "targeted"):
@@ -510,6 +515,10 @@ class AlignmentPipeline:
                 f"Unknown reference filter {ref_filter!r}. Choose from "
                 f"{', '.join(REFERENCE_FILTERS)}."
             )
+
+        # a wrong --ref_unit should stop the run before anything is written
+        if scale_ref and ref_unit is not None:
+            reference_conversion_factor(ref_filter, unit=ref_unit)
 
         # refuse to mix the output of different galaxies in one directory,
         # before the log file is created there
@@ -535,6 +544,7 @@ class AlignmentPipeline:
         self.dither_mode = dither_mode
         self.scale_ref = scale_ref
         self.ref_filter = ref_filter
+        self.ref_unit = ref_unit
 
         # flux normalisation of every exposure with a result, per (pointing,
         # dither): (FLUX_SCALE, BACKGROUND), NaN if the fit is not usable
@@ -2360,7 +2370,12 @@ class AlignmentPipeline:
             f"scan_for_angles {self.scan_for_angles}, dither_mode {self.dither_mode}, "
             f"initial guesses from {self.initial_guess_sources or 'none'}, "
             f"scale_ref {self.scale_ref}"
-            + (f" (reference filter {self.ref_filter})" if self.scale_ref else "")
+            + (
+                f" (reference filter {self.ref_filter}, unit "
+                f"{self.ref_unit if self.ref_unit is not None else 'from BUNIT'})"
+                if self.scale_ref
+                else ""
+            )
         )
 
         # pointings that raised an unexpected error (written as failed)
@@ -2403,7 +2418,10 @@ class AlignmentPipeline:
         # flux normalisation is fitted after it (see the output loop)
         if self.scale_ref:
             reference_frame = reference_frame * reference_conversion_factor(
-                self.ref_filter, header=reference_hdul[0].header, logger=self.logger
+                self.ref_filter,
+                header=reference_hdul[0].header,
+                logger=self.logger,
+                unit=self.ref_unit,
             )
 
         # this is the actual aligment loop
@@ -2774,6 +2792,14 @@ class AlignmentPipeline:
                 f"Pointing {pointing} done in "
                 f"{format_elapsed(time.perf_counter() - pointing_start_time)}, "
                 f"peak memory so far {peak_memory_mb():.0f} MB"
+            )
+
+        # a FLUX_SCALE far from 1 means a wrong reference unit
+        if self.scale_ref:
+            check_flux_scales(
+                [flux_scale for flux_scale, _ in output_flux],
+                logger=self.logger,
+                unit_source="--ref_unit" if self.ref_unit is not None else "its BUNIT",
             )
 
         # write the final results to a FITS table

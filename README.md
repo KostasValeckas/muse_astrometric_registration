@@ -353,6 +353,13 @@ Before the alignment, only the unit conversion:
    filter is assumed (1 microJansky for WFI_BB), with a warning. A ```BUNIT``` that
    cannot be converted (e.g. counts, a surface brightness, or ```A``` - which is
    Ampere, Angstrom is ```Angstrom```) stops the run before any alignment.
+   If the ```BUNIT``` of the reference is wrong, set the unit with ```--ref_unit```
+   (e.g. ```--ref_unit uJy```), which is used instead. Some WFI references have
+   ```BUNIT = 'mJy'``` while their data are in microJansky: they give FLUX_SCALE ~ 1000.
+   The alignments are not affected by a wrong unit (all methods are insensitive
+   to a constant factor), and neither is BACKGROUND (it is in the unit of the
+   exposure), only FLUX_SCALE. A run whose median FLUX_SCALE is more than a factor
+   10 from 1 ends with a warning in the log.
 2. after the reprojection to the frame of a pointing, it is multiplied by the pixel
    area ratio (MUSE / reference).
 

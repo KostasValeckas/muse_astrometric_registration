@@ -18,14 +18,18 @@ with one of the alignment methods (the current values are its initial guess,
 optionally checked with the reverse alignment as in the pipeline), and saved.
 Saving writes, in ``<output_dir>/manual_alignment``:
 
-- ``Manual_<exposure>_alignment_output_table.fits`` (and the pymusepipe offset
-  table) with the one exposure,
+- ``Manual_<exposure>_alignment_output_table.fits`` with the one exposure,
 - ``Manual_alignment_output_table.fits``: the output table of the run with the
   row of this exposure replaced (kept between sessions, so several exposures
-  can be aligned one after the other), and the pymusepipe offset table made
-  from it,
+  can be aligned one after the other),
 - the difference image of the saved result (the QA plots of the refinements
   are in ``refine_QA``).
+
+If the output table of the run has FLUX_SCALE and BACKGROUND (run with
+``--scale_ref``), they are fitted again for the saved offsets, as in the
+pipeline (reference converted with ``--ref_filter``). Use
+``dev/convert_hybrid_table.py`` on ``Manual_alignment_output_table.fits`` to
+make the table for pymusepipe.
 
 Example::
 
@@ -189,7 +193,15 @@ def find_table_row(table, date_obs, logger=None):
     return rows[0]
 
 
-def prepare_frames(file_path, pointing_files, index, reference_file, logger=None):
+def prepare_frames(
+    file_path,
+    pointing_files,
+    index,
+    reference_file,
+    ref_filter=None,
+    ref_unit=None,
+    logger=None,
+):
     """
     Prepare the exposure and the reference as the pipeline does for the
     science alignment (see ``AlignmentPipeline._run``).
@@ -210,12 +222,21 @@ def prepare_frames(file_path, pointing_files, index, reference_file, logger=None
     reference_file : str
         Path of the reference image.
 
+    ref_filter : str, optional
+        If given, also the reference in MUSE units for the flux normalisation
+        ("flux_reference"), as the pipeline with ``--scale_ref``: unit
+        conversion with this filter and the pixel area factor.
+
+    ref_unit : str, optional
+        Unit of the reference, used instead of its BUNIT (``--ref_unit``).
+
     Returns
     -------
     dict
         "reference" and "exposure" (2D arrays of the same shape), "wcs" (WCS
         of the common frame, used for the sky offsets), "hdul" (of the
-        exposure, for the header entries of the output table).
+        exposure, for the header entries of the output table) and
+        "flux_reference" (None without `ref_filter`).
     """
 
     from IO import read_fits_image, extract_image_wcs
@@ -267,13 +288,33 @@ def prepare_frames(file_path, pointing_files, index, reference_file, logger=None
 
     exposure = arrays[index]
 
+    # the conversion and the area factor are constants, so they can be applied
+    # after the reprojection
+    flux_reference = None
+    if ref_filter is not None:
+        from flux import reference_conversion_factor, pixel_area_factor
+
+        flux_reference = (
+            reference
+            * reference_conversion_factor(
+                ref_filter, header=read[1][0].header, logger=logger, unit=ref_unit
+            )
+            * pixel_area_factor(wcs_set[0], reference_wcs)
+        )
+
     if not np.any(np.isfinite(exposure)):
         raise ValueError(
             f"{file_path} has no finite pixels after the preparation, it cannot be "
             f"aligned."
         )
 
-    return dict(reference=reference, exposure=exposure, wcs=wcs_set[0], hdul=hdul)
+    return dict(
+        reference=reference,
+        exposure=exposure,
+        wcs=wcs_set[0],
+        hdul=hdul,
+        flux_reference=flux_reference,
+    )
 
 
 def _row_to_pixels(table, row, wcs):
@@ -490,7 +531,6 @@ def save_alignment(
     obs_name,
     manual_dir,
     header_entries,
-    pymusepipe_flux=None,
     logger=None,
 ):
     """
@@ -524,10 +564,6 @@ def save_alignment(
     header_entries : list
         Header keywords of the identification columns (as in the pipeline).
 
-    pymusepipe_flux : dict, optional
-        Passed to ``IO.write_pymusepipe_offset_table`` for the table of all
-        exposures (FLUX_SCALE and BACKGROUND from pymusepipe).
-
     Returns
     -------
     str
@@ -535,11 +571,8 @@ def save_alignment(
     """
 
     from astropy.table import Table
-    from IO import (
-        make_table_entry,
-        write_final_results,
-        write_pymusepipe_offset_table,
-    )
+    from IO import make_table_entry, write_final_results, FLUX_COLUMNS
+    from flux import fit_flux_normalisation, shift_image_with_nans
     from geometry import (
         detector_translation_to_sky_translation,
         detector_errors_to_sky_errors,
@@ -568,6 +601,24 @@ def save_alignment(
         ROTATION_ERROR=state["rot_error"],
     )
 
+    # flux normalisation for the saved offsets, if the run has it
+    flux = None
+    if prepared.get("flux_reference") is not None:
+        flux = fit_flux_normalisation(
+            shift_image_with_nans(
+                prepared["exposure"], state["tx"], state["ty"], state["rot"]
+            ),
+            prepared["flux_reference"],
+            logger=logger,
+            name=f"({obs_name})",
+        )
+        values.update(zip(FLUX_COLUMNS, flux))
+        if logger:
+            logger.info(
+                f"Flux normalisation of {obs_name}: FLUX_SCALE = {flux[0]:.4g}, "
+                f"BACKGROUND = {flux[1]:.4g}"
+            )
+
     manual_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) table of this exposure alone (identification columns from the header,
@@ -589,6 +640,7 @@ def save_alignment(
         method_name=f"{MANUAL_METHOD_NAME}_{obs_name}",
         path=str(manual_dir),
         logger=logger,
+        flux_columns=[flux] if flux is not None else None,
     )
 
     # 2) the output table of the run with this row replaced; earlier manual
@@ -628,7 +680,8 @@ def save_alignment(
         merged[METHOD_COLUMN] = np.asarray(merged[METHOD_COLUMN], dtype="U24")
 
         for column, value in values.items():
-            merged[column][row] = value
+            if column in merged.colnames:
+                merged[column][row] = value
         merged[METHOD_COLUMN][row] = state["method"]
 
         merged.write(merged_file, format="fits", overwrite=True)
@@ -640,13 +693,6 @@ def save_alignment(
             logger.info(
                 f"Wrote {merged_file} ({n_manual} manual result(s) in the table)"
             )
-
-        write_pymusepipe_offset_table(
-            merged,
-            str(manual_dir / f"{MANUAL_METHOD_NAME}_pymusepipe_offset_table.fits"),
-            pymusepipe_flux=pymusepipe_flux,
-            logger=logger,
-        )
 
         written.append(merged_file.name)
 
@@ -1160,7 +1206,7 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Configuration file of the run. Needed to prepare the frames exactly "
-        "as the pipeline (common frame of the pointing) and for --pymusepipe_flux. "
+        "as the pipeline (common frame of the pointing). "
         "Without it the exposure is aligned in its own frame (the rotation centre "
         "can then differ slightly from the pipeline's).",
     )
@@ -1229,18 +1275,20 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--pymusepipe_flux",
-        action="store_true",
-        help="Compute FLUX_SCALE and BACKGROUND of the pymusepipe offset table of all "
-        "exposures with pymusepipe when saving (slow, needs --config_file). Default: "
-        "1 and 0.",
+        "--ref_filter",
+        type=str,
+        default="WFI_BB",
+        help="Filter of the reference for the unit conversion, used when the output "
+        "table of the run has FLUX_SCALE and BACKGROUND (as --ref_filter of the "
+        "pipeline). Default is 'WFI_BB'.",
     )
 
     parser.add_argument(
-        "--pymusepipe_filter",
+        "--ref_unit",
         type=str,
-        default="WFI_BB",
-        help="Filter for --pymusepipe_flux. Default is 'WFI_BB'.",
+        default=None,
+        help="Unit of the reference (e.g. 'uJy'), used instead of its BUNIT keyword, "
+        "as --ref_unit of the pipeline. Default: BUNIT.",
     )
 
     args = parser.parse_args()
@@ -1256,7 +1304,7 @@ if __name__ == "__main__":
     from astropy.io import fits
 
     from logger import get_logger, log_run_environment
-    from IO import OUTPUT_TABLE_ENTRIES
+    from IO import OUTPUT_TABLE_ENTRIES, FLUX_COLUMNS
 
     manual_dir = pathlib.Path(args.output_dir) / MANUAL_DIR
     manual_dir.mkdir(parents=True, exist_ok=True)
@@ -1335,8 +1383,23 @@ if __name__ == "__main__":
     else:
         pointing_files, index = [file_path], 0
 
+    # refit the flux normalisation when saving if the run has it
+    ref_filter = None
+    if all(column in table.colnames for column in FLUX_COLUMNS):
+        ref_filter = args.ref_filter
+        logger.info(
+            f"The {table_name} output table has {', '.join(FLUX_COLUMNS)}: they are "
+            f"fitted again for the saved offsets (reference filter {ref_filter})."
+        )
+
     prepared = prepare_frames(
-        file_path, pointing_files, index, reference_file, logger=logger
+        file_path,
+        pointing_files,
+        index,
+        reference_file,
+        ref_filter=ref_filter,
+        ref_unit=args.ref_unit,
+        logger=logger,
     )
 
     # row of the exposure in the output table
@@ -1384,21 +1447,6 @@ if __name__ == "__main__":
         f"{guess[1]:.3f}, rot = {guess[2]:.4f}"
     )
 
-    pymusepipe_flux = None
-    if args.pymusepipe_flux:
-        if config is None:
-            logger.warning(
-                "--pymusepipe_flux needs --config_file, writing FLUX_SCALE 1 and "
-                "BACKGROUND 0."
-            )
-        else:
-            pymusepipe_flux = dict(
-                config_dict=config,
-                input_dir=input_dir,
-                reference_file=reference_file,
-                filter_name=args.pymusepipe_filter,
-            )
-
     header_entries = (
         list(config["headers"].values()) if config is not None else OUTPUT_TABLE_ENTRIES
     )
@@ -1428,7 +1476,6 @@ if __name__ == "__main__":
             obs_name,
             manual_dir,
             header_entries,
-            pymusepipe_flux=pymusepipe_flux,
             logger=logger,
         )
 

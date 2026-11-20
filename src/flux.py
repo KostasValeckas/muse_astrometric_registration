@@ -112,11 +112,55 @@ NORM_THRESHOLD = 0.0  # chunks with a median at or below this are not used
 # not in pymusepipe: fewer chunks than this is not a usable fit
 NORM_MIN_CHUNKS = 10
 
+# not in pymusepipe: a median FLUX_SCALE of a run further than this factor from
+# 1 means the reference unit is most likely wrong (e.g. BUNIT = 'mJy' on an
+# image in microJansky gives FLUX_SCALE ~ 1000), see ``check_flux_scales``
+FLUX_SCALE_WARNING_FACTOR = 10.0
 
-def reference_unit(header=None, filter_name=DEFAULT_REFERENCE_FILTER, logger=None):
+
+def _parse_unit(text, source):
     """
-    Unit of the reference image: the BUNIT keyword of its header, or, if
-    there is none, the unit of its filter in ``REFERENCE_FILTERS``.
+    Parse a unit string (``BUNIT`` or ``--ref_unit``), see ``reference_unit``.
+
+    Returns
+    -------
+    unit : astropy.units.Unit
+        The unit, with an explicit "per pixel" dropped.
+
+    per_pixel : bool
+        Whether a "per pixel" was dropped.
+    """
+
+    try:
+        with warnings.catch_warnings():
+            # e.g. "multiple slashes" in erg/s/cm2/Angstrom
+            warnings.simplefilter("ignore", u.UnitsWarning)
+            unit = u.Unit(str(text).strip(), parse_strict="raise")
+    except ValueError as error:
+        raise ValueError(
+            f"Cannot parse the unit of the reference, {source} = {text!r}: {error}"
+        ) from None
+
+    # the MUSE unit is a flux per pixel without saying so: an explicit "per
+    # pixel" (e.g. uJy/pix) is the same thing
+    pix_power = dict(zip(unit.bases, unit.powers)).get(u.pix, 0)
+    if pix_power == -1:
+        unit = unit * u.pix
+
+    return unit, pix_power == -1
+
+
+def reference_unit(
+    header=None, filter_name=DEFAULT_REFERENCE_FILTER, logger=None, unit=None
+):
+    """
+    Unit of the reference image: `unit` if given (``--ref_unit``), else the
+    BUNIT keyword of its header, or, if there is none, the unit of its filter
+    in ``REFERENCE_FILTERS``.
+
+    `unit` is for references with a wrong BUNIT: e.g. the WFI images with
+    BUNIT = 'mJy' whose data are in microJansky (FLUX_SCALE ~ 1000 in the
+    output table).
 
     Parameters
     ----------
@@ -125,6 +169,9 @@ def reference_unit(header=None, filter_name=DEFAULT_REFERENCE_FILTER, logger=Non
 
     filter_name : str, optional
         Filter of the reference image, one of ``REFERENCE_FILTERS``.
+
+    unit : str, optional
+        Unit of the reference, used instead of its BUNIT (e.g. "uJy").
 
     An explicit "per pixel" (e.g. ``uJy/pix``) is dropped: the MUSE unit is a
     flux per pixel as well, without saying so.
@@ -138,10 +185,20 @@ def reference_unit(header=None, filter_name=DEFAULT_REFERENCE_FILTER, logger=Non
     Raises
     ------
     ValueError
-        If BUNIT cannot be parsed.
+        If BUNIT (or `unit`) cannot be parsed.
     """
 
     bunit = None if header is None else header.get("BUNIT")
+
+    if unit is not None:
+        parsed, per_pixel = _parse_unit(unit, "--ref_unit")
+        if logger:
+            logger.warning(
+                f"Reference unit set by hand: {unit!r} ({parsed}"
+                + (" per pixel" if per_pixel else "")
+                + f"), the BUNIT of the reference ({bunit!r}) is not used."
+            )
+        return 1.0 * parsed
 
     if bunit is None or not str(bunit).strip():
         value, _ = REFERENCE_FILTERS[filter_name]
@@ -152,34 +209,20 @@ def reference_unit(header=None, filter_name=DEFAULT_REFERENCE_FILTER, logger=Non
             )
         return value * u.microJansky
 
-    try:
-        with warnings.catch_warnings():
-            # e.g. "multiple slashes" in erg/s/cm2/Angstrom
-            warnings.simplefilter("ignore", u.UnitsWarning)
-            unit = u.Unit(str(bunit).strip(), parse_strict="raise")
-    except ValueError as error:
-        raise ValueError(
-            f"Cannot parse the unit of the reference, BUNIT = {bunit!r}: {error}"
-        ) from None
-
-    # the MUSE unit is a flux per pixel without saying so: an explicit "per
-    # pixel" (e.g. uJy/pix) is the same thing
-    pix_power = dict(zip(unit.bases, unit.powers)).get(u.pix, 0)
-    if pix_power == -1:
-        unit = unit * u.pix
+    parsed, per_pixel = _parse_unit(bunit, "BUNIT")
 
     if logger:
         logger.info(
-            f"Reference unit from its header: BUNIT = {bunit!r} ({unit}"
-            + (" per pixel" if pix_power == -1 else "")
+            f"Reference unit from its header: BUNIT = {bunit!r} ({parsed}"
+            + (" per pixel" if per_pixel else "")
             + ")"
         )
 
-    return 1.0 * unit
+    return 1.0 * parsed
 
 
 def reference_conversion_factor(
-    filter_name=DEFAULT_REFERENCE_FILTER, header=None, logger=None
+    filter_name=DEFAULT_REFERENCE_FILTER, header=None, logger=None, unit=None
 ):
     """
     Factor that converts the reference image from its unit (see
@@ -195,6 +238,9 @@ def reference_conversion_factor(
 
     header : astropy.io.fits.Header, optional
         Header of the reference image (for BUNIT).
+
+    unit : str, optional
+        Unit of the reference, used instead of its BUNIT (``--ref_unit``).
 
     Returns
     -------
@@ -215,7 +261,7 @@ def reference_conversion_factor(
         )
 
     _, pivot = REFERENCE_FILTERS[filter_name]
-    unit = reference_unit(header, filter_name=filter_name, logger=logger)
+    unit = reference_unit(header, filter_name=filter_name, logger=logger, unit=unit)
 
     try:
         factor = float(
@@ -411,3 +457,51 @@ def shift_image_with_nans(image, dx, dy, dtheta):
     )
 
     return np.where(covered > 0.999, data, np.nan)
+
+
+def check_flux_scales(flux_scales, logger=None, unit_source="its BUNIT"):
+    """
+    Warn if the median FLUX_SCALE of a run is further than
+    ``FLUX_SCALE_WARNING_FACTOR`` from 1. The exposures and the reference are
+    then on very different scales after the unit conversion, which almost
+    always means the unit of the reference is wrong (e.g. BUNIT = 'mJy' on an
+    image in microJansky gives FLUX_SCALE ~ 1000). The alignment is not
+    affected (all methods are insensitive to a constant factor) and neither
+    is BACKGROUND (in the unit of the exposure), only FLUX_SCALE.
+
+    Parameters
+    ----------
+    flux_scales : array_like
+        FLUX_SCALE of the exposures of the run (NaN without a result).
+
+    unit_source : str, optional
+        Where the unit of the reference came from, for the message.
+
+    Returns
+    -------
+    float
+        The median FLUX_SCALE (NaN if there is none).
+    """
+
+    flux_scales = np.asarray(flux_scales, dtype=float)
+    flux_scales = flux_scales[np.isfinite(flux_scales)]
+
+    if flux_scales.size == 0:
+        return np.nan
+
+    median = float(np.median(flux_scales))
+
+    if logger and not (
+        1.0 / FLUX_SCALE_WARNING_FACTOR <= median <= FLUX_SCALE_WARNING_FACTOR
+    ):
+        logger.warning(
+            f"The median FLUX_SCALE of the run is {median:.4g} (from "
+            f"{flux_scales.size} exposures), more than a factor "
+            f"{FLUX_SCALE_WARNING_FACTOR:g} from 1: the unit of the reference "
+            f"(from {unit_source}) is most likely wrong. The alignments and "
+            f"BACKGROUND are not affected, but FLUX_SCALE is off by this factor. "
+            f"Set the correct unit with --ref_unit (e.g. a factor ~1000 with "
+            f"BUNIT = 'mJy' usually means --ref_unit uJy)."
+        )
+
+    return median

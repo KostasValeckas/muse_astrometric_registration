@@ -199,6 +199,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--ref_unit",
+        type=str,
+        default=None,
+        help="Unit of the reference (e.g. 'uJy'), used instead of its BUNIT keyword "
+        "(for references with a wrong BUNIT). Default: BUNIT.",
+    )
+
+    parser.add_argument(
         "--images_dir",
         type=str,
         default=None,
@@ -222,6 +230,7 @@ if __name__ == "__main__":
         reference_conversion_factor,
         fit_flux_normalisation,
         shift_image_with_nans,
+        check_flux_scales,
     )
     from methods import NoAlignment
 
@@ -280,7 +289,10 @@ if __name__ == "__main__":
         raise ValueError(f"Could not read the reference {reference_file}.")
     reference_data, reference_hdul = read
     reference_data = reference_data * reference_conversion_factor(
-        args.ref_filter, header=reference_hdul[0].header, logger=logger
+        args.ref_filter,
+        header=reference_hdul[0].header,
+        logger=logger,
+        unit=args.ref_unit,
     )
 
     flux_scale = np.full(len(table), np.nan)
@@ -396,6 +408,12 @@ if __name__ == "__main__":
                 f"Unexpected error in pointing {pointing}, continuing with the next."
             )
             failed_pointings.append(pointing)
+
+    check_flux_scales(
+        flux_scale,
+        logger=logger,
+        unit_source="--ref_unit" if args.ref_unit is not None else "its BUNIT",
+    )
 
     table["FLUX_SCALE"] = flux_scale
     table["BACKGROUND"] = background

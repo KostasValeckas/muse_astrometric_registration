@@ -95,6 +95,15 @@ if __name__ == "__main__":
         "(see REFERENCE_FILTERS in flux.py). Default is 'WFI_BB'.",
     )
 
+    parser.add_argument(
+        "--ref_unit",
+        type=str,
+        default=None,
+        help="Unit of the reference image for --scale-ref (e.g. 'uJy'), used instead "
+        "of its BUNIT keyword. For references with a wrong BUNIT (e.g. WFI images with "
+        "BUNIT = 'mJy' in microJansky, which give FLUX_SCALE ~ 1000). Default: BUNIT.",
+    )
+
     args = parser.parse_args()
 
     import matplotlib
@@ -155,6 +164,7 @@ if __name__ == "__main__":
                 dither_mode=args.dither_mode,
             scale_ref=args.scale_ref,
             ref_filter=args.ref_filter,
+            ref_unit=args.ref_unit,
             )
 
             pipeline.run()
@@ -175,6 +185,7 @@ if __name__ == "__main__":
             dither_mode=args.dither_mode,
             scale_ref=args.scale_ref,
             ref_filter=args.ref_filter,
+            ref_unit=args.ref_unit,
         )
 
         pipeline.run()
