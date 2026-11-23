@@ -106,6 +106,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    def _run_pipeline(pipeline):
+        """Run `pipeline`; a wrong flux scale of the reference ends with its message."""
+        from flux import FluxScaleError
+
+        try:
+            pipeline.run()
+        except FluxScaleError as error:
+            raise SystemExit(str(error)) from None
+
     import matplotlib
 
     if args.plot_headless:
@@ -167,7 +176,7 @@ if __name__ == "__main__":
             ref_unit=args.ref_unit,
             )
 
-            pipeline.run()
+            _run_pipeline(pipeline)
 
     # singular cases
     else:
@@ -188,4 +197,4 @@ if __name__ == "__main__":
             ref_unit=args.ref_unit,
         )
 
-        pipeline.run()
+        _run_pipeline(pipeline)

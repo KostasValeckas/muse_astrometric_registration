@@ -231,6 +231,8 @@ if __name__ == "__main__":
         fit_flux_normalisation,
         shift_image_with_nans,
         check_flux_scales,
+        check_flux_scale_before_alignment,
+        FluxScaleError,
     )
     from methods import NoAlignment
 
@@ -288,12 +290,17 @@ if __name__ == "__main__":
     if reference_wcs is None or read is None:
         raise ValueError(f"Could not read the reference {reference_file}.")
     reference_data, reference_hdul = read
-    reference_data = reference_data * reference_conversion_factor(
+    conversion_factor = reference_conversion_factor(
         args.ref_filter,
         header=reference_hdul[0].header,
         logger=logger,
         unit=args.ref_unit,
     )
+    reference_data = reference_data * conversion_factor
+
+    # unit fix of the reference, as in the pipeline (decided at the first
+    # pointing with a usable fit)
+    reference_unit_fix = None
 
     flux_scale = np.full(len(table), np.nan)
     background = np.full(len(table), np.nan)
@@ -340,6 +347,30 @@ if __name__ == "__main__":
             arrays, reference, wcs = prepare_pointing(
                 files, reference_data, reference_wcs, logger=logger
             )
+
+            # same check as the pipeline before the alignment (first exposure
+            # as reprojected with its WCS): the unit of the header, else the
+            # known WFI fix, else the replot stops (FluxScaleError)
+            _, fix = check_flux_scale_before_alignment(
+                arrays[0],
+                reference,
+                logger=logger,
+                name=f"(pointing {pointing}, dither 1)",
+                unit_source="--ref_unit" if args.ref_unit is not None else "its BUNIT",
+                header=reference_hdul[0].header,
+                allow_fix=args.ref_unit is None and reference_unit_fix is None,
+                details={
+                    "reference file": reference_file,
+                    "reference filter": args.ref_filter,
+                    "unit conversion factor": f"{conversion_factor:.6g}",
+                    "exposure": files[0],
+                },
+            )
+            if fix is not None and reference_unit_fix is None:
+                reference_unit_fix = fix
+            if fix is not None and fix != 1.0:
+                reference_data = reference_data * fix
+                reference = reference * fix
 
             for i, r in enumerate(rows):
 
@@ -402,6 +433,10 @@ if __name__ == "__main__":
                     flux_normalisation=flux,
                 )
                 n_plotted += 1
+
+        except FluxScaleError:
+            # the whole replot is wrong, not this pointing
+            raise
 
         except Exception:
             logger.exception(

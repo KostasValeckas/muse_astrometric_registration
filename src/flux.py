@@ -112,10 +112,20 @@ NORM_THRESHOLD = 0.0  # chunks with a median at or below this are not used
 # not in pymusepipe: fewer chunks than this is not a usable fit
 NORM_MIN_CHUNKS = 10
 
-# not in pymusepipe: a median FLUX_SCALE of a run further than this factor from
-# 1 means the reference unit is most likely wrong (e.g. BUNIT = 'mJy' on an
-# image in microJansky gives FLUX_SCALE ~ 1000), see ``check_flux_scales``
+# not in pymusepipe: a FLUX_SCALE further than this factor from 1 means the
+# reference unit is most likely wrong (e.g. BUNIT = 'mJy' on an image in
+# microJansky gives FLUX_SCALE ~ 1000). Before the alignment this stops the run
+# (``check_flux_scale_before_alignment``), after it the median of the run is
+# checked again (``check_flux_scales``)
 FLUX_SCALE_WARNING_FACTOR = 10.0
+
+
+class FluxScaleError(RuntimeError):
+    """
+    The reference and the exposures are on very different flux scales after
+    the unit conversion (wrong reference unit), see
+    ``check_flux_scale_before_alignment``. Ends the run.
+    """
 
 
 def _parse_unit(text, source):
@@ -465,9 +475,12 @@ def check_flux_scales(flux_scales, logger=None, unit_source="its BUNIT"):
     ``FLUX_SCALE_WARNING_FACTOR`` from 1. The exposures and the reference are
     then on very different scales after the unit conversion, which almost
     always means the unit of the reference is wrong (e.g. BUNIT = 'mJy' on an
-    image in microJansky gives FLUX_SCALE ~ 1000). The alignment is not
-    affected (all methods are insensitive to a constant factor) and neither
-    is BACKGROUND (in the unit of the exposure), only FLUX_SCALE.
+    image in microJansky gives FLUX_SCALE ~ 1000). FLUX_SCALE is then off by
+    this factor (BACKGROUND, in the unit of the exposure, is not), and
+    PointSources can fail: its bright-source filter
+    (``filters.remove_bright_sources_simple``) cuts at an absolute value, 500,
+    which removes the whole reference if it is ~1000 times too bright.
+    OpticalFlow and FFT are insensitive to a constant factor.
 
     Parameters
     ----------
@@ -498,10 +511,288 @@ def check_flux_scales(flux_scales, logger=None, unit_source="its BUNIT"):
             f"The median FLUX_SCALE of the run is {median:.4g} (from "
             f"{flux_scales.size} exposures), more than a factor "
             f"{FLUX_SCALE_WARNING_FACTOR:g} from 1: the unit of the reference "
-            f"(from {unit_source}) is most likely wrong. The alignments and "
-            f"BACKGROUND are not affected, but FLUX_SCALE is off by this factor. "
-            f"Set the correct unit with --ref_unit (e.g. a factor ~1000 with "
-            f"BUNIT = 'mJy' usually means --ref_unit uJy)."
+            f"(from {unit_source}) is most likely wrong. FLUX_SCALE is off by "
+            f"this factor (BACKGROUND is not), and PointSources may have failed "
+            f"(its bright-source filter cuts at an absolute value; OpticalFlow and "
+            f"FFT are not affected). Set the correct unit with --ref_unit (e.g. a "
+            f"factor ~1000 with BUNIT = 'mJy' usually means --ref_unit uJy)."
         )
 
     return median
+
+
+def unit_prefix_correction(flux_scale, factor=FLUX_SCALE_WARNING_FACTOR):
+    """
+    Factor the reference is off by if `flux_scale` is off by a power of 1000,
+    the signature of a wrong SI prefix in its unit (e.g. BUNIT = 'mJy' on data
+    in microJansky gives FLUX_SCALE ~ 1000, i.e. 1e-3). Only used for the
+    error message of ``check_flux_scale_before_alignment``: a wrong unit is
+    never corrected automatically.
+
+    Returns
+    -------
+    float or None
+        1000**-k for the k that brings `flux_scale` within `factor` of 1 (1.0
+        if it already is), or None if no power of 1000 does (or `flux_scale` is
+        not a positive number).
+    """
+
+    if not np.isfinite(flux_scale) or flux_scale <= 0:
+        return None
+
+    k = int(np.round(np.log10(flux_scale) / 3.0))
+    corrected = flux_scale / 1000.0**k
+
+    if 1.0 / factor <= corrected <= factor:
+        return 1000.0 ** (-k)
+
+    return None
+
+
+# the known header inconsistency of some WFI references (``--scale-ref``):
+# BUNIT = 'mJy' while the data are in microJansky, as the ZUNIT keyword of the
+# same header says (e.g. NGC1365_Rc_flux_nosky.fits: pixel values 1.03 times
+# those of the reference with BUNIT = 'uJy/pixel'). See ``wfi_unit_fix``.
+WFI_MJY_BUNIT = u.mJy
+# ZUNIT values meaning microJansky (compared in lower case, without spaces)
+WFI_ZUNIT_MICROJANSKY = ("microjansky", "ujy", "microjy")
+WFI_MJY_FIX = 1e-3  # mJy -> uJy: the reference is multiplied by this
+
+
+def wfi_unit_fix(header):
+    """
+    Check if the header of the reference is the known WFI case: BUNIT = 'mJy'
+    (with or without "per pixel") and ZUNIT = 'micro Jansky'. The header
+    contradicts itself, and the data are in microJansky.
+
+    Parameters
+    ----------
+    header : astropy.io.fits.Header or None
+        Header of the reference.
+
+    Returns
+    -------
+    factor : float or None
+        ``WFI_MJY_FIX`` (to multiply the reference with) if it is this case,
+        else None.
+
+    reason : str
+        Why it is or is not this case, for the log.
+    """
+
+    if header is None:
+        return None, "no header of the reference"
+
+    bunit = header.get("BUNIT")
+    zunit = header.get("ZUNIT")
+
+    if bunit is None:
+        return None, "the header has no BUNIT"
+
+    try:
+        unit, _ = _parse_unit(bunit, "BUNIT")
+    except ValueError:
+        return None, f"BUNIT = {bunit!r} cannot be parsed"
+
+    if unit != WFI_MJY_BUNIT:
+        return None, f"BUNIT = {bunit!r} is not mJy"
+
+    if zunit is None:
+        return None, "BUNIT is mJy but the header has no ZUNIT to confirm microJansky"
+
+    if "".join(str(zunit).lower().split()) not in WFI_ZUNIT_MICROJANSKY:
+        return None, f"BUNIT is mJy but ZUNIT = {zunit!r} is not microJansky"
+
+    return WFI_MJY_FIX, f"BUNIT = {bunit!r} but ZUNIT = {zunit!r}"
+
+
+def _plausible_flux_scale(flux_scale):
+    """Whether `flux_scale` is within ``FLUX_SCALE_WARNING_FACTOR`` of 1."""
+    return bool(
+        np.isfinite(flux_scale)
+        and 1.0 / FLUX_SCALE_WARNING_FACTOR <= flux_scale <= FLUX_SCALE_WARNING_FACTOR
+    )
+
+
+def _flux_scale_report(
+    name, muse_image, reference_image, flux_scale, background, header, details
+):
+    """Lines describing a failed flux scale check, for the log and the error."""
+
+    def _median(image):
+        values = np.asarray(image, dtype=float)
+        values = values[np.isfinite(values) & (values != 0)]
+        return (float(np.median(values)), values.size) if values.size else (np.nan, 0)
+
+    muse_median, muse_n = _median(muse_image)
+    reference_median, reference_n = _median(reference_image)
+
+    lines = [f"Flux scale check before the alignment {name} FAILED:"]
+
+    for key, value in (details or {}).items():
+        lines.append(f"    {key}: {value}")
+
+    if header is not None:
+        for keyword in ("BUNIT", "ZUNIT", "ZPOINT", "FILTER", "ORIGIN", "DATE"):
+            lines.append(f"    header {keyword}: {header.get(keyword)!r}")
+
+    lines += [
+        f"    median of the exposure (MUSE unit): {muse_median:.6g} ({muse_n} pixels)",
+        f"    median of the reference (converted, reprojected): {reference_median:.6g} "
+        f"({reference_n} pixels)",
+        f"    ratio of the medians reference / exposure: "
+        f"{reference_median / muse_median if muse_median else np.nan:.6g}",
+        f"    fitted FLUX_SCALE: {flux_scale:.6g}, BACKGROUND: {background:.6g} "
+        f"(reference = FLUX_SCALE * (exposure + BACKGROUND), plausible within a "
+        f"factor {FLUX_SCALE_WARNING_FACTOR:g} of 1)",
+    ]
+
+    prefix = unit_prefix_correction(flux_scale)
+    if prefix is not None and prefix != 1.0:
+        lines.append(
+            f"    the scale is off by a factor {1.0 / prefix:g}, a power of 1000 (a "
+            f"wrong SI prefix of the unit?)"
+        )
+
+    return lines
+
+
+def check_flux_scale_before_alignment(
+    muse_image,
+    reference_image,
+    logger=None,
+    name="",
+    unit_source="its BUNIT",
+    header=None,
+    allow_fix=True,
+    details=None,
+):
+    """
+    Check the unit conversion of the reference before the alignment: fit
+    ``reference = FLUX_SCALE * (MUSE + BACKGROUND)`` with the exposure as
+    reprojected with its WCS (not aligned yet). The fit uses the medians of
+    10 x 10 pixel chunks of the median filtered images, so the remaining WCS
+    offset (a few pixels) changes it little, while a wrong unit (a factor 1000
+    for mJy / uJy) is obvious.
+
+    1. The unit from the header (or ``--ref_unit``) is used if FLUX_SCALE is
+       plausible (within ``FLUX_SCALE_WARNING_FACTOR`` of 1).
+    2. If not, and `allow_fix`: the known WFI case (``wfi_unit_fix``: BUNIT =
+       'mJy' but ZUNIT = 'micro Jansky') is fixed by converting the reference
+       as microJansky, if the fit then gives a plausible FLUX_SCALE.
+    3. Otherwise everything known about the conversion is logged as an error
+       and ``FluxScaleError`` is raised: the run must not go on.
+
+    Parameters
+    ----------
+    muse_image, reference_image : np.2darray
+        The exposure and the reference (unit converted, reprojected to the
+        same frame, same shape).
+
+    name : str, optional
+        Name of the exposure for the log.
+
+    unit_source : str, optional
+        Where the unit of the reference came from, for the message.
+
+    header : astropy.io.fits.Header, optional
+        Header of the reference, for the fix and the error report.
+
+    allow_fix : bool, optional
+        Try the fix of step 2 (default True). False with ``--ref_unit`` (an
+        explicit unit is not changed) and once a run has decided on its unit.
+
+    details : dict, optional
+        Further information for the error report (file, filter, conversion
+        and area factors).
+
+    Returns
+    -------
+    flux_scale : float
+        The FLUX_SCALE of the check, after the fix if one was applied (NaN if
+        the fit is not usable: then nothing is checked).
+
+    fix : float or None
+        Factor to multiply the reference with: 1.0 if the unit is right,
+        ``WFI_MJY_FIX`` if the fix was applied, None if not checked.
+
+    Raises
+    ------
+    FluxScaleError
+        If FLUX_SCALE is not plausible and the fix does not apply or does not
+        help.
+    """
+
+    flux_scale, background = fit_flux_normalisation(
+        muse_image, reference_image, name=name
+    )
+
+    if not np.isfinite(flux_scale):
+        if logger:
+            logger.warning(
+                f"Flux scale check before the alignment {name}: the fit is not "
+                f"usable, not checked."
+            )
+        return flux_scale, None
+
+    # 1) the unit of the header
+    if _plausible_flux_scale(flux_scale):
+        if logger:
+            logger.info(
+                f"Flux scale check before the alignment {name}: FLUX_SCALE = "
+                f"{flux_scale:.4g} with the unit from {unit_source}, the unit "
+                f"conversion of the reference is plausible."
+            )
+        return flux_scale, 1.0
+
+    report = _flux_scale_report(
+        name, muse_image, reference_image, flux_scale, background, header, details
+    )
+    report.insert(1, f"    unit of the reference from {unit_source}")
+
+    # 2) the known WFI case
+    if not allow_fix:
+        report.append(
+            "    no fix tried (the unit was set with --ref_unit, or the unit of the "
+            "run was already decided at an earlier pointing)"
+        )
+    else:
+        fix, reason = wfi_unit_fix(header)
+
+        if fix is None:
+            report.append(f"    the known WFI fix does not apply: {reason}")
+        else:
+            fixed_scale, fixed_background = fit_flux_normalisation(
+                muse_image, reference_image * fix, name=name
+            )
+
+            if _plausible_flux_scale(fixed_scale):
+                if logger:
+                    logger.warning(
+                        f"Flux scale check before the alignment {name}: FLUX_SCALE "
+                        f"= {flux_scale:.4g} with the unit from {unit_source}, not "
+                        f"plausible. The header is the known WFI case ({reason}): "
+                        f"the data are in microJansky. The reference is converted "
+                        f"as microJansky (multiplied by {fix:g}): FLUX_SCALE = "
+                        f"{fixed_scale:.4g}, BACKGROUND = {fixed_background:.4g}."
+                    )
+                return fixed_scale, fix
+
+            report.append(
+                f"    the known WFI fix applies ({reason}) but does not help: with "
+                f"the reference multiplied by {fix:g}, FLUX_SCALE = "
+                f"{fixed_scale:.6g}, BACKGROUND = {fixed_background:.6g}"
+            )
+
+    # 3) stop
+    report.append(
+        "    Stopping the run: with a wrong reference unit FLUX_SCALE is wrong and "
+        "PointSources fails. Check the unit of the reference (BUNIT) or set it "
+        "with --ref_unit."
+    )
+    message = "\n".join(report)
+
+    if logger:
+        logger.error(message)
+
+    raise FluxScaleError(message)

@@ -79,17 +79,75 @@ def interpolate_nans(image, logger=None):
     return interpolated_image
 
 
+# default threshold of remove_bright_sources_simple, in robust standard
+# deviations above the median of the frame. On the MUSE frames of NGC1365 the
+# old absolute threshold (500, in MUSE units) was 7 - 118 robust sigmas above
+# the median, ~55 on most frames.
+BRIGHT_SOURCE_SIGMA = 50.0
+
+
+def bright_source_threshold(image, threshold_sigma=BRIGHT_SOURCE_SIGMA):
+    """
+    Threshold for ``remove_bright_sources_simple`` relative to the frame:
+    median + `threshold_sigma` * MAD standard deviation of its finite, non-zero
+    pixels (zeros are filled NaNs or masked pixels). Scales with the frame, so
+    it does not depend on the unit of the image.
+
+    Returns
+    -------
+    float
+        The threshold, or inf (nothing removed) if the frame has no valid
+        pixels or no scatter.
+    """
+
+    from astropy.stats import mad_std
+
+    values = np.asarray(image, dtype=float)
+    values = values[np.isfinite(values) & (values != 0)]
+
+    if values.size == 0:
+        return np.inf
+
+    scatter = mad_std(values)
+
+    if not np.isfinite(scatter) or scatter <= 0:
+        return np.inf
+
+    return float(np.median(values) + threshold_sigma * scatter)
+
+
 def remove_bright_sources_simple(
-    image, threshold=500, radius=15, fill_value=0, logger=None, mask=None
+    image,
+    threshold=None,
+    radius=15,
+    fill_value=0,
+    logger=None,
+    mask=None,
+    threshold_sigma=BRIGHT_SOURCE_SIGMA,
 ):
     """
     Remove bright sources from the image by setting pixels above a certain threshold to a fill value
     including a radius around the bright source. This is a simple approach and may not be suitable for all cases.
+
+    The threshold is relative to the frame by default (see
+    ``bright_source_threshold``): `threshold_sigma` robust standard deviations
+    above its median, so the same sources are removed whatever the unit of the
+    image. An absolute `threshold` (in the unit of the image; the old default
+    was 500, for frames in MUSE units) is used instead if given. An absolute
+    threshold removed the whole reference when it was 1000 times too bright
+    (wrong BUNIT), and nothing when the reference was not converted to MUSE
+    units.
     """
+
+    if threshold is None:
+        threshold = bright_source_threshold(image, threshold_sigma=threshold_sigma)
+        source = f"median + {threshold_sigma:g} robust sigma"
+    else:
+        source = "absolute"
 
     if logger:
         logger.info(
-            f"Removing bright sources with threshold: {threshold}, radius: {radius}, and fill_value: {fill_value}"
+            f"Removing bright sources with threshold: {threshold:.6g} ({source}), radius: {radius}, and fill_value: {fill_value}"
         )
 
     if mask is None:
@@ -98,6 +156,9 @@ def remove_bright_sources_simple(
 
     else:
         mask = mask | (image > threshold)
+
+    if logger:
+        logger.info(f"{int(np.sum(mask))} pixels above the bright source threshold.")
 
     # Apply the mask to the image, setting pixels above the threshold to the fill value
     filtered_image = np.where(mask, fill_value, image)

@@ -292,15 +292,38 @@ def prepare_frames(
     # after the reprojection
     flux_reference = None
     if ref_filter is not None:
-        from flux import reference_conversion_factor, pixel_area_factor
-
-        flux_reference = (
-            reference
-            * reference_conversion_factor(
-                ref_filter, header=read[1][0].header, logger=logger, unit=ref_unit
-            )
-            * pixel_area_factor(wcs_set[0], reference_wcs)
+        from flux import (
+            reference_conversion_factor,
+            pixel_area_factor,
+            check_flux_scale_before_alignment,
         )
+
+        conversion_factor = reference_conversion_factor(
+            ref_filter, header=read[1][0].header, logger=logger, unit=ref_unit
+        )
+        area_factor = pixel_area_factor(wcs_set[0], reference_wcs)
+        flux_reference = reference * conversion_factor * area_factor
+
+        # as the pipeline: the unit of the header, else the known WFI fix,
+        # else an error (FluxScaleError)
+        _, fix = check_flux_scale_before_alignment(
+            arrays[index],
+            flux_reference,
+            logger=logger,
+            name=f"({pathlib.Path(file_path).stem})",
+            unit_source="--ref_unit" if ref_unit is not None else "its BUNIT",
+            header=read[1][0].header,
+            allow_fix=ref_unit is None,
+            details={
+                "reference file": reference_file,
+                "reference filter": ref_filter,
+                "unit conversion factor": f"{conversion_factor:.6g}",
+                "pixel area factor": f"{area_factor:.6g}",
+                "exposure": str(file_path),
+            },
+        )
+        if fix is not None:
+            flux_reference = flux_reference * fix
 
     if not np.any(np.isfinite(exposure)):
         raise ValueError(

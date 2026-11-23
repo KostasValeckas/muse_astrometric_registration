@@ -33,6 +33,7 @@ from skimage.registration import phase_cross_correlation
 from filters import (
     remove_nans,
     remove_bright_sources_simple,
+    BRIGHT_SOURCE_SIGMA,
     estimate_nan_window,
     dog_passband,
     dog,
@@ -576,7 +577,7 @@ class AligmentMethod(ABC):
         reference_frame,
         input_frame,
         title,
-        n_levels=4,
+        n_levels=3,
         lower_per=60,
         upper_per=99,
         shared_levels=False,
@@ -2639,6 +2640,7 @@ class PointSources(AligmentMethod):
         robust_f_scale=0.5,
         min_sources=5,
         max_iterations=5,
+        bright_source_sigma=BRIGHT_SOURCE_SIGMA,
         QA_path=None,
     ):
         """
@@ -2699,6 +2701,13 @@ class PointSources(AligmentMethod):
             number of astroalign matches before the looser matching settings
             are tried.
 
+        bright_source_sigma : float
+            Bright sources are removed from both frames before the matching,
+            above this many robust standard deviations above the median of
+            each frame (default ``filters.BRIGHT_SOURCE_SIGMA`` = 50), see
+            ``filters.remove_bright_sources_simple``. Relative to each frame,
+            so it does not depend on the unit of the reference.
+
         Why these values
         ----------------
         On real MUSE data (white-light dither vs. reference) the centroid
@@ -2728,6 +2737,7 @@ class PointSources(AligmentMethod):
         if self.min_sources < 3:
             raise ValueError("min_sources must be >= 3 (3 parameters are fitted)")
         self.max_iterations = max_iterations
+        self.bright_source_sigma = bright_source_sigma
 
         super().__init__("PointSources", "0.0.0", logger=logger, QA_path=QA_path)
 
@@ -3791,10 +3801,16 @@ class PointSources(AligmentMethod):
         # remove bright sources from both:
 
         reference_frame, _ = remove_bright_sources_simple(
-            reference_frame, logger=self.logger
+            reference_frame,
+            logger=self.logger,
+            threshold_sigma=self.bright_source_sigma,
         )
 
-        input_frame, _ = remove_bright_sources_simple(input_frame, logger=self.logger)
+        input_frame, _ = remove_bright_sources_simple(
+            input_frame,
+            logger=self.logger,
+            threshold_sigma=self.bright_source_sigma,
+        )
 
         # now, find all zero's in both frames and build a mask
 

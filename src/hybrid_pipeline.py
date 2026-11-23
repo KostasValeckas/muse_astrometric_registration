@@ -399,6 +399,7 @@ if __name__ == "__main__":
     # before importing any other modules that use it
 
     from pipeline import AlignmentPipeline
+    from flux import FluxScaleError
     from methods import NoAlignment, PointSources, FFT, OpticalFlow
     from logger import get_logger, format_elapsed, exit_on_sigterm
 
@@ -485,6 +486,12 @@ if __name__ == "__main__":
         # the traceback as ABORTED)
         try:
             pipeline.run()
+        except FluxScaleError as error:
+            # the other methods would stop the same way
+            pipeline.logger.error(
+                "Hybrid pipeline: stopped, the flux scale of the reference is wrong."
+            )
+            raise SystemExit(str(error)) from None
         except Exception:
             crashed_roles.append(role)
             pipeline.logger.error(
@@ -523,6 +530,11 @@ if __name__ == "__main__":
 
     try:
         pipeline.run()
+    except FluxScaleError as error:
+        pipeline.logger.error(
+            "Hybrid pipeline: stopped, the flux scale of the reference is wrong."
+        )
+        raise SystemExit(str(error)) from None
     except Exception:
         crashed_roles.append("primary")
         pipeline.logger.error(

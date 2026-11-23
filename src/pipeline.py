@@ -25,6 +25,8 @@ from flux import (
     fit_flux_normalisation,
     shift_image_with_nans,
     check_flux_scales,
+    check_flux_scale_before_alignment,
+    FluxScaleError,
 )
 from astropy.io import fits
 from geometry import (
@@ -550,6 +552,12 @@ class AlignmentPipeline:
         # dither): (FLUX_SCALE, BACKGROUND), NaN if the fit is not usable
         # (only with scale_ref)
         self.flux_normalisation = {}
+
+        # factor applied to the reference after the unit conversion: 1.0 if the
+        # unit of the header is right, flux.WFI_MJY_FIX for the known WFI case;
+        # decided by the flux scale check of the first pointing with a usable
+        # fit (None until then), see check_flux_scale_before_alignment
+        self.reference_unit_fix = None
 
         self.initial_guess_sources = (
             list(initial_guess_sources) if initial_guess_sources is not None else []
@@ -2417,12 +2425,13 @@ class AlignmentPipeline:
         # flux scaling: only the unit conversion before the alignment, the
         # flux normalisation is fitted after it (see the output loop)
         if self.scale_ref:
-            reference_frame = reference_frame * reference_conversion_factor(
+            conversion_factor = reference_conversion_factor(
                 self.ref_filter,
                 header=reference_hdul[0].header,
                 logger=self.logger,
                 unit=self.ref_unit,
             )
+            reference_frame = reference_frame * conversion_factor
 
         # this is the actual aligment loop
 
@@ -2493,6 +2502,79 @@ class AlignmentPipeline:
                     dither_frame_arrays, logger=self.logger
                 )
 
+                # all the WCS are now the same, so we only need to reproject the reference frame once per dither
+
+                reprojected_reference_frame, _ = reproject_image_to_target_wcs(
+                    reference_frame,
+                    reference_WCS,
+                    dither_frame_wcs[0],
+                    shape_out=original_shape,
+                )
+
+                reference_WCS_reprojected = dither_frame_wcs[
+                    0
+                ]  # update reference WCS to match the dither WCS
+
+                # keep the flux per pixel (reproject interpolates surface
+                # brightness): scale by the pixel area ratio, as pymusepipe
+                if self.scale_ref:
+                    area_factor = pixel_area_factor(dither_frame_wcs[0], reference_WCS)
+                    self.logger.info(
+                        f"Pointing {pointing}: reference pixel area factor "
+                        f"{area_factor:.6g}"
+                    )
+                    reprojected_reference_frame = (
+                        reprojected_reference_frame * area_factor
+                    )
+
+                # also crop the same edges as the dither frames to ensure consistency
+                reprojected_reference_frame = reprojected_reference_frame[
+                    edge_cut_value : reprojected_reference_frame.shape[0]
+                    - edge_cut_value,
+                    edge_cut_value : reprojected_reference_frame.shape[1]
+                    - edge_cut_value,
+                ]
+
+                # keep this for plotting later
+                reprojected_reference_frames[pointing] = reprojected_reference_frame
+
+                # check the unit of the reference before any alignment (also
+                # before the dither alignment): the unit of the header, else the
+                # known WFI fix (decided at the first pointing with a usable fit,
+                # never with --ref_unit), else the run stops here (FluxScaleError)
+                if self.scale_ref:
+                    _, fix = check_flux_scale_before_alignment(
+                        dither_frame_arrays[0],
+                        reprojected_reference_frame,
+                        logger=self.logger,
+                        name=f"(pointing {pointing}, dither 1)",
+                        unit_source=(
+                            "--ref_unit" if self.ref_unit is not None else "its BUNIT"
+                        ),
+                        header=reference_hdul[0].header,
+                        allow_fix=(
+                            self.ref_unit is None and self.reference_unit_fix is None
+                        ),
+                        details={
+                            "reference file": self.reference_file,
+                            "reference filter": self.ref_filter,
+                            "unit conversion factor": f"{conversion_factor:.6g}",
+                            "pixel area factor": f"{area_factor:.6g}",
+                            "exposure": str(dither_frames[0]),
+                        },
+                    )
+
+                    if fix is not None and self.reference_unit_fix is None:
+                        self.reference_unit_fix = fix
+
+                    if fix is not None and fix != 1.0:
+                        # for this pointing and all the next ones
+                        reference_frame = reference_frame * fix
+                        reprojected_reference_frame = reprojected_reference_frame * fix
+                        reprojected_reference_frames[pointing] = (
+                            reprojected_reference_frame
+                        )
+
                 if not skip_dithers and self.dither_mode == "full":
 
                     # ... and run the dither aligment
@@ -2532,42 +2614,6 @@ class AlignmentPipeline:
 
                 # set the QA path for the science alignment to the science QA directory
                 self.aligner.QA_path = QA_dir_science
-
-                # all the WCS are now the same, so we only need to reproject the reference frame once per dither
-
-                reprojected_reference_frame, _ = reproject_image_to_target_wcs(
-                    reference_frame,
-                    reference_WCS,
-                    dither_frame_wcs[0],
-                    shape_out=original_shape,
-                )
-
-                reference_WCS_reprojected = dither_frame_wcs[
-                    0
-                ]  # update reference WCS to match the dither WCS
-
-                # keep the flux per pixel (reproject interpolates surface
-                # brightness): scale by the pixel area ratio, as pymusepipe
-                if self.scale_ref:
-                    area_factor = pixel_area_factor(dither_frame_wcs[0], reference_WCS)
-                    self.logger.info(
-                        f"Pointing {pointing}: reference pixel area factor "
-                        f"{area_factor:.6g}"
-                    )
-                    reprojected_reference_frame = (
-                        reprojected_reference_frame * area_factor
-                    )
-
-                # also crop the same edges as the dither frames to ensure consistency
-                reprojected_reference_frame = reprojected_reference_frame[
-                    edge_cut_value : reprojected_reference_frame.shape[0]
-                    - edge_cut_value,
-                    edge_cut_value : reprojected_reference_frame.shape[1]
-                    - edge_cut_value,
-                ]
-
-                # keep this for plotting later
-                reprojected_reference_frames[pointing] = reprojected_reference_frame
 
                 # 1) align every dither to the reference both ways and check consistency
                 for i in range(len(dither_frame_arrays)):
@@ -2769,6 +2815,10 @@ class AlignmentPipeline:
                         self.flux_normalisation.get((pointing, i), (np.nan, np.nan))
                     )
 
+            except FluxScaleError:
+                # not a problem of this pointing: the whole run is wrong
+                raise
+
             except Exception:
                 self.logger.exception(
                     f"Unexpected error while processing pointing {pointing} - "
@@ -2795,6 +2845,12 @@ class AlignmentPipeline:
             )
 
         # a FLUX_SCALE far from 1 means a wrong reference unit
+        if self.scale_ref and self.reference_unit_fix not in (None, 1.0):
+            self.logger.warning(
+                f"The unit of the reference was fixed in this run: multiplied by "
+                f"{self.reference_unit_fix:g} after the conversion with its BUNIT "
+                f"(known WFI case, see the flux scale check of the first pointing)."
+            )
         if self.scale_ref:
             check_flux_scales(
                 [flux_scale for flux_scale, _ in output_flux],

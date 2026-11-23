@@ -27,11 +27,28 @@ Before the alignment: unit conversion
 
 .. warning::
     Some WFI references have ``BUNIT = 'mJy'`` while their data are in
-    microJansky: they give FLUX_SCALE ~ 1000. The alignments are not affected by
-    a wrong unit (all methods are insensitive to a constant factor), and neither
-    is BACKGROUND (it is in the unit of the exposure), only FLUX_SCALE. A run whose
-    median FLUX_SCALE is more than a factor 10 from 1 ends with a warning in the
-    log.
+    microJansky: they give FLUX_SCALE ~ 1000. A wrong unit makes FLUX_SCALE off by
+    the same factor (BACKGROUND, in the unit of the exposure, is not), and can
+    make ``PointSources`` fail: its bright-source filter cuts at an absolute value
+    (500), which removes the whole reference if it is ~1000 times too bright.
+    ``OpticalFlow`` and ``FFT`` are insensitive to a constant factor.
+
+    To catch this, FLUX_SCALE is first fitted for every pointing before any
+    alignment (dither 1, as reprojected with its WCS):
+
+    #. With the unit of the header (or ``--ref_unit``): used if FLUX_SCALE is
+       within a factor 10 of 1.
+    #. If not, the known WFI case is fixed: some WFI references
+       (``*_Rc_flux_nosky.fits``) have ``BUNIT = 'mJy'`` while the same header
+       says ``ZUNIT = 'micro Jansky'``, and the data are in microJansky. Only if
+       the unit came from ``BUNIT``, ``BUNIT`` is mJy and ``ZUNIT`` is
+       microJansky, the reference is converted as microJansky, and used if
+       FLUX_SCALE is then within a factor 10 of 1 (warning in the log). This is
+       decided at the first pointing and used for the whole run.
+    #. Otherwise everything about the conversion is logged as an error and the
+       run stops (the hybrid run as a whole): it does not run with a wrong unit. A run
+    whose median FLUX_SCALE after the alignment is more than a factor 10 from 1
+    ends with a warning in the log.
 
 After the alignment: flux normalisation
 ---------------------------------------
