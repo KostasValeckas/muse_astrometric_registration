@@ -32,7 +32,7 @@ release = ""
 extensions = []
 
 # Add any paths that contain templates here, relative to this directory.
-# templates_path = ["_templates"]
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -47,14 +47,7 @@ exclude_patterns = [
     "replot.rst",
 ]
 
-# Banner prepended to every page.
-rst_prolog = """
-.. warning::
-    This software is in **open beta**. We are still testing the
-    functionality, so results and interfaces may change. See the
-    :ref:`known limitations <known_limitations>`.
-
-"""
+# The open-beta banner on top of every page is in _templates/page.html.
 
 
 # -- Options for HTML output -------------------------------------------------

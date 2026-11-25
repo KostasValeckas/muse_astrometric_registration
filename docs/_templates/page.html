@@ -1,0 +1,12 @@
+{# Open-beta banner at the top of every page (added in the template rather than
+   with rst_prolog, so it does not depend on the reStructuredText processing). #}
+{% extends "!page.html" %}
+{% block body %}
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This software is in <strong>open beta</strong>. We are still testing the
+functionality, so results and interfaces may change. See the
+<a class="reference internal" href="{{ pathto('known_limitations') }}">known limitations</a>.</p>
+</div>
+{{ super() }}
+{% endblock %}
