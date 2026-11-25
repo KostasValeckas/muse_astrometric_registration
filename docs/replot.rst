@@ -1,3 +1,6 @@
+.. DRAFT (probably not needed): not linked from any page and excluded from the
+   build (exclude_patterns in conf.py).
+
 .. _replot:
 
 Replot final difference images

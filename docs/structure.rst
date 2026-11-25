@@ -6,8 +6,6 @@ Overview of all pipeline procedures and their products
 This page gives an overview of the procedures of the pipeline and the products
 of each. Click on any of the procedure names for more information on that step.
 
-.. image:: alignment_repo_sketch.png
-    :width: 100%
 
 Main procedures
 ---------------
@@ -37,7 +35,6 @@ control it.
    run
    hybrid
    methods
-   rotation_convention
    angle_scan
    scale_ref
    dithers
@@ -53,14 +50,8 @@ Tools in ``dev``
       - Products
     * - :ref:`Configuration file sorter <sorter>` (``dev/sorter.py``)
       - The configuration ``.json`` file
-    * - :ref:`Replot final difference images <replot>` (``dev/replot_final_difference_images.py``)
-      - ``final_difference_images_flux/``, ``{table}_alignment_output_table_flux.fits``
-    * - :ref:`Table for pymusepipe <pymusepipe>` (``dev/convert_hybrid_table.py``)
-      - ``{table}_pymusepipe.fits``
 
 .. toctree::
    :hidden:
 
    configuration_file
-   replot
-   pymusepipe

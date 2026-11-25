@@ -49,7 +49,7 @@ if __name__ == "__main__":
         "--exp_keyword",
         type=str,
         default="HIERARCH MUSEPIPE_IEXPO",
-        help="Keyword for the exposure time. Default is 'HIERARCH MUSEPIPE_IEXPO'.",
+        help="Keyword for the exposure number. Default is 'HIERARCH MUSEPIPE_IEXPO'.",
     )
 
     parser.add_argument(

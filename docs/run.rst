@@ -3,6 +3,11 @@
 Single method run
 =================
 
+This mode uses the pipeline structure to perform the registration with one
+:ref:`alignment method <methods>` only. It is meant as a supplement to the
+:ref:`hybrid run <hybrid>`, for when only one method is wanted, for scientific or
+debugging reasons.
+
 Quickstart
 ----------
 

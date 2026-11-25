@@ -1,3 +1,6 @@
+.. DRAFT: not linked from any page and excluded from the build (exclude_patterns
+   in conf.py) until the pymusepipe integration is done.
+
 .. _pymusepipe:
 
 Using the results in pymusepipe

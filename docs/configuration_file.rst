@@ -3,7 +3,14 @@
 Configuration files
 ===================
 
-The pipeline input is a ``.json`` file with the following formatting:
+The pipeline input is a ``.json`` file, which is designed for the typical
+observing strategy of MUSE. It groups files by pointing, where every pointing can
+have one or more dithers. What all pointings in a configuration file have in
+common is that they must be alignable in the same pipeline run, i.e. to the same
+reference image.
+
+
+It has the following formatting:
 
 .. code-block:: text
 
@@ -18,11 +25,11 @@ The pipeline input is a ``.json`` file with the following formatting:
         ],
         ...
         "headers": {
-            "date_keyword": fits keyword for date of observation (str),
-            "mjd_keyword": fits keyword for MJD of observation (str),
-            "tpl_start_keyword": fits keyword for template start (str),
-            "exp_keyword": fits keyword for exposure number (str),
-            "pointing_keyword": fits keyword for pointing number (str)
+            "date_keyword": FITS keyword for date of observation (str),
+            "mjd_keyword": FITS keyword for MJD of observation (str),
+            "tpl_start_keyword": FITS keyword for template start (str),
+            "exp_keyword": FITS keyword for exposure number (str),
+            "pointing_keyword": FITS keyword for pointing number (str)
         }
     }
 
@@ -61,7 +68,7 @@ Preparing the configuration file
 
 The script ``dev/sorter.py`` produces a configuration file from a directory with
 MUSE data. Three FITS keywords control the sorting of the data: the pointing
-number, the exposure number and the observation time. The defaults are:
+number, the exposure number and the observation timestamp. The defaults are:
 
 .. code-block:: text
 
@@ -82,12 +89,12 @@ For some datasets the headers differ. The following flags allow for that:
       --pointing_keyword POINTING_KEYWORD
                             Keyword for the pointing. Default is 'HIERARCH MUSEPIPE_POINTING'.
       --exp_keyword EXP_KEYWORD
-                            Keyword for the exposure time. Default is 'HIERARCH MUSEPIPE_IEXPO'.
+                            Keyword for the exposure number. Default is 'HIERARCH MUSEPIPE_IEXPO'.
       --date_keyword DATE_KEYWORD
                             Keyword for the observation date. Default is 'DATE-OBS'.
 
 These flags specify the output directory and filename, and two more headers that
-are used for the output table of the pipeline (not needed for the sorting):
+are used for the :ref:`output table <output>` of the pipeline (not needed for the sorting):
 
 .. code-block:: text
 
@@ -99,3 +106,13 @@ are used for the output table of the pipeline (not needed for the sorting):
                             Keyword for the observation MJD. Default is 'MJD-OBS'.
       --tpl_start_keyword TPL_START_KEYWORD
                             Keyword for the template start. Default is 'HIERARCH ESO TPL START'.
+
+.. _adapting_instruments:
+
+Adapting to other instruments
+------------------------------
+
+The format described above is the only defining I/O contract in the software.
+To adapt the pipeline to other instruments, the easiest approach is to write
+wrappers that produce suitable configuration files for the observing strategies
+of those instruments, rather than changing the pipeline infrastructure itself.

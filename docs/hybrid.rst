@@ -3,6 +3,17 @@
 Hybrid run
 ==========
 
+The pipeline is designed to support several different :ref:`alignment methods <methods>`
+to cover different edge cases in MUSE data. To make sure all of them are
+exhausted, the pipeline can be run in hybrid mode, where all of the methods
+are deployed and support each other with initial guesses and statistics.
+The pipeline automatically produces one best-attempt registration per frame,
+but also all the individual per-method alignments.
+
+The hybrid pipeline is configured to run with three methods at once with all 
+having a specific priority role in estiamting the final results, and what methods 
+are used for what priority can be chosen by the user.
+
 Quickstart
 ----------
 
@@ -14,18 +25,19 @@ Quickstart
 How the methods are combined
 ----------------------------
 
-#. The secondary (default ``OpticalFlow``) and tertiary (default ``PointSources``)
+#. The secondary (default :ref:`OpticalFlow <method_opticalflow>`) and tertiary
+   (default :ref:`PointSources <method_pointsources>`)
    methods run first, as isolated runs of the pipeline, without initial guesses and
    with their direct rotation estimators.
-#. The primary method (default ``FFT``) runs with initial guesses read from the
+#. The primary method (default :ref:`FFT <method_fft>`) runs with initial guesses read from the
    results on disk: from the secondary method if it has a result, else from the
    tertiary, else without a guess. The :ref:`angle scan <angle_scan>` is on by
    default for the primary.
 #. The final table takes, for every exposure, the primary result if there is one,
    else the secondary, else the tertiary, else null, and adds a column
    ``ALIGNMENT_METHOD`` with the method that was used.
-#. The difference images of exactly the results in the final table are copied to
-   ``final_difference_images/``.
+#. The :ref:`final difference images <final_difference_images>` of exactly the
+   results in the final table are copied to ``final_difference_images/``.
 
 Flags
 -----
@@ -63,6 +75,11 @@ Flags
       --ref_filter REF_FILTER
                             Default is WFI_BB.
       --ref_unit REF_UNIT   Unit of the reference (e.g. uJy), used instead of its BUNIT.
+
+See :ref:`alignment methods <methods>`, :ref:`angle scan <angle_scan>`,
+:ref:`dither alignment <dithers>` (dither modes, ``--distance_threshold``) and
+:ref:`reference flux scaling <scale_ref>` (``--scale-ref``, ``--ref_filter``,
+``--ref_unit``).
 
 Output directory
 ----------------

@@ -3,8 +3,12 @@
 Contact
 =======
 
-Any bug reports, questions, or suggestions can be
-directed through our
+Bug reports, questions and suggestions can be submitted through the issue
+tracker of our
 `GitHub repository <https://github.com/KostasValeckas/muse_astrometric_registration/issues>`_.
 
-TODO: contact email.
+Developers
+----------
+
+* `Kostas Valeckas <https://kostasvaleckas.github.io/>`_
+* `Enrico Congiu <https://www.enricocongiu.com/>`_

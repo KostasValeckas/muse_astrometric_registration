@@ -145,7 +145,7 @@ class AligmentMethod(ABC):
         scan_max_shift=10,
         scan_shift_slack=3,
         fine_scan_halfwidth=0.15,
-        fine_scan_points=50,
+        fine_scan_points=25,
         fit_outlier_sigma=1.5,
         fit_passes=2,
         fit_min_points=10,
@@ -200,9 +200,10 @@ class AligmentMethod(ABC):
         scan_shift_slack : int
             Extra room (pixels) on top of the expected translation of a scan
             (default 3), for the drift of the translation with the angle.
-            The expected translation is the one known before the scan (e.g.
-            the direct fit or the initial guess), otherwise the first
-            translation measured in the scan. The room is then
+            The expected translation is the translation-only fit at 0 degrees
+            (the direct fit for FFT); if that fails, the initial guess, and
+            without one, the first translation measured in the scan. The room
+            is then
             max(`scan_max_shift`, max(|tx|, |ty|) + `scan_shift_slack`), the
             same window for every angle of the scan.
 
@@ -218,7 +219,7 @@ class AligmentMethod(ABC):
             margin, so the fine scan covers the final ternary interval.
 
         fine_scan_points : int
-            Number of equally spaced angles in the fine scan.
+            Number of equally spaced angles in the fine scan (default 25).
 
         fit_outlier_sigma : float
             In the multi-pass parabola fit, points whose residual from the
@@ -2178,8 +2179,9 @@ class AligmentMethod(ABC):
             Save/show the angle-scan QA plot.
 
         expected_shift : tuple or None
-            Translation (tx, ty) expected for the scan (e.g. the direct fit or
-            the initial guess). Sets the room for the translation in the
+            Translation (tx, ty) expected for the scan (the translation-only
+            fit at 0 degrees, the direct fit for FFT, or the initial guess if
+            that fit failed). Sets the room for the translation in the
             comparison window (`_scan_shift_room`). If None, the first
             translation measured in the scan is used.
 
@@ -3956,12 +3958,41 @@ class PointSources(AligmentMethod):
 
                 return diff
 
+            # expected translation of the scan (sets the room for the
+            # translation in the comparison window): the translation-only fit
+            # at 0 degrees, or the initial guess if that fit fails
+            expected_shift = initial_guess_translation
+
+            translation_only = self._fit_translation_at_angle(
+                source_list,
+                target_list,
+                centre,
+                0.0,
+                p0=p0[1:3],
+            )
+
+            if translation_only is not None:
+                expected_shift = translation_only["shift"]
+
+                if self.logger:
+                    self.logger.info(
+                        f"Translation-only fit for {obs_name}: "
+                        f"({expected_shift[0]:.3f}, {expected_shift[1]:.3f}) px, "
+                        f"used as the expected translation of the angle scan"
+                    )
+
+            elif self.logger:
+                self.logger.warning(
+                    f"Translation-only fit for {obs_name} failed, the expected "
+                    f"translation of the angle scan is the initial guess"
+                )
+
             scan_result = self._scan_for_best_angle(
                 _evaluate_angle,
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
-                expected_shift=initial_guess_translation,
+                expected_shift=expected_shift,
             )
 
             if scan_result is None:
@@ -4356,8 +4387,7 @@ class FFT(AligmentMethod):
             Final interval width (deg) of the ternary search (default 0.2).
 
         fine_scan_points : int
-            Number of equally spaced angles in the fine scan (default 25 for
-            FFT, since every angle is a full translation estimate).
+            Number of equally spaced angles in the fine scan (default 25).
 
         fit_outlier_sigma : float
             In the multi-pass parabola fit, points whose residual from the previous fit
@@ -7574,11 +7604,35 @@ class OpticalFlow(AligmentMethod):
                 )
                 return diff
 
+            # expected translation of the scan (sets the room for the
+            # translation in the comparison window): the translation-only fit
+            # at 0 degrees, or the initial guess if that fit fails
+            expected_shift = initial_guess_translation
+
+            translation_only = _fit(input_frame, rotation=False)
+
+            if translation_only is not None:
+                expected_shift = (translation_only["tx"], translation_only["ty"])
+
+                if self.logger:
+                    self.logger.info(
+                        f"Translation-only fit for {obs_name}: "
+                        f"({expected_shift[0]:.3f}, {expected_shift[1]:.3f}) px, "
+                        f"used as the expected translation of the angle scan"
+                    )
+
+            elif self.logger:
+                self.logger.warning(
+                    f"Translation-only fit for {obs_name} failed, the expected "
+                    f"translation of the angle scan is the initial guess"
+                )
+
             scan_result = self._scan_for_best_angle(
                 _evaluate_angle,
                 obs_name,
                 save_QA=save_QA,
                 show_QA=show_QA,
+                expected_shift=expected_shift,
             )
 
             if scan_result is None:

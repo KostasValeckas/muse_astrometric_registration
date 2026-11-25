@@ -33,6 +33,18 @@ Extra dependencies are in the ```requirements.txt``` file. Install them with:
 pip install -r requirements.txt
 ```
 
+# Worked example
+
+A small dataset (NGC1365, pointing 1, 4 dithers, with a cutout of the WFI R-band
+reference) is shipped in ```dev/NGC1365_short```. From the root of the repository:
+
+```
+python src/hybrid_pipeline.py dev/NGC1365_short.json dev/NGC1365_short/NGC1365_Rc_flux_nosky_cutout_P01.fits --input_dir dev/NGC1365_short --output_dir NGC1365_short_HYBRID --plot_headless
+```
+
+The run takes ~16 minutes on a laptop. The output is described in the documentation,
+page "Worked example" (```docs/worked_example.rst```).
+
 # Running the pipeline
 
 ------------------------------------------------------------------------------
@@ -281,16 +293,20 @@ of the WCS, not the raw rotations.
 #### Angle scan (```--scan_for_angles```)
 
 Instead of each method's own rotation estimator, the rotation can be found by
-minimising the difference between the reference and the rotated + shifted input
-(mean absolute difference of the blurred frames, over a fixed central window, kept small enough to stay covered for
-the translation: at least `scan_max_shift` = 10 px, or the expected translation + `scan_shift_slack` = 3 px if larger.
-The expected translation is the direct fit (FFT) or the initial guess (PointSources), otherwise the first translation
-measured in the scan):
+minimising the difference between the reference and the rotated + shifted input: the mean absolute difference of the
+blurred frames over a fixed central window.
+
+The window is clipped so that it stays covered by the input for the translation. It leaves room for at least
+`scan_max_shift` (10 px), or for the expected translation + `scan_shift_slack` (3 px) if that is larger. The expected
+translation is each method's translation-only fit at 0 degrees (the direct fit for FFT). If that fit fails, the initial
+guess is used, and without one, the first translation measured in the scan.
+
+The scan itself:
 
 1. A ternary search over [-1, 1] degrees finds the rough minimum. It reports failure
    if it ends at the edge of the range or if all evaluations give the same value
    (e.g. every translation estimate failed).
-2. A fine scan around it (+/- 0.15 degrees, 25 points for FFT, 50 otherwise)
+2. A fine scan around it (+/- 0.15 degrees, 25 points)
    estimates the translation at every angle.
 3. A linear trend is fitted to tx(angle) and ty(angle), translation outliers are
    rejected, and all angles are re-scored with the smooth trend translation, so the
@@ -310,11 +326,18 @@ and the translation per angle with its trend and residuals.
 
 **FFT with the angle scan** (the default for the primary method of the hybrid run):
 
-* The direct fit is run first. If it fails in the translation, the alignment fails
-  without running the (slow) scan. If only its rotation estimate fails (no valid
-  entry in the per-sigma rotation table), a translation-only fit at 0 degrees is
-  tried, and if it works the scan is run anyway with that translation
-  (```scan_on_rotation_failure```).
+* The direct fit (rotation + translation) is run first, as a cheap check. If its
+  translation fails, the alignment fails without running the slow scan.
+* If only its rotation estimate fails (no valid entry in the per-sigma rotation
+  table), the shift may still be measurable, and the scan does not need the
+  direct rotation. With `scan_on_rotation_failure` (default on), a
+  translation-only fit at 0 degrees is tried:
+  * if it fails, the alignment fails without the scan;
+  * if it works, the scan is run with the full sigma range and that translation
+    as the expected one. There is no direct fit to fall back on, so if the scan
+    fails, the alignment fails.
+
+  With the option off, any failure of the direct fit fails the alignment.
 * If the direct fit agrees with the initial guess (translation within 1 px, rotation
   within 0.1 degrees), the scan only searches the sigmas around the ones the direct
   fit agreed on (+/- 5 grid steps), which makes every scanned angle much cheaper.
@@ -357,10 +380,9 @@ Before the alignment, only the unit conversion:
    (e.g. ```--ref_unit uJy```), which is used instead. Some WFI references have
    ```BUNIT = 'mJy'``` while their data are in microJansky: they give FLUX_SCALE ~ 1000.
    A wrong unit makes FLUX_SCALE off by the same factor (BACKGROUND, in the unit
-   of the exposure, is not), and can make ```PointSources``` fail: its bright-source
-   filter cuts at an absolute value (500), which removes the whole reference if it
-   is ~1000 times too bright. ```OpticalFlow``` and ```FFT``` are insensitive to a
-   constant factor. To catch this, FLUX_SCALE is first fitted for every pointing
+   of the exposure, is not). The alignment itself is not affected: all methods are
+   insensitive to a constant factor (the bright-source filter of ```PointSources```
+   is relative to each frame). To catch this, FLUX_SCALE is first fitted for every pointing
    before any alignment (dither 1, as reprojected with its WCS):
    1. With the unit of the header (or ```--ref_unit```): used if FLUX_SCALE is within
       a factor 10 of 1.
@@ -542,5 +564,11 @@ Every run (and every method directory of a hybrid run) contains:
 
 ------------------------------------------------------------------------------
 
+# Data license
 
-
+The data in ```dev/NGC1365_short``` are ESO data, made available under the Creative
+Commons Attribution 4.0 International license
+([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), following the
+[ESO data access policy](https://archive.eso.org/cms/eso-data-access-policy.html).
+Based on observations collected at the European Southern Observatory under ESO
+programme 1100.B-0651. See ```dev/NGC1365_short/README.md```.

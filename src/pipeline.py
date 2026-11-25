@@ -1474,6 +1474,16 @@ class AlignmentPipeline:
 
         for i in range(n_dithers):
             for j in range(n_dithers):
+
+                # a dither aligned to itself is the identity transform: it is
+                # not run (some methods would measure noise, and it costs a
+                # full alignment with QA plots)
+                if i == j:
+                    for table in tables[:6]:
+                        table[i, j] = 0.0
+                    succes_table[i, j] = 1
+                    continue
+
                 self._align_dither_pair(
                     i, j, dither_set, wcs_set, method, obs_name, tables
                 )
