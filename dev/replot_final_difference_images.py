@@ -32,10 +32,10 @@ import sys
 
 import numpy as np
 
-# the pipeline modules: next to this script (zip), or in ../src (repository)
-_SRC = pathlib.Path(__file__).resolve().parent.parent / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
+# the package: installed, or in the repository (parent directory of dev/)
+_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if (_ROOT / "muse_astrometric_registration").is_dir() and str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 # rows without a result in the hybrid table have this method name
 NO_RESULT = "None"
@@ -98,13 +98,13 @@ def prepare_pointing(files, reference_frame, reference_wcs, logger=None):
         WCS of the common frame (to convert the offsets of the table).
     """
 
-    from IO import read_fits_image, extract_image_wcs
-    from geometry import (
+    from muse_astrometric_registration.IO import read_fits_image, extract_image_wcs
+    from muse_astrometric_registration.geometry import (
         reproject_dithers,
         remove_nan_edges_dithers,
         reproject_image_to_target_wcs,
     )
-    from flux import pixel_area_factor
+    from muse_astrometric_registration.flux import pixel_area_factor
 
     arrays = []
     wcs_set = []
@@ -223,10 +223,10 @@ if __name__ == "__main__":
     # imports happen here so the matplotlib backend is set before
     from astropy.table import Table
 
-    from logger import get_logger, log_run_environment, format_elapsed
-    from IO import read_fits_image, extract_image_wcs
-    from geometry import sky_translation_to_detector_translation
-    from flux import (
+    from muse_astrometric_registration.logger import get_logger, log_run_environment, format_elapsed
+    from muse_astrometric_registration.IO import read_fits_image, extract_image_wcs
+    from muse_astrometric_registration.geometry import sky_translation_to_detector_translation
+    from muse_astrometric_registration.flux import (
         reference_conversion_factor,
         fit_flux_normalisation,
         shift_image_with_nans,
@@ -234,7 +234,7 @@ if __name__ == "__main__":
         check_flux_scale_before_alignment,
         FluxScaleError,
     )
-    from methods import NoAlignment
+    from muse_astrometric_registration.methods import NoAlignment
 
     images_dir = pathlib.Path(
         args.images_dir

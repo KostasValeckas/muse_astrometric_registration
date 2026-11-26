@@ -3,11 +3,12 @@
 Reference flux scaling
 ======================
 
-Enabled with ``--scale-ref`` (``run.py`` and ``hybrid_pipeline.py``).
+Enabled with ``--scale-ref`` (``muse_astrometric_registration_single`` and
+``muse_astrometric_registration_hybrid``).
 
 The reference image can be in different units, and on a different flux scale and
 background, than the MUSE images. With ``--scale-ref`` the method of pymusepipe is
-used (borrowed in ``src/flux.py``, MIT license).
+used (borrowed in ``flux.py``, MIT license).
 
 Before the alignment: unit conversion
 -------------------------------------

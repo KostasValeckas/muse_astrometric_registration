@@ -5,7 +5,6 @@ OpticalFlow.
 """
 
 from abc import ABC, abstractmethod
-from asyncio.log import logger
 import os
 import io
 import functools
@@ -21,7 +20,7 @@ from scipy.optimize import least_squares
 from scipy.ndimage import shift, rotate, gaussian_filter
 import numpy.fft as fft
 from scipy.ndimage import maximum_filter
-from geometry import (
+from muse_astrometric_registration.geometry import (
     reproject_image_to_target_wcs,
     make_window_wcs,
     matrix_to_parameters,
@@ -30,7 +29,7 @@ from geometry import (
 from skimage.transform import warp_polar, EuclideanTransform
 from skimage.measure import ransac
 from skimage.registration import phase_cross_correlation
-from filters import (
+from muse_astrometric_registration.filters import (
     remove_nans,
     remove_bright_sources_simple,
     BRIGHT_SOURCE_SIGMA,
@@ -53,17 +52,24 @@ from skimage.filters import window, difference_of_gaussians
 from scipy.fft import fft2, fftshift
 
 
-import spacepylot.alignment as align
+# spacepylot (fork, MIT) is bundled in _vendor/spacepylot (not on PyPI)
+from muse_astrometric_registration._vendor.spacepylot import alignment as align
 
-import spacepylot.plotting as pl
-from spacepylot.alignment_utilities import TranslationTransform
-import spacepylot.alignment_utilities as spacepylot_utils
-from spacepylot.params import pcc_params as spacepylot_filter_params
+from muse_astrometric_registration._vendor.spacepylot import plotting as pl
+from muse_astrometric_registration._vendor.spacepylot.alignment_utilities import (
+    TranslationTransform,
+)
+from muse_astrometric_registration._vendor.spacepylot import (
+    alignment_utilities as spacepylot_utils,
+)
+from muse_astrometric_registration._vendor.spacepylot.params import (
+    pcc_params as spacepylot_filter_params,
+)
 import logging
 import time
 
-from logger import format_elapsed
-from stats import ternary_search, robust_residual_threshold
+from muse_astrometric_registration.logger import format_elapsed
+from muse_astrometric_registration.stats import ternary_search, robust_residual_threshold
 
 
 # plot styling
@@ -98,7 +104,12 @@ def redirect_stdout_to_logger(logger, level=logging.INFO):
     """
     Context manager that sends everything printed to stdout to `logger` at
     `level`, so the output of external packages ends up in the log file.
+    Without a logger (None), stdout is left as it is.
     """
+
+    if logger is None:
+        yield
+        return
 
     class LoggerWriter:
         """File-like object that writes to the logger."""
@@ -6885,7 +6896,7 @@ class OpticalFlow(AligmentMethod):
         )
 
         # (redirect spacepylot prints to logger)
-        with redirect_stdout_to_logger(logger):
+        with redirect_stdout_to_logger(self.logger):
             return self.fit_flow_transform(op, reference_frame.shape, rotation=rotation)
 
     def _control_shift_check(self, reference_frame, input_frame, result):

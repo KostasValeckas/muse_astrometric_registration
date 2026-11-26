@@ -4,6 +4,16 @@ Context for AI coding assistants working on `muse_astrometric_registration`.
 Read this before changing the code. The user documentation is in `docs/` (Sphinx,
 published on Read the Docs); `docs/develop.rst` describes the architecture.
 
+## Version control: hands off
+
+- **Never run git commands in this repository**: no commits, pushes, pulls,
+  branches, checkouts, merges, rebases, resets, stashes or tags. The maintainers
+  do all version control themselves.
+- **Never set yourself as a co-author or credit yourself**: no `Co-Authored-By`
+  lines, no "Generated with ..." notes, in commits, pull requests or files.
+- When a change is ready, say which files changed and leave committing to the
+  maintainers.
+
 ## What the code does
 
 Astrometric registration of MUSE images (small field of view, slicer / reprojection
@@ -16,41 +26,55 @@ composition of transforms to recover failed alignments).
 
 ## Repository map
 
-- `src/run.py` - single method run (`--method`), one `AlignmentPipeline`.
-- `src/hybrid_pipeline.py` - hybrid run: secondary (OpticalFlow) and tertiary
+The code is the package `muse_astrometric_registration/` (installable with pip,
+`setup.cfg`; internal imports are absolute: `from muse_astrometric_registration.X
+import ...`). Its three entry points are commands (`console_scripts`), each
+calling `main()` of its module:
+
+- `muse_astrometric_registration_single` -> `run.py`
+- `muse_astrometric_registration_hybrid` -> `hybrid_pipeline.py`
+- `muse_astrometric_registration_manual` -> `manual_alignment.py`
+
+Modules (in `muse_astrometric_registration/`):
+
+- `run.py` - single method run (`--method`), one `AlignmentPipeline`.
+- `hybrid_pipeline.py` - hybrid run: secondary (OpticalFlow) and tertiary
   (PointSources) pipelines first, then the primary (FFT, angle scan on, targeted
   dither mode) with initial guesses read from their tables; merges the tables into
   `Hybrid_alignment_output_table.fits` and copies the final difference images.
-- `src/pipeline.py` - `AlignmentPipeline`: per pointing, reproject dithers onto the
+- `pipeline.py` - `AlignmentPipeline`: per pointing, reproject dithers onto the
   WCS of dither 1, crop NaN edges, reproject the reference; dither alignment
   (`align_dithers` full / `align_dithers_targeted`); science alignment both ways
   (`_science_forward_reverse`); recovery by composition
   (`_recover_science_alignments`); QA report; output table, flux normalisation,
   final difference images.
-- `src/methods.py` - `AligmentMethod` (abstract base: angle scan, QA helpers, QA
+- `methods.py` - `AligmentMethod` (abstract base: angle scan, QA helpers, QA
   buffering, error handling) and `NoAlignment`, `PointSources`, `FFT`,
   `OpticalFlow`. By far the largest file.
-- `src/geometry.py` - reprojection, 3x3 transform matrices
+- `geometry.py` - reprojection, 3x3 transform matrices
   (`transformation_matrix`, `compose_transformations`, `inverse_transformation`,
   `matrix_to_parameters`), pixel <-> sky conversions.
-- `src/flux.py` - `--scale-ref` (borrowed from pymusepipe, MIT): unit conversion,
+- `flux.py` - `--scale-ref` (borrowed from pymusepipe, MIT): unit conversion,
   FLUX_SCALE / BACKGROUND fit, WFI unit fix.
-- `src/IO.py`, `src/filters.py`, `src/stats.py`, `src/logger.py` - I/O, filters,
+- `IO.py`, `filters.py`, `stats.py`, `logger.py` - I/O, filters,
   robust statistics / ternary search, logging and run environment.
-- `src/manual_alignment.py` - interactive manual alignment of one exposure.
+- `manual_alignment.py` - interactive manual alignment of one exposure.
 - Every run writes `run_manifest.json` (reference file and input directory) to its
   output directory; `manual_alignment.py` and the `dev/` replot scripts read it.
-- `spacepylot/` - git submodule (fork); only its TV-L1 optical flow field is used,
-  the rigid fit is done in `OpticalFlow.fit_flow_transform`.
+- `_vendor/spacepylot/` - bundled copy of the spacepylot fork
+  (https://github.com/KostasValeckas/spacepylot, MIT, not on PyPI, so it cannot be
+  a dependency). Only its TV-L1 optical flow field is used; the rigid fit is done
+  in `OpticalFlow.fit_flow_transform`. Do not edit it here: changes go into the
+  fork and are copied in. The local changes to the copy are listed in
+  `_vendor/__init__.py` (e.g. the `scipy.odr` import, deprecated and removed in
+  SciPy 1.19, is made only inside the never-called `regress_odr`); keep them when
+  copying again.
 - `dev/` - helper scripts, configuration files, and the worked example data
   (`NGC1365_short.json`, `NGC1365_short/`, ESO data under CC BY 4.0, see
   `dev/NGC1365_short/README.md`):
   - `sorter.py` - makes the JSON configuration file from a directory of exposures.
   - `replot_final_difference_images.py` - redraws the final difference images of a
     finished run with the flux normalisation, without aligning again.
-  - `replot_flux.zip` - a frozen, standalone copy of that script with the `src/`
-    modules it needs (for running on a cluster). Its copies of `src/` do not
-    follow changes in the repository; do not edit or rely on them.
   - `convert_hybrid_table.py` - copy of an output table for pymusepipe (drops rows
     without a result, optional column renaming and sign flips). The sign
     convention relative to pymusepipe is not verified yet; its docs page is a
@@ -58,22 +82,23 @@ composition of transforms to recover failed alignments).
   - `stripe_orientation.py` - experiment: orientation of the MUSE slicer pattern
     from the residual stripes in the difference images. Not part of the pipeline.
 - `docs/` - Sphinx documentation; `docs/pictures/` holds its figures.
-- `tests/` - only an import smoke test (`pytest tests`).
+- `tests/` - only an import smoke test (`pytest tests`, against the installed
+  package).
 
 ## Running
 
-From the repository root, in an environment with `requirements.txt` installed
-(the `spacepylot` submodule must be initialised first, it is installed from
-`./spacepylot`):
+Install the package in editable mode from the repository root (`pip install -e .`;
+`requirements.txt` holds the exact tested versions), then, from the repository
+root:
 
 ```bash
-# worked example / smoke test (~16 min on a laptop, mostly the FFT stage)
-python src/hybrid_pipeline.py dev/NGC1365_short.json \
+# worked example / smoke test (~17 min on a laptop, mostly the FFT stage)
+muse_astrometric_registration_hybrid dev/NGC1365_short.json \
     dev/NGC1365_short/NGC1365_Rc_flux_nosky_cutout_P01.fits \
     --input_dir dev/NGC1365_short --output_dir NGC1365_short_HYBRID --plot_headless
 
 # single method run
-python src/run.py CONFIG.json REFERENCE.fits --input_dir DIR --output_dir OUT --method FFT
+muse_astrometric_registration_single CONFIG.json REFERENCE.fits --input_dir DIR --output_dir OUT --method FFT
 ```
 
 - Pipeline runs are slow (minutes to hours). Do not start long runs on your own:
@@ -105,8 +130,11 @@ python src/run.py CONFIG.json REFERENCE.fits --input_dir DIR --output_dir OUT --
   `aligment_log_*.log`, `failed_aligment_*.png`, `succes_table` / `sucess_table`):
   they are part of file names and the API.
 - QA plots go to `self.QA_path`, with `{obs_name}_{self.name}` in the file name.
-- In `run.py` / `hybrid_pipeline.py`, heavy imports come after the matplotlib
-  backend is chosen (`--plot_headless`).
+- In `run.py` / `hybrid_pipeline.py` / `manual_alignment.py`, the command line
+  code is in `main()`, and the heavy imports come after the matplotlib backend is
+  chosen (`--plot_headless`).
+- A new command needs a `main()` and an entry in `console_scripts` in
+  `setup.cfg`; dependencies go into `install_requires` there (minimum versions).
 
 ## Invariants that are easy to break
 

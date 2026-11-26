@@ -19,7 +19,7 @@ Quickstart
 
 .. code-block:: bash
 
-    python src/hybrid_pipeline.py NGC1365.json ../reference/NGC1365_reference.fits \
+    muse_astrometric_registration_hybrid NGC1365.json ../reference/NGC1365_reference.fits \
         --input_dir ../MUSE/ --output_dir NGC1365_HYBRID --plot_headless
 
 How the methods are combined

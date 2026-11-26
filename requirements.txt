@@ -44,4 +44,3 @@ typing_extensions==4.16.0
 wheel==0.47.0
 zarr==3.4.0
 colorcet==3.2.1
-./spacepylot

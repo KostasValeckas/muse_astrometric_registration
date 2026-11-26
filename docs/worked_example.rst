@@ -34,14 +34,14 @@ From the root of the repository (the output directory is created):
 
 .. code-block:: bash
 
-    python src/hybrid_pipeline.py dev/NGC1365_short.json \
+    muse_astrometric_registration_hybrid dev/NGC1365_short.json \
         dev/NGC1365_short/NGC1365_Rc_flux_nosky_cutout_P01.fits \
         --input_dir dev/NGC1365_short --output_dir NGC1365_short_HYBRID --plot_headless
 
-On a laptop (AMD Ryzen 5 3500U) the run takes ~16 minutes: 1 min 42 s for the
-secondary method (``OpticalFlow``), 56 s for the tertiary (``PointSources``) and
-13 min for the primary (``FFT`` with the :ref:`angle scan <angle_scan>`, 1-2 min
-per alignment). Peak memory is ~420 MB.
+On a laptop (AMD Ryzen 5 3500U) the run takes ~17 minutes: 2 min 08 s for the
+secondary method (``OpticalFlow``), 54 s for the tertiary (``PointSources``) and
+14 min for the primary (``FFT`` with the :ref:`angle scan <angle_scan>`, 1-2 min
+per alignment). Peak memory is ~440 MB.
 
 Output directory
 ----------------
@@ -52,12 +52,12 @@ Trimmed (the date in the log names is the start time of the run):
 
     NGC1365_short_HYBRID/
         Hybrid_alignment_output_table.fits
-        aligment_log_2026-11-25_16-00-09.log
+        aligment_log_2026-11-26_13-00-33.log
         final_difference_images/
             difference_image_1_dither_{1,2,3,4}_final_FFT.png
         secondary_OpticalFlow/
             OpticalFlow_alignment_output_table.fits
-            aligment_log_2026-11-25_15-44-33.log
+            aligment_log_2026-11-26_12-43-40.log
             {x,y,rotation}[_error]_dither_table_1_OpticalFlow.csv
             success_dither_table_1_OpticalFlow.csv
             run_manifest.json
@@ -69,7 +69,7 @@ Trimmed (the date in the log names is the start time of the run):
             ...                                   (as above, point_sources_* plots)
         primary_FFT/
             FFT_alignment_output_table.fits
-            aligment_log_2026-11-25_15-47-11.log
+            aligment_log_2026-11-26_12-46-43.log
             ...
             aligment_QA/
                 combined/1_combined_QA_FFT.png
@@ -88,15 +88,15 @@ final table. All logs start with the code version, e.g.:
 
 .. code-block:: text
 
-    INFO - logger.py:151 - Code version: c17246e 2026-11-23 10:29:21 -0300 scaling unit bugfix (branch main), ...
+    INFO - logger.py:151 - Code version: 3d41130 2026-11-25 18:46:15 -0300 banner added (branch main), ...
     WARNING - logger.py:153 - Code has uncommitted local changes: ...
 
 The secondary and tertiary runs end with their summaries:
 
 .. code-block:: text
 
-    INFO - pipeline.py:2299 - Summary (OpticalFlow): 4 of 4 exposures aligned, 0 without a result. Peak memory 420 MB.
-    INFO - pipeline.py:2299 - Summary (PointSources): 4 of 4 exposures aligned, 0 without a result. Peak memory 421 MB.
+    INFO - pipeline.py:2309 - Summary (OpticalFlow): 4 of 4 exposures aligned, 0 without a result. Peak memory 439 MB.
+    INFO - pipeline.py:2309 - Summary (PointSources): 4 of 4 exposures aligned, 0 without a result. Peak memory 439 MB.
 
 The primary log shows the initial guess from ``OpticalFlow``, the direct FFT fit
 that is checked against it, and the angle scan (dither 2, timestamps and paths
@@ -105,11 +105,11 @@ removed):
 .. code-block:: text
 
     INFO - pipeline.py:759 - Initial guess for science_forward alignment (pointing 1, dither 2) from OpticalFlow: tx = -6.762, ty = -0.218, rot = 0.2731
-    INFO - methods.py:6076 - Direct FFT fit for 1_dither_2_to_reference succeeded (rotation 0.3321 degrees), running the angle scan ...
-    INFO - methods.py:5858 - Direct fit for 1_dither_2_to_reference agrees with the initial guess, scan sigmas narrowed to [0.600, 0.721] (8 of 126)
-    INFO - methods.py:2222 - Ternary search minimum: 0.2483 degrees (13 evaluations)
+    INFO - methods.py:6087 - Direct FFT fit for 1_dither_2_to_reference succeeded (rotation 0.3321 degrees), running the angle scan ...
+    INFO - methods.py:5869 - Direct fit for 1_dither_2_to_reference agrees with the initial guess, scan sigmas narrowed to [0.600, 0.721] (8 of 126)
+    INFO - methods.py:2233 - Ternary search minimum: 0.2483 degrees (13 evaluations)
     ...
-    INFO - methods.py:436 - FFT alignment of 1_dither_2_to_reference succeeded in 1 min 08.1 s
+    INFO - methods.py:447 - FFT alignment of 1_dither_2_to_reference succeeded in 59.8 s
     ...
     INFO - pipeline.py:1327 - Pointing 1: all science alignments are clean, no dither alignments needed.
 
@@ -125,8 +125,8 @@ The top-level log gives the method used for every exposure:
     INFO - hybrid_pipeline.py:159 - Row 1 (DATE_OBS 2018-01-10T03:07:15.000): using FFT.
     INFO - hybrid_pipeline.py:159 - Row 2 (DATE_OBS 2018-01-10T03:19:57.000): using FFT.
     INFO - hybrid_pipeline.py:159 - Row 3 (DATE_OBS 2018-01-10T03:37:57.000): using FFT.
-    INFO - hybrid_pipeline.py:609 - Hybrid summary: 4 exposures, results from FFT: 4
-    INFO - hybrid_pipeline.py:619 - Hybrid pipeline finished, total execution time (all three runs): 15 min 39.3 s
+    INFO - hybrid_pipeline.py:612 - Hybrid summary: 4 exposures, results from FFT: 4
+    INFO - hybrid_pipeline.py:622 - Hybrid pipeline finished, total execution time (all three runs): 16 min 54.6 s
 
 All three methods aligned all 4 exposures, so the final table uses ``FFT``
 everywhere and there are no fallbacks.

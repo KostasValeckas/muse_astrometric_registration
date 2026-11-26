@@ -1,24 +1,29 @@
-"""Smoke tests: the modules in src/ import and expose their main classes."""
+"""Smoke tests: the package modules import and expose their main classes and the
+entry points of the commands."""
 
 import importlib
-import sys
-from pathlib import Path
+
+import pytest
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+PACKAGE = "muse_astrometric_registration"
 
 
 def test_methods_exports_no_alignment():
     """methods exports a callable NoAlignment."""
-    methods = importlib.import_module("methods")
+    methods = importlib.import_module(f"{PACKAGE}.methods")
     assert hasattr(methods, "NoAlignment")
     assert callable(methods.NoAlignment)
 
 
 def test_pipeline_can_import():
     """pipeline imports and defines AlignmentPipeline."""
-    pipeline = importlib.import_module("pipeline")
+    pipeline = importlib.import_module(f"{PACKAGE}.pipeline")
     assert hasattr(pipeline, "AlignmentPipeline")
+
+
+@pytest.mark.parametrize("module", ["hybrid_pipeline", "run", "manual_alignment"])
+def test_command_entry_points(module):
+    """The modules of the commands (setup.cfg, console_scripts) define main()."""
+    imported = importlib.import_module(f"{PACKAGE}.{module}")
+    assert callable(imported.main)

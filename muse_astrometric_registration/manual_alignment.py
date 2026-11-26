@@ -130,7 +130,7 @@ def find_run_manifest(output_dir):
     Returns the manifest as a dict, empty if there is none.
     """
 
-    from pipeline import RUN_MANIFEST_NAME
+    from muse_astrometric_registration.pipeline import RUN_MANIFEST_NAME
 
     output_dir = pathlib.Path(output_dir)
     candidates = [output_dir / RUN_MANIFEST_NAME] + sorted(
@@ -239,8 +239,8 @@ def prepare_frames(
         "flux_reference" (None without `ref_filter`).
     """
 
-    from IO import read_fits_image, extract_image_wcs
-    from geometry import (
+    from muse_astrometric_registration.IO import read_fits_image, extract_image_wcs
+    from muse_astrometric_registration.geometry import (
         reproject_dithers,
         remove_nan_edges_dithers,
         reproject_image_to_target_wcs,
@@ -292,7 +292,7 @@ def prepare_frames(
     # after the reprojection
     flux_reference = None
     if ref_filter is not None:
-        from flux import (
+        from muse_astrometric_registration.flux import (
             reference_conversion_factor,
             pixel_area_factor,
             check_flux_scale_before_alignment,
@@ -343,7 +343,7 @@ def prepare_frames(
 def _row_to_pixels(table, row, wcs):
     """(tx, ty, rot) of a row of the output table in pixels of `wcs`, or None if it has no result."""
 
-    from geometry import sky_translation_to_detector_translation
+    from muse_astrometric_registration.geometry import sky_translation_to_detector_translation
 
     dRA, dDEC, rot = (
         float(table["RA_OFFSET"][row]),
@@ -450,13 +450,13 @@ def refine_alignment(
     if not checked or the reverse failed), or None if the method failed.
     """
 
-    from methods import PointSources, FFT, OpticalFlow
-    from geometry import (
+    from muse_astrometric_registration.methods import PointSources, FFT, OpticalFlow
+    from muse_astrometric_registration.geometry import (
         transformation_matrix,
         inverse_transformation,
         matrix_to_parameters,
     )
-    from pipeline import _image_centre, _roundtrip_distance, _check_points
+    from muse_astrometric_registration.pipeline import _image_centre, _roundtrip_distance, _check_points
 
     switcher = {"FFT": FFT, "OpticalFlow": OpticalFlow, "PointSources": PointSources}
 
@@ -594,13 +594,13 @@ def save_alignment(
     """
 
     from astropy.table import Table
-    from IO import make_table_entry, write_final_results, FLUX_COLUMNS
-    from flux import fit_flux_normalisation, shift_image_with_nans
-    from geometry import (
+    from muse_astrometric_registration.IO import make_table_entry, write_final_results, FLUX_COLUMNS
+    from muse_astrometric_registration.flux import fit_flux_normalisation, shift_image_with_nans
+    from muse_astrometric_registration.geometry import (
         detector_translation_to_sky_translation,
         detector_errors_to_sky_errors,
     )
-    from methods import NoAlignment
+    from muse_astrometric_registration.methods import NoAlignment
 
     wcs = prepared["wcs"]
 
@@ -811,7 +811,7 @@ class ManualAlignmentWindow:
 
         import matplotlib.pyplot as plt
         from matplotlib.widgets import Button, RadioButtons, TextBox, CheckButtons
-        from methods import NoAlignment
+        from muse_astrometric_registration.methods import NoAlignment
 
         self.plt = plt
         self.logger = logger
@@ -991,7 +991,7 @@ class ManualAlignmentWindow:
 
     def _correlation(self, aligned):
         """Normalised cross-correlation of the reference and the aligned exposure, over the pixels both cover."""
-        from stats import masked_ncc
+        from muse_astrometric_registration.stats import masked_ncc
 
         covered = (
             self._shifter.shift_image(
@@ -1200,7 +1200,10 @@ class ManualAlignmentWindow:
 # Command line
 # ============================================================================
 
-if __name__ == "__main__":
+def main():
+    """
+    Command line entry point (muse_astrometric_registration_manual): manual alignment of one exposure.
+    """
 
     import argparse
 
@@ -1326,8 +1329,8 @@ if __name__ == "__main__":
 
     from astropy.io import fits
 
-    from logger import get_logger, log_run_environment
-    from IO import OUTPUT_TABLE_ENTRIES, FLUX_COLUMNS
+    from muse_astrometric_registration.logger import get_logger, log_run_environment
+    from muse_astrometric_registration.IO import OUTPUT_TABLE_ENTRIES, FLUX_COLUMNS
 
     manual_dir = pathlib.Path(args.output_dir) / MANUAL_DIR
     manual_dir.mkdir(parents=True, exist_ok=True)
@@ -1547,3 +1550,7 @@ if __name__ == "__main__":
             logger=logger,
         )
         window.show()
+
+
+if __name__ == "__main__":
+    main()

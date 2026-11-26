@@ -18,9 +18,9 @@ image, the input directory and the output directory.
 
     * - Procedure
       - Products
-    * - :ref:`Single method run <run>` (``src/run.py``)
+    * - :ref:`Single method run <run>` (``muse_astrometric_registration_single``)
       - ``{method}_alignment_output_table.fits``, dither tables, QA plots, log (see :ref:`output <output>`)
-    * - :ref:`Hybrid run <hybrid>` (``src/hybrid_pipeline.py``)
+    * - :ref:`Hybrid run <hybrid>` (``muse_astrometric_registration_hybrid``)
       - ``Hybrid_alignment_output_table.fits``, ``final_difference_images/``, the output of the three method runs
 
 Details of the alignment

@@ -13,14 +13,14 @@ Quickstart
 
 .. code-block:: bash
 
-    python src/run.py configuration_file reference_file --input_dir path_to_directory_with_data \
+    muse_astrometric_registration_single configuration_file reference_file --input_dir path_to_directory_with_data \
         --output_dir path_to_directory_where_QA_plots_and_results_will_be_stored
 
 For example:
 
 .. code-block:: bash
 
-    python src/run.py NGC0253.json NGC0253_Rc_flux_wcomb.fits --input_dir /NGC0253/MUSE/ \
+    muse_astrometric_registration_single NGC0253.json NGC0253_Rc_flux_wcomb.fits --input_dir /NGC0253/MUSE/ \
         --output_dir NGC0253_TEST --method FFT
 
 Flags

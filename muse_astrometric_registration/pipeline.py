@@ -4,7 +4,7 @@ one alignment method, checks the results for consistency, recovers failed
 alignments through the other dithers, and writes the output table and QA plots.
 """
 
-from logger import get_logger, format_elapsed, log_run_environment, peak_memory_mb
+from muse_astrometric_registration.logger import get_logger, format_elapsed, log_run_environment, peak_memory_mb
 
 import time
 
@@ -14,10 +14,10 @@ import os
 import pathlib
 from collections import deque
 
-from methods import NoAlignment
+from muse_astrometric_registration.methods import NoAlignment
 
-from IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
-from flux import (
+from muse_astrometric_registration.IO import read_fits_image, extract_image_wcs, make_table_entry, write_final_results
+from muse_astrometric_registration.flux import (
     DEFAULT_REFERENCE_FILTER,
     REFERENCE_FILTERS,
     reference_conversion_factor,
@@ -29,7 +29,7 @@ from flux import (
     FluxScaleError,
 )
 from astropy.io import fits
-from geometry import (
+from muse_astrometric_registration.geometry import (
     reproject_image_to_target_wcs,
     transformation_matrix,
     compose_transformations,
@@ -44,7 +44,7 @@ from geometry import (
 
 from astropy.table import Table
 
-from stats import masked_ncc
+from muse_astrometric_registration.stats import masked_ncc
 
 import numpy as np
 import matplotlib.pyplot as plt

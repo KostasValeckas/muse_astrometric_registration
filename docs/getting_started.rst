@@ -11,7 +11,7 @@ Getting started
 
     .. code-block:: bash
 
-        python src/hybrid_pipeline.py dev/NGC1365_short.json \
+        muse_astrometric_registration_hybrid dev/NGC1365_short.json \
             dev/NGC1365_short/NGC1365_Rc_flux_nosky_cutout_P01.fits \
             --input_dir dev/NGC1365_short --output_dir NGC1365_short_HYBRID --plot_headless
 
@@ -29,14 +29,14 @@ With these, the recommended way to run is the :ref:`hybrid run <hybrid>`:
 
 .. code-block:: bash
 
-    python src/hybrid_pipeline.py NGC1365.json ../reference/NGC1365_reference.fits \
+    muse_astrometric_registration_hybrid NGC1365.json ../reference/NGC1365_reference.fits \
         --input_dir ../MUSE/ --output_dir NGC1365_HYBRID --plot_headless
 
 or, with a single :ref:`alignment method <methods>`, the :ref:`single method run <run>`:
 
 .. code-block:: bash
 
-    python src/run.py NGC1365.json ../reference/NGC1365_reference.fits \
+    muse_astrometric_registration_single NGC1365.json ../reference/NGC1365_reference.fits \
         --input_dir ../MUSE/ --output_dir NGC1365_FFT --method FFT
 
 The results are written to the output directory, see :ref:`output <output>`.

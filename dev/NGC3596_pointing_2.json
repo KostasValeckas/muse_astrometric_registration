@@ -1,0 +1,31 @@
+{
+    "2": [
+        [
+            1,
+            "2022-03-26T02:21:43.705",
+            "IMAGE_FOV_prealign_OB002_WFI_BB_2022-03-26T02:21:24_0001.fits"
+        ],
+        [
+            2,
+            "2022-03-26T02:35:55.665",
+            "IMAGE_FOV_prealign_OB002_WFI_BB_2022-03-26T02:21:24_0002.fits"
+        ],
+        [
+            3,
+            "2022-03-26T02:46:37.766",
+            "IMAGE_FOV_prealign_OB002_WFI_BB_2022-03-26T02:21:24_0003.fits"
+        ],
+        [
+            4,
+            "2022-03-26T03:01:09.367",
+            "IMAGE_FOV_prealign_OB002_WFI_BB_2022-03-26T02:21:24_0004.fits"
+        ]
+    ],
+    "headers": {
+        "date_keyword": "DATE-OBS",
+        "mjd_keyword": "MJD-OBS",
+        "tpl_start_keyword": "HIERARCH ESO TPL START",
+        "exp_keyword": "HIERARCH MUSEPIPE_IEXPO",
+        "pointing_keyword": "HIERARCH MUSEPIPE_DATASET"
+    }
+}

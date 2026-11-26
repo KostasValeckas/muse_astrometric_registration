@@ -3,7 +3,7 @@
 import numpy as np
 from astropy.wcs import WCS
 from reproject import reproject_interp, reproject_exact, reproject_adaptive
-from filters import estimate_nan_window
+from muse_astrometric_registration.filters import estimate_nan_window
 
 
 def make_window_wcs(wcs, shape, window, oversample_factor=1):

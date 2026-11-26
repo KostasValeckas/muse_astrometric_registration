@@ -476,11 +476,10 @@ def check_flux_scales(flux_scales, logger=None, unit_source="its BUNIT"):
     then on very different scales after the unit conversion, which almost
     always means the unit of the reference is wrong (e.g. BUNIT = 'mJy' on an
     image in microJansky gives FLUX_SCALE ~ 1000). FLUX_SCALE is then off by
-    this factor (BACKGROUND, in the unit of the exposure, is not), and
-    PointSources can fail: its bright-source filter
-    (``filters.remove_bright_sources_simple``) cuts at an absolute value, 500,
-    which removes the whole reference if it is ~1000 times too bright.
-    OpticalFlow and FFT are insensitive to a constant factor.
+    this factor (BACKGROUND, in the unit of the exposure, is not). The
+    alignment itself is not affected: all methods are insensitive to a
+    constant factor (the bright-source filter of PointSources is relative to
+    each frame, ``filters.BRIGHT_SOURCE_SIGMA``).
 
     Parameters
     ----------
@@ -512,9 +511,8 @@ def check_flux_scales(flux_scales, logger=None, unit_source="its BUNIT"):
             f"{flux_scales.size} exposures), more than a factor "
             f"{FLUX_SCALE_WARNING_FACTOR:g} from 1: the unit of the reference "
             f"(from {unit_source}) is most likely wrong. FLUX_SCALE is off by "
-            f"this factor (BACKGROUND is not), and PointSources may have failed "
-            f"(its bright-source filter cuts at an absolute value; OpticalFlow and "
-            f"FFT are not affected). Set the correct unit with --ref_unit (e.g. a "
+            f"this factor (BACKGROUND is not); the alignment itself is not "
+            f"affected. Set the correct unit with --ref_unit (e.g. a "
             f"factor ~1000 with BUNIT = 'mJy' usually means --ref_unit uJy)."
         )
 
@@ -786,9 +784,8 @@ def check_flux_scale_before_alignment(
 
     # 3) stop
     report.append(
-        "    Stopping the run: with a wrong reference unit FLUX_SCALE is wrong and "
-        "PointSources fails. Check the unit of the reference (BUNIT) or set it "
-        "with --ref_unit."
+        "    Stopping the run: with a wrong reference unit FLUX_SCALE is wrong. "
+        "Check the unit of the reference (BUNIT) or set it with --ref_unit."
     )
     message = "\n".join(report)
 

@@ -1,7 +1,6 @@
 """Module for filtering and processing images."""
 
-from venv import logger
-from stats import longest_run
+from muse_astrometric_registration.stats import longest_run
 from scipy.ndimage import gaussian_filter, map_coordinates
 from numpy.fft import fft2, fftshift
 from scipy.signal.windows import tukey

@@ -29,7 +29,11 @@ matched pairs (least-squares errors). astroalign only returns the sources of its
 matched triangles (from at most its 50 brightest detections), so its transform is
 used to re-match all sources detected in both frames (3 sigma, min. area 5 px,
 unambiguous mutual nearest neighbours within 3 px); the astroalign matches are kept
-if that finds fewer.
+if that finds fewer. Before the matching, bright sources (e.g. saturated stars) are
+removed from both frames: pixels more than 50 robust standard deviations above the
+median of each frame, with a radius of 15 px (``bright_source_sigma``). The
+threshold is relative to each frame, so it does not depend on the unit of the
+reference.
 
 Every alignment gets a QA plot ``point_sources_*.png``: the numbered matched
 sources in both frames (accepted / rejected), the measured displacements, the fit
@@ -166,7 +170,7 @@ points are recomputed in every pass, so a rejected point can come back.
 Implementing a new method
 -------------------------
 
-Every method is a subclass of ``AligmentMethod`` in ``src/methods.py``. The
+Every method is a subclass of ``AligmentMethod`` in ``muse_astrometric_registration/methods.py``. The
 pipeline only calls its ``run()`` method, so all the logic around it (reprojection,
 round-trip and :ref:`dither checks, composition <dithers>`, :ref:`output tables
 <output>`, QA summaries) is reused
@@ -217,7 +221,7 @@ for free. ``NoAlignment`` is the smallest working example. The steps are:
    failed, so a long run does not stop.
 
 #. **Register the method** under its name in the ``switcher`` dictionaries of
-   ``src/run.py`` and ``src/hybrid_pipeline.py`` (and in their help texts), so it
+   ``run.py`` and ``hybrid_pipeline.py`` (and in their help texts), so it
    can be chosen with ``--method`` / ``--primary`` etc.
 
 Test it with the :ref:`worked example <worked_example>`, first with the

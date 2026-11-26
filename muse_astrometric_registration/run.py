@@ -2,7 +2,10 @@
 Reads the configuration file and runs the alignment pipeline.
 """
 
-if __name__ == "__main__":
+def main():
+    """
+    Command line entry point (muse_astrometric_registration_single): single method run.
+    """
 
     import argparse
     import os
@@ -43,7 +46,9 @@ if __name__ == "__main__":
         "--method",
         type=str,
         default="NoAlignment",
-        help="The alignment method to use. Default is NoAlignment. Options are NoAlignment, PointSources.",
+        help="The alignment method to use. Default is NoAlignment. Options are "
+        "NoAlignment, PointSources, FFT, OpticalFlow, and All (PointSources, "
+        "OpticalFlow and FFT one after the other).",
     )
 
     parser.add_argument(
@@ -108,7 +113,7 @@ if __name__ == "__main__":
 
     def _run_pipeline(pipeline):
         """Run `pipeline`; a wrong flux scale of the reference ends with its message."""
-        from flux import FluxScaleError
+        from muse_astrometric_registration.flux import FluxScaleError
 
         try:
             pipeline.run()
@@ -130,12 +135,12 @@ if __name__ == "__main__":
     # imports happen here so we can set global backends for matplotlib
     # before importing any other modules that use it
 
-    from pipeline import AlignmentPipeline
-    from logger import exit_on_sigterm
+    from muse_astrometric_registration.pipeline import AlignmentPipeline
+    from muse_astrometric_registration.logger import exit_on_sigterm
 
     # a batch time limit (SIGTERM) is logged as ABORTED instead of silently
     exit_on_sigterm()
-    from methods import NoAlignment, PointSources, FFT, OpticalFlow
+    from muse_astrometric_registration.methods import NoAlignment, PointSources, FFT, OpticalFlow
 
     # TODO: this method selection needs to be refactored
 
@@ -198,3 +203,7 @@ if __name__ == "__main__":
         )
 
         _run_pipeline(pipeline)
+
+
+if __name__ == "__main__":
+    main()

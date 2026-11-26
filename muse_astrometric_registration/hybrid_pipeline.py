@@ -237,7 +237,10 @@ def collect_difference_images(config, roles_used, pipelines, output_dir, logger=
         logger.info(f"Copied {n_copied} difference images to {output_dir}")
 
 
-if __name__ == "__main__":
+def main():
+    """
+    Command line entry point (muse_astrometric_registration_hybrid): hybrid run.
+    """
 
     import argparse
     import os
@@ -398,10 +401,10 @@ if __name__ == "__main__":
     # imports happen here so we can set global backends for matplotlib
     # before importing any other modules that use it
 
-    from pipeline import AlignmentPipeline
-    from flux import FluxScaleError
-    from methods import NoAlignment, PointSources, FFT, OpticalFlow
-    from logger import get_logger, format_elapsed, exit_on_sigterm
+    from muse_astrometric_registration.pipeline import AlignmentPipeline
+    from muse_astrometric_registration.flux import FluxScaleError
+    from muse_astrometric_registration.methods import NoAlignment, PointSources, FFT, OpticalFlow
+    from muse_astrometric_registration.logger import get_logger, format_elapsed, exit_on_sigterm
 
     # a batch time limit (SIGTERM) is logged as ABORTED instead of silently
     exit_on_sigterm()
@@ -620,3 +623,7 @@ if __name__ == "__main__":
         f"Hybrid pipeline finished, total execution time (all three runs): "
         f"{format_elapsed(time.perf_counter() - hybrid_start_time)}"
     )
+
+
+if __name__ == "__main__":
+    main()

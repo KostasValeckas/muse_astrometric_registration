@@ -8,7 +8,8 @@ dither -> reference), and the two results are checked for consistency (round tri
 within ``--distance_threshold`` parameter value). Dithers are also aligned to each other, which is
 used to recover the science alignments that failed:
 
-* ``--dither_mode full`` aligns all dither pairs before the science alignment.
+* ``--dither_mode full`` aligns all dither pairs before the science alignment (a
+  dither aligned to itself is the identity and is not run).
 * ``--dither_mode targeted`` aligns the science frames first, and then only the
   dither pairs needed to recover the ones that failed. Every link is aligned in both
   directions and checked for consistency, like the science alignment; a link is only

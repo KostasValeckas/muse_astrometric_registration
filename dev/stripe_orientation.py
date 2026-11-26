@@ -77,9 +77,10 @@ import sys
 
 import numpy as np
 
-# the pipeline modules in ../src, and replot_final_difference_images.py here
+# the package (installed, or in the repository: parent directory of dev/), and
+# replot_final_difference_images.py here
 _HERE = pathlib.Path(__file__).resolve().parent
-for _path in (_HERE.parent / "src", _HERE):
+for _path in (_HERE.parent, _HERE):
     if _path.is_dir() and str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
@@ -873,10 +874,10 @@ if __name__ == "__main__":
     from astropy.io import fits
     from astropy.table import Table
 
-    from logger import get_logger, log_run_environment, format_elapsed
-    from IO import read_fits_image, extract_image_wcs
-    from geometry import sky_translation_to_detector_translation
-    from flux import (
+    from muse_astrometric_registration.logger import get_logger, log_run_environment, format_elapsed
+    from muse_astrometric_registration.IO import read_fits_image, extract_image_wcs
+    from muse_astrometric_registration.geometry import sky_translation_to_detector_translation
+    from muse_astrometric_registration.flux import (
         reference_conversion_factor,
         fit_flux_normalisation,
         shift_image_with_nans,

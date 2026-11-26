@@ -165,7 +165,9 @@ def log_run_environment(logger):
     except ImportError:
         version = None
 
+    # spacepylot is bundled (_vendor), its version is the one of this package
     packages = (
+        "muse_astrometric_registration",
         "numpy",
         "scipy",
         "astropy",
@@ -174,7 +176,6 @@ def log_run_environment(logger):
         "matplotlib",
         "astroalign",
         "sep",
-        "spacepylot",
     )
     versions = []
     for package in packages:

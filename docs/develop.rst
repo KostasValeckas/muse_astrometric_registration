@@ -17,8 +17,9 @@ so we can explore collaboration options. The only input contract is the
 Pipeline architecture
 ---------------------
 
-The code is in ``src/``. It is organised in three layers: the entry points, one
-generic pipeline class, and interchangeable :ref:`alignment methods <methods>`.
+The code is the package ``muse_astrometric_registration/``. It is organised in
+three layers: the entry points, one generic pipeline class, and interchangeable
+:ref:`alignment methods <methods>`.
 
 .. code-block:: text
 
@@ -35,6 +36,14 @@ generic pipeline class, and interchangeable :ref:`alignment methods <methods>`.
 
 **Entry points.**
 
+The entry points are installed as commands (``console_scripts`` in
+``setup.cfg``), each calling the ``main()`` function of its module:
+``muse_astrometric_registration_single`` (``run.py``),
+``muse_astrometric_registration_hybrid`` (``hybrid_pipeline.py``) and
+``muse_astrometric_registration_manual`` (``manual_alignment.py``). For
+development, install the package in editable mode (``pip install -e .`` from the
+repository root), so changes to the code are used by the commands right away.
+
 * ``run.py`` (:ref:`single method run <run>`) reads the :ref:`configuration file
   <conf>`, picks the alignment method class from ``--method`` and runs one
   ``AlignmentPipeline``.
@@ -45,6 +54,10 @@ generic pipeline class, and interchangeable :ref:`alignment methods <methods>`.
 * ``manual_alignment.py`` is an interactive tool to align one exposure by hand,
   set up from the output of a run so that its offsets follow the same convention
   as the output table.
+* ``_vendor/spacepylot/`` is a bundled copy of a `fork of spacepylot
+  <https://github.com/KostasValeckas/spacepylot>`_ (MIT license; not on PyPI),
+  whose TV-L1 optical flow field is used by ``OpticalFlow``. Changes to it are
+  made in the fork and copied here.
 * ``dev/`` holds helper scripts, e.g. the :ref:`configuration file sorter
   <sorter>`, and the data of the :ref:`worked example <worked_example>`.
 
