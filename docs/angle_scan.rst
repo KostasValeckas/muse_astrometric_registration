@@ -10,6 +10,15 @@ Instead of each method's own rotation estimator, the rotation can be found by
 minimising the difference between the reference and the rotated + shifted input: the mean absolute difference of the blurred frames over a fixed central
 window.
 
+Before the difference, the input is put on the flux scale of the reference at every
+angle: ``reference = a * input + b`` is fitted (least squares) over the window, and
+the metric is the mean absolute residual of that fit, divided by the median of the
+reference (the same for every angle). An earlier version divided each frame by the
+median of its whole frame instead; that does not match the flux scales, leaves a
+scaled copy of the galaxy in the difference and could pull the scan 0.2 - 0.9
+degrees off. It is still available as ``scan_flux_match = "median"`` (parameter of
+the methods), for comparisons.
+
 The window is clipped so that it stays covered by the input for the translation.
 It leaves room for at least ``scan_max_shift`` (10 px), or for the expected
 translation + ``scan_shift_slack`` (3 px) if that is larger. The expected

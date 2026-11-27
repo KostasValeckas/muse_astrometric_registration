@@ -92,7 +92,7 @@ Install the package in editable mode from the repository root (`pip install -e .
 root:
 
 ```bash
-# worked example / smoke test (~17 min on a laptop, mostly the FFT stage)
+# worked example / smoke test (~19 min on a laptop, mostly the FFT stage)
 muse_astrometric_registration_hybrid dev/NGC1365_short.json \
     dev/NGC1365_short/NGC1365_Rc_flux_nosky_cutout_P01.fits \
     --input_dir dev/NGC1365_short --output_dir NGC1365_short_HYBRID --plot_headless
@@ -178,12 +178,16 @@ muse_astrometric_registration_single CONFIG.json REFERENCE.fits --input_dir DIR 
   scan error is too small (image noise shifts the whole scan curve).
 - Direct rotation estimators of the methods disagree by ~0.1 degrees; the angle
   scan is the most stable, but can be pulled 0.2-0.9 degrees off.
-- Angle scan metric (`_scan_difference_metric`): each frame is divided by its own
-  whole-frame median, which does not match their flux scales, so a scaled copy of
-  the galaxy stays in the difference and the minimum moves to a wrong alignment
-  (reached by rotating, via the angle dependence of the translation). In the big
-  run 19 of 300 FFT results; the direct FFT fit was right in all of them.
-  `--scale-ref` does not help (before the alignment it only converts the unit).
+- Angle scan metric (`_scan_difference_metric`): the old metric divided each frame
+  by its own whole-frame median, which does not match their flux scales, so a
+  scaled copy of the galaxy stayed in the difference and the minimum moved to a
+  wrong alignment (reached by rotating, via the angle dependence of the
+  translation). In the big run 19 of 300 FFT results; the direct FFT fit was right
+  in all of them. Now `scan_flux_match = "linear"` (default) fits
+  reference = a * input + b over the window at every angle; `"median"` keeps the
+  old metric for comparisons. Do not go back to per-frame normalisation. Verified
+  on NGC3596 pointing 2 and the worked example only; the big run has not been
+  repeated with the fix.
 - OpticalFlow keeps only ~26% of its flow vectors on real data: the outlier
   threshold is capped at 0.5 px (`residual_threshold`), tuned on synthetic data
   (residual scatter ~0.07 px), while real data scatter by ~0.26 px.
