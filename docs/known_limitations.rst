@@ -27,10 +27,32 @@ Rotation angles
 
 * **The angle scan is the most stable approach so far, but not infallible.** For
   this reason it is on by default for the primary method of the
-  :ref:`hybrid run <hybrid>`. A handful of false angle estimates by the scan have
-  still been seen. Check the angle scan QA plots (``angle_scan_model_*.png``) and
+  :ref:`hybrid run <hybrid>`. Check the angle scan QA plots (``angle_scan_model_*.png``) and
   the :ref:`final difference images <final_difference_images>`, especially for exposures with few features or
   strong artifacts.
+
+* **The angle scan can be pulled to a wrong angle by the flux normalisation of its
+  metric.** The scan compares the reference and the input after dividing each by
+  the median of its whole frame. This does not put the two frames on the same flux
+  scale (their backgrounds and the windows differ), so even at the correct
+  alignment the difference still contains a scaled copy of the galaxy (~5-10 %),
+  and the mean absolute difference is then lowest at a slightly wrong alignment.
+  Since the FFT translation changes with the trial angle when the bright structure
+  is off the frame centre, the scan reaches that wrong alignment by rotating. It
+  matters when the true minimum of the metric is shallow (few features in the
+  comparison window). ``--scale-ref`` does not help: before the alignment it only
+  converts the unit, which the median normalisation cancels.
+
+  In the big test run (18 galaxies, 300 exposures with results from all three
+  methods), the FFT result of 19 exposures was more than 0.5 px (at the
+  consistency check point) from both ``OpticalFlow`` and ``PointSources``, which
+  agreed with each other. In all of them the FFT direct fit agreed with the other
+  methods within 0.1 degrees, and the scan moved the angle away by 0.2-0.9
+  degrees. The error is often shared by the dithers of a pointing. It is not
+  always caught by the forward / reverse consistency check: if both directions are
+  pulled the same way, the round trip can stay below the threshold. Compare the
+  angle of the scan with the direct fit in the log ("Direct FFT fit for ...
+  succeeded (rotation ... degrees)") and with the other methods.
 
 * **The reported angle error of the scan is too small.** It only covers the
   scatter of the scan points around the fit. The noise in the images is the same

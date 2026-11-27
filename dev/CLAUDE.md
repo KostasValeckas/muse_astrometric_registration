@@ -177,7 +177,13 @@ muse_astrometric_registration_single CONFIG.json REFERENCE.fits --input_dir DIR 
 - Error estimates use simplifying assumptions and are not validated; the angle
   scan error is too small (image noise shifts the whole scan curve).
 - Direct rotation estimators of the methods disagree by ~0.1 degrees; the angle
-  scan is the most stable, but has produced a handful of false estimates.
+  scan is the most stable, but can be pulled 0.2-0.9 degrees off.
+- Angle scan metric (`_scan_difference_metric`): each frame is divided by its own
+  whole-frame median, which does not match their flux scales, so a scaled copy of
+  the galaxy stays in the difference and the minimum moves to a wrong alignment
+  (reached by rotating, via the angle dependence of the translation). In the big
+  run 19 of 300 FFT results; the direct FFT fit was right in all of them.
+  `--scale-ref` does not help (before the alignment it only converts the unit).
 - OpticalFlow keeps only ~26% of its flow vectors on real data: the outlier
   threshold is capped at 0.5 px (`residual_threshold`), tuned on synthetic data
   (residual scatter ~0.07 px), while real data scatter by ~0.26 px.
