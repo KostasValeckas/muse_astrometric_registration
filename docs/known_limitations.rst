@@ -31,28 +31,28 @@ Rotation angles
   the :ref:`final difference images <final_difference_images>`, especially for exposures with few features or
   strong artifacts.
 
-* **The angle scan can be pulled to a wrong angle by the flux normalisation of its
-  metric.** The scan compares the reference and the input after dividing each by
-  the median of its whole frame. This does not put the two frames on the same flux
-  scale (their backgrounds and the windows differ), so even at the correct
-  alignment the difference still contains a scaled copy of the galaxy (~5-10 %),
-  and the mean absolute difference is then lowest at a slightly wrong alignment.
-  Since the FFT translation changes with the trial angle when the bright structure
-  is off the frame centre, the scan reaches that wrong alignment by rotating. It
-  matters when the true minimum of the metric is shallow (few features in the
-  comparison window). ``--scale-ref`` does not help: before the alignment it only
-  converts the unit, which the median normalisation cancels.
+* **The fix of the angle scan metric is not yet tested on a large dataset.** An
+  earlier version of the scan divided the reference and the input each by the
+  median of its whole frame. That does not put the two frames on the same flux
+  scale, so even at the correct alignment a scaled copy of the galaxy (~5-10 %)
+  stayed in the difference, and the scan could be pulled to a wrong angle (it
+  reaches the wrong alignment by rotating, since the FFT translation changes with
+  the trial angle when the bright structure is off the frame centre). In the big
+  test run (18 galaxies, 300 exposures with results from all three methods), the
+  FFT result of 19 exposures was more than 0.5 px (at the consistency check point)
+  from both ``OpticalFlow`` and ``PointSources``, which agreed with each other; in
+  all of them the FFT direct fit agreed with the other methods within 0.1 degrees,
+  and the scan moved the angle away by 0.2-0.9 degrees.
 
-  In the big test run (18 galaxies, 300 exposures with results from all three
-  methods), the FFT result of 19 exposures was more than 0.5 px (at the
-  consistency check point) from both ``OpticalFlow`` and ``PointSources``, which
-  agreed with each other. In all of them the FFT direct fit agreed with the other
-  methods within 0.1 degrees, and the scan moved the angle away by 0.2-0.9
-  degrees. The error is often shared by the dithers of a pointing. It is not
-  always caught by the forward / reverse consistency check: if both directions are
-  pulled the same way, the round trip can stay below the threshold. Compare the
-  angle of the scan with the direct fit in the log ("Direct FFT fit for ...
-  succeeded (rotation ... degrees)") and with the other methods.
+  The scan now fits the flux scale of the input to the reference at every angle
+  (see :ref:`angle scan <angle_scan>`). On the case that was investigated
+  (NGC3596, pointing 2, dither 3) the scan angle moved from ~0.7 to ~0.2 degrees,
+  in agreement with the direct fit and the other methods, and the
+  :ref:`worked example <worked_example>` changed by less than 0.005 degrees, but
+  the big test run has not been repeated. Until then, compare the angle of the
+  scan with the direct fit in the log ("Direct FFT fit for ... succeeded
+  (rotation ... degrees)") and with the other methods. An error shared by both
+  directions is not always caught by the forward / reverse consistency check.
 
 * **The reported angle error of the scan is too small.** It only covers the
   scatter of the scan points around the fit. The noise in the images is the same
@@ -60,7 +60,7 @@ Rotation angles
   yet: on synthetic frames the minimum moves by ~0.01 degrees between noise
   realisations, much more than the reported error. In the worked example, storing
   the reference as float32 instead of float64 alone moved the FFT angle by
-  ~0.001 degrees, ~4 times its reported error.
+  ~0.001 degrees, several times its reported error.
 
 Optical flow outlier rejection
 ------------------------------

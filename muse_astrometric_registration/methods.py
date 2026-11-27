@@ -162,6 +162,7 @@ class AligmentMethod(ABC):
         fit_min_points=10,
         plot_scan_progression=False,
         scan_blur_sigma=1.0,
+        scan_flux_match="linear",
         scan_translation_tol=0.3,
         scan_translation_degree=1,
         angle_bootstrap_samples=200,
@@ -254,6 +255,19 @@ class AligmentMethod(ABC):
             smoothing of the shifted input does not bias the metric.
             0 disables the blur.
 
+        scan_flux_match : str
+            How the two frames are put on the same flux scale in the
+            difference-image metric. "linear" (default): at every angle,
+            reference = a * input + b is fitted (least squares) over the
+            comparison pixels and the metric is the mean absolute residual of
+            that fit, divided by the median of the reference (the same for
+            every angle). "median": each frame is divided by the median of its
+            whole frame (the old metric). The medians do not put the frames on
+            the same flux scale (different backgrounds, the window is not the
+            whole frame), so a scaled copy of the structure stays in the
+            difference and can move the minimum to a wrong angle, see
+            docs/known_limitations.rst.
+
         scan_translation_tol : float
             Fine scan angles whose translation deviates from the median
             translation of the fine scan by more than this (pixels, in x or y)
@@ -334,6 +348,11 @@ class AligmentMethod(ABC):
         self.fit_min_points = fit_min_points
         self.plot_scan_progression = plot_scan_progression
         self.scan_blur_sigma = scan_blur_sigma
+        if scan_flux_match not in ("linear", "median"):
+            raise ValueError(
+                f"scan_flux_match must be 'linear' or 'median', not {scan_flux_match!r}"
+            )
+        self.scan_flux_match = scan_flux_match
         self.scan_translation_tol = scan_translation_tol
         self.scan_translation_degree = scan_translation_degree
         self.angle_bootstrap_samples = angle_bootstrap_samples
@@ -970,6 +989,11 @@ class AligmentMethod(ABC):
           (`scan_blur_sigma`) before differencing, so the smoothing caused by
           the sub-pixel interpolation of the input does not bias the metric.
 
+        * The frames are put on the same flux scale before differencing
+          (`scan_flux_match`): by default, reference = a * input + b is
+          fitted over the comparison set at every angle and the metric is the
+          mean absolute residual, divided by the median of the reference.
+
         * If `record` is True, the translation is recorded in
           `self._scan_translations` (per angle) and the frames in
           `self._scan_frames`, so `_scan_for_best_angle` can fit a smooth
@@ -990,7 +1014,8 @@ class AligmentMethod(ABC):
         Returns
         -------
         diff : float
-            Mean absolute normalised difference, or NaN if the translation
+            Mean absolute difference of the flux-matched frames, divided by
+            the median of the reference, or NaN if the translation
             estimate failed for this angle or the input does not cover the
             comparison set.
 
@@ -1123,16 +1148,44 @@ class AligmentMethod(ABC):
             return np.nan, result
 
         ref_scale = reference_median if reference_median != 0 else 1.0
-        input_scale = input_median if input_median != 0 else 1.0
 
-        mean_diff = float(
-            np.mean(
-                np.abs(
-                    (reference_blurred[window] / ref_scale)
-                    - (input_blurred[window] / input_scale)
-                )[fixed_set]
+        reference_values = reference_blurred[window][fixed_set]
+        input_values = input_blurred[window][fixed_set]
+
+        if self.scan_flux_match == "linear":
+
+            # put the input on the flux scale of the reference over the
+            # comparison pixels: reference = a * input + b (least squares).
+            # Fitted at every angle, so no scaled copy of the structure is left
+            # in the difference (which would move the minimum)
+            input_centred = input_values - np.mean(input_values)
+            input_variance = np.mean(input_centred**2)
+
+            if not np.isfinite(input_variance) or input_variance <= 0:
+                return np.nan, result
+
+            a = np.mean(input_centred * (reference_values - np.mean(reference_values))) / (
+                input_variance
             )
-        )
+            b = np.mean(reference_values) - a * np.mean(input_values)
+
+            # normalised by the reference median, which is the same for every
+            # angle, so the metric is comparable between angles
+            mean_diff = float(
+                np.mean(np.abs(reference_values - (a * input_values + b)))
+                / abs(ref_scale)
+            )
+
+        else:
+
+            # old metric: each frame divided by the median of its whole frame
+            input_scale = input_median if input_median != 0 else 1.0
+
+            mean_diff = float(
+                np.mean(
+                    np.abs(reference_values / ref_scale - input_values / input_scale)
+                )
+            )
 
         return mean_diff, result
 
@@ -1863,7 +1916,8 @@ class AligmentMethod(ABC):
                 )
             ax.set_xlabel("Rotation Angle (degrees)")
             ax.set_ylabel(
-                f"Mean |difference| (blurred, sigma = {self.scan_blur_sigma} px)"
+                f"Mean |difference| (blurred, sigma = {self.scan_blur_sigma} px, "
+                f"{self.scan_flux_match} flux match)"
             )
             ax.legend()
 
@@ -4373,6 +4427,7 @@ class FFT(AligmentMethod):
         peak_shape_tol=0.5,
         plot_scan_progression=False,
         scan_blur_sigma=1.0,
+        scan_flux_match="linear",
         scan_translation_tol=0.3,
         scan_translation_degree=1,
         direct_fit_before_scan=True,
@@ -4511,6 +4566,7 @@ class FFT(AligmentMethod):
             fit_min_points=fit_min_points,
             plot_scan_progression=plot_scan_progression,
             scan_blur_sigma=scan_blur_sigma,
+            scan_flux_match=scan_flux_match,
             scan_translation_tol=scan_translation_tol,
             scan_translation_degree=scan_translation_degree,
         )
